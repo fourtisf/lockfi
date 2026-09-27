@@ -39,11 +39,15 @@ if (errors.length) process.exit(1);
 const pick = (file, name) => out.contracts[file][name];
 const factory = pick('LockFiRouterFactory.sol', 'LockFiRouterFactory');
 const router = pick('LockFiRouter.sol', 'LockFiRouter');
+const deployer = pick('LockFiRouter.sol', 'LockFiRouterDeployer');
 const size = (c) => c.evm.deployedBytecode.object.length / 2;
 console.log(`  compiler ${solc.version()}`);
 console.log(`  LockFiRouterFactory runtime ${size(factory)} bytes, creation ${factory.evm.bytecode.object.length / 2}`);
 console.log(`  LockFiRouter        runtime ${size(router)} bytes`);
-if (size(factory) > 24576 || size(router) > 24576) throw new Error('over the 24,576-byte contract size limit');
+console.log(`  LockFiRouterDeployer runtime ${size(deployer)} bytes`);
+if ([factory, router, deployer].some((c) => size(c) > 24576)) throw new Error('over the 24,576-byte contract size limit');
+// EIP-3860: a creation transaction's code is capped at twice the runtime limit
+if (factory.evm.bytecode.object.length / 2 > 49152) throw new Error('factory creation code over the 49,152-byte initcode limit');
 // The ABIs go in every bundle that calls a router; the factory's creation
 // bytecode (22 KB) only in the page that deploys it, so it is its own file.
 writeFileSync(

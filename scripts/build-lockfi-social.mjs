@@ -26,6 +26,7 @@ if (!existsSync(FONT_FILE)) {
   throw new Error('Instrument Sans is missing: run `npm run brand:lockfi` once first, it fetches the face.');
 }
 mkdirSync(join(OUT, 'router'), { recursive: true });
+mkdirSync(join(OUT, 'live'), { recursive: true });
 const only = process.argv.slice(2);
 
 // ── Tokens, from app/globals.css ─────────────────────────────────────────────
@@ -408,6 +409,19 @@ const ARTICLE_COVER = `<div class="art cover" data-w="1500" data-h="600">
   <span class="cv-url">lockfi.org</span>
 </div>`;
 
+// The launch article's one banner (§53): the mission, not a figure.
+const LIVE_COVER = `<div class="art cover" data-w="1500" data-h="600">
+  <div class="grid"></div><div class="glow"></div>
+  <div class="cv-copy">
+    ${brand(52)}
+    <span class="eyebrow"><i></i>LockFi is live</span>
+    <h1>Liquidity that stays.<br><span class="ac">Numbers that don’t lie.</span></h1>
+    <p>Robinhood Chain <i>·</i> through Uniswap <i>·</i> your wallet, your keys</p>
+  </div>
+  <div class="panel cv-chart"><div class="ph"><span class="lbl">Your pool</span><span class="perm">${LOCK}Live</span></div>${depthStack(5, { h: 250 })}</div>
+  <span class="cv-url">lockfi.org</span>
+</div>`;
+
 // ── Styles ───────────────────────────────────────────────────────────────────
 const CSS = `
 @font-face{font-family:'Instrument Sans';src:url(data:font/ttf;base64,${readFileSync(FONT_FILE).toString('base64')}) format('truetype');font-weight:400 700;font-stretch:75% 100%}
@@ -594,11 +608,11 @@ const PREINSTALLED = [
 const browser = await chromium.launch(PREINSTALLED ? { executablePath: PREINSTALLED } : {});
 const page = await browser.newPage({ deviceScaleFactor: 2 });
 
-const jobs = { ...POSTS, 'x-header': HEADER, 'x-article-cover': ARTICLE_COVER, ...ROUTER, 'router/router-cover': ROUTER_COVER };
+const jobs = { ...POSTS, 'x-header': HEADER, 'x-article-cover': ARTICLE_COVER, ...ROUTER, 'router/router-cover': ROUTER_COVER, 'live/live-cover': LIVE_COVER };
 for (const [name, html] of Object.entries(jobs)) {
   // The Router article's images render only when asked for (`router`), so a
   // plain run keeps rewriting exactly the introduction set.
-  if (only.length ? !only.some((o) => name.includes(o)) : name.startsWith('router/')) continue;
+  if (only.length ? !only.some((o) => name.includes(o)) : name.startsWith('router/') || name.startsWith('live/')) continue;
   const w = Number(/data-w="(\d+)"/.exec(html)[1]);
   const h = Number(/data-h="(\d+)"/.exec(html)[1]);
   await page.setViewportSize({ width: w, height: h });

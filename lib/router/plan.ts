@@ -4,21 +4,28 @@
  * exactly the code the keeper runs.
  *
  * A route is sent only when all of these hold:
- *   - the router is not paused and its cadence has elapsed;
+ *   - the router is not paused, lets the keeper route it, and is due;
  *   - at least `minRouteWei` of new ETH has arrived since the last route;
- *   - the pool's price now is within `maxDeviationBps` of its own recent
- *     average, which the keeper samples itself (v4 pools have no on-chain
- *     oracle). A price pushed away just before a route is the one a sandwich
- *     needs, and the keeper waits it out instead of routing into it;
- *   - the quoter says what the swap returns, and the route is sent with a
- *     minimum `slippageBps` below that. The contract reverts below it.
+ *   - the keeper has sampled the pool's price across the last 30 minutes (v4
+ *     pools have no on-chain oracle), and the price now is within
+ *     `maxDeviationBps` of that average. A price pushed away just before a
+ *     route is the one a sandwich needs, and the keeper waits it out.
+ *
+ * The route then carries a price band of ±`maxDeviationBps` around that
+ * average. The contract refuses to start outside it, stops the swap at its
+ * edge, and adds the liquidity inside it; and the minimum rate is the rate at
+ * the band's worse edge, less the pool's fee and `slippageBps`, so it is
+ * never zero and never depends on a quote taken at a pushed price.
  */
 
 import { parseAbi, type Abi, type Address, type PublicClient } from 'viem';
+import { CONTRACTS } from '../chain';
 import abi from './abi.json';
 
 export const ROUTER_ABI = abi.router as Abi;
 export const FACTORY_ABI = abi.factory as Abi;
+/** The widest band, in price bps either side, the contract takes from a keeper (≈ 1.05 in sqrt price). */
+export const MAX_KEEPER_BAND_BPS = 480;
 
 export interface PoolKey {
   currency0: Address;
@@ -38,52 +45,65 @@ export interface RouterState {
   tokenIs0: boolean;
   team: Address;
   paused: boolean;
+  keeperAllowed: boolean;
   due: boolean;
   nextRouteAt: bigint;
   quoteBalance: bigint;
   tokenBalance: bigint;
   feeFreeQuote: bigint;
+  feeOwed: bigint;
   sqrtPriceX96: bigint;
   fee: bigint;
   swapIn: bigint;
 }
 
+const STATE_FIELDS = [
+  'isV4',
+  'key',
+  'v3Pool',
+  'token',
+  'quote',
+  'tokenIs0',
+  'team',
+  'paused',
+  'keeperAllowed',
+  'due',
+  'nextRouteAt',
+  'quoteBalance',
+  'tokenBalance',
+  'feeFreeQuote',
+  'feeOwed',
+  'price',
+  'plan',
+] as const;
+
+/** One router's state, in one multicall. */
 export async function readRouter(client: PublicClient, address: Address): Promise<RouterState> {
-  const r = { address, abi: ROUTER_ABI } as const;
-  const read = <T>(functionName: string) => client.readContract({ ...r, functionName }) as Promise<T>;
-  const [isV4, key, v3Pool, token, quote, tokenIs0, team, paused, due, nextRouteAt, quoteBalance, tokenBalance, feeFreeQuote, price, plan] =
-    await Promise.all([
-      read<boolean>('isV4'),
-      read<PoolKey>('key'),
-      read<Address>('v3Pool'),
-      read<Address>('token'),
-      read<Address>('quote'),
-      read<boolean>('tokenIs0'),
-      read<Address>('team'),
-      read<boolean>('paused'),
-      read<boolean>('due'),
-      read<bigint>('nextRouteAt'),
-      read<bigint>('quoteBalance'),
-      read<bigint>('tokenBalance'),
-      read<bigint>('feeFreeQuote'),
-      read<readonly [bigint, number]>('price'),
-      read<readonly [bigint, bigint]>('plan'),
-    ]);
+  const res = (await client.multicall({
+    contracts: STATE_FIELDS.map((functionName) => ({ address, abi: ROUTER_ABI, functionName })),
+    allowFailure: false,
+    multicallAddress: CONTRACTS.multicall3 as Address,
+  })) as unknown[];
+  const v = <T>(f: (typeof STATE_FIELDS)[number]) => res[STATE_FIELDS.indexOf(f)] as T;
+  const price = v<readonly [bigint, number]>('price');
+  const plan = v<readonly [bigint, bigint]>('plan');
   return {
     address,
-    isV4,
-    key,
-    v3Pool,
-    token,
-    quote,
-    tokenIs0,
-    team,
-    paused,
-    due,
-    nextRouteAt,
-    quoteBalance,
-    tokenBalance,
-    feeFreeQuote,
+    isV4: v('isV4'),
+    key: v('key'),
+    v3Pool: v('v3Pool'),
+    token: v('token'),
+    quote: v('quote'),
+    tokenIs0: v('tokenIs0'),
+    team: v('team'),
+    paused: v('paused'),
+    keeperAllowed: v('keeperAllowed'),
+    due: v('due'),
+    nextRouteAt: v('nextRouteAt'),
+    quoteBalance: v('quoteBalance'),
+    tokenBalance: v('tokenBalance'),
+    feeFreeQuote: v('feeFreeQuote'),
+    feeOwed: v('feeOwed'),
     sqrtPriceX96: price[0],
     fee: plan[0],
     swapIn: plan[1],
@@ -132,15 +152,58 @@ export function minRateFrom(amountIn: bigint, amountOut: bigint, slippageBps: nu
   return (amountOut * 10n ** 18n * BigInt(10_000 - slippageBps)) / (amountIn * 10_000n);
 }
 
+function isqrt(n: bigint): bigint {
+  if (n < 2n) return n;
+  let x = n;
+  let y = (x + 1n) >> 1n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) >> 1n;
+  }
+  return x;
+}
+
+const E18 = 10n ** 18n;
+const Q192 = 1n << 192n;
+
+/** The band ±`bps` in price around a sqrt price, as the two sqrt-price edges `route` takes. */
+export function bandAround(sqrtRef: bigint, bps: number): { lo: bigint; hi: bigint } {
+  const f = (b: number) => isqrt(BigInt(10_000 + b) * 10n ** 32n); // sqrt(1 + b/1e4) · 1e18
+  return { lo: (sqrtRef * f(-bps)) / E18, hi: (sqrtRef * f(bps)) / E18 };
+}
+
+/**
+ * The least rate a swap inside the band can give: token per wei of quote at
+ * the band's worse edge for a buyer of the token, less the pool's fee and
+ * `slippageBps`. Buying the token moves the pool's price toward that edge
+ * and the swap stops there, so every unit it buys is at least this cheap. A
+ * dynamic-fee pool's fee is not in its key and is taken as 1%.
+ */
+export function bandMinRate(
+  s: { tokenIs0: boolean; key: { fee: number } },
+  band: { lo: bigint; hi: bigint },
+  slippageBps: number,
+): bigint {
+  const feePips = (s.key.fee & 0x800000) !== 0 || s.key.fee >= 1_000_000 ? 10_000 : s.key.fee;
+  // pool price = currency1 per currency0. With the token as currency0 it is
+  // the quote per token, rising as the token is bought: the worse edge is hi.
+  const rate = s.tokenIs0 ? (Q192 * E18) / (band.hi * band.hi) : (band.lo * band.lo * E18) / Q192;
+  return (rate * BigInt(1_000_000 - feePips) * BigInt(10_000 - slippageBps)) / (1_000_000n * 10_000n);
+}
+
 /**
  * A rolling record of each pool's price, sampled by the keeper, standing in
  * for the oracle a v4 pool does not have. `average` is the time-weighted mean
- * of the sqrt price over the window; it is null until the window is covered,
- * so a restarted keeper waits a full window before its first route.
+ * of the sqrt price over the window; it is null until the window is covered
+ * by at least `minSamples` samples, so a restarted keeper waits a full window
+ * before its first route, and one old sample can never be the whole average.
  */
 export class PriceWindow {
   private samples = new Map<string, { at: number; sqrtP: bigint }[]>();
-  constructor(private readonly windowMs = 30 * 60_000) {}
+  constructor(
+    private readonly windowMs = 30 * 60_000,
+    private readonly minSamples = 10,
+  ) {}
 
   add(pool: string, sqrtP: bigint, at = Date.now()): void {
     const list = this.samples.get(pool) ?? [];
@@ -152,6 +215,7 @@ export class PriceWindow {
   average(pool: string, now = Date.now()): bigint | null {
     const list = this.samples.get(pool);
     if (!list || list.length < 2 || list[0].at > now - this.windowMs * 0.9) return null;
+    if (list.filter((x) => x.at >= now - this.windowMs).length < this.minSamples) return null;
     let weighted = 0n;
     let total = 0n;
     for (let i = 0; i < list.length; i++) {
@@ -175,6 +239,8 @@ export interface Decision {
   route: boolean;
   reason: string;
   minRate: bigint;
+  lo: bigint;
+  hi: bigint;
 }
 
 export async function decide(
@@ -182,14 +248,35 @@ export async function decide(
   s: RouterState,
   opts: { quoters: Quoters; minRouteWei: bigint; slippageBps: number; maxDeviationBps: number; reference: bigint | null },
 ): Promise<Decision> {
-  const no = (reason: string): Decision => ({ route: false, reason, minRate: 0n });
+  const no = (reason: string): Decision => ({ route: false, reason, minRate: 0n, lo: 0n, hi: 0n });
   if (s.paused) return no('paused');
+  if (!s.keeperAllowed) return no('the team has turned the keeper off');
   if (!s.due) return no(`not due until ${new Date(Number(s.nextRouteAt) * 1000).toISOString()}`);
   const fresh = s.quoteBalance > s.feeFreeQuote ? s.quoteBalance - s.feeFreeQuote : 0n;
   if (fresh < opts.minRouteWei) return no(`only ${fresh} wei of new ETH`);
   if (opts.reference === null) return no('price window not yet covered');
   const dev = deviationBps(s.sqrtPriceX96, opts.reference);
   if (dev > opts.maxDeviationBps) return no(`price is ${dev.toFixed(0)} bps from its 30-minute average`);
-  const out = await quoteTokenOut(client, s, s.swapIn, opts.quoters);
-  return { route: true, reason: `swap ${s.swapIn} wei for about ${out}`, minRate: minRateFrom(s.swapIn, out, opts.slippageBps) };
+  const band = bandAround(opts.reference, opts.maxDeviationBps);
+  if (s.sqrtPriceX96 < band.lo || s.sqrtPriceX96 > band.hi) return no('price is at the edge of its band');
+  const minRate = bandMinRate(s, band, opts.slippageBps);
+  if (minRate === 0n) return no('the minimum rate rounds to zero for this token');
+  const out = await quoteTokenOut(client, s, s.swapIn, opts.quoters).catch(() => null);
+  return {
+    route: true,
+    reason: `swap up to ${s.swapIn} wei${out === null ? '' : ` for about ${out}`}, inside ±${opts.maxDeviationBps} bps`,
+    minRate,
+    ...band,
+  };
+}
+
+/**
+ * The band and minimum a team's own "Route now" sends: ±`bandBps` around the
+ * pool's price now, which the page reads a moment before. The team is not
+ * held to the keeper's 30-minute average; the band still stops a swap that
+ * would move the price past it.
+ */
+export function teamBand(s: RouterState, bandBps = 200, slippageBps = 100): { minRate: bigint; lo: bigint; hi: bigint } {
+  const band = bandAround(s.sqrtPriceX96, bandBps);
+  return { minRate: bandMinRate(s, band, slippageBps), ...band };
 }

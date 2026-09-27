@@ -39,7 +39,17 @@
   },
   {
    "inputs": [],
+   "name": "BadAddress",
+   "type": "error"
+  },
+  {
+   "inputs": [],
    "name": "BadCadence",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "BadHook",
    "type": "error"
   },
   {
@@ -58,6 +68,30 @@
    "type": "error"
   },
   {
+   "inputs": [],
+   "name": "TooEarly",
+   "type": "error"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "keeper",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint64",
+     "name": "activeAt",
+     "type": "uint64"
+    }
+   ],
+   "name": "KeeperProposed",
+   "type": "event"
+  },
+  {
    "anonymous": false,
    "inputs": [
     {
@@ -68,6 +102,19 @@
     }
    ],
    "name": "KeeperSet",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "owner",
+     "type": "address"
+    }
+   ],
+   "name": "OwnerProposed",
    "type": "event"
   },
   {
@@ -153,6 +200,32 @@
   },
   {
    "inputs": [],
+   "name": "KEEPER_DELAY",
+   "outputs": [
+    {
+     "internalType": "uint32",
+     "name": "",
+     "type": "uint32"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "LIQUIDITY_HOOK_FLAGS",
+   "outputs": [
+    {
+     "internalType": "uint160",
+     "name": "",
+     "type": "uint160"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
    "name": "MAX_CADENCE",
    "outputs": [
     {
@@ -188,6 +261,20 @@
     }
    ],
    "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "acceptOwner",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "activateKeeper",
+   "outputs": [],
+   "stateMutability": "nonpayable",
    "type": "function"
   },
   {
@@ -301,6 +388,19 @@
   },
   {
    "inputs": [],
+   "name": "deployer",
+   "outputs": [
+    {
+     "internalType": "contract LockFiRouterDeployer",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
    "name": "feeBps",
    "outputs": [
     {
@@ -328,6 +428,45 @@
   {
    "inputs": [],
    "name": "owner",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "pendingKeeper",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "pendingKeeperAt",
+   "outputs": [
+    {
+     "internalType": "uint64",
+     "name": "",
+     "type": "uint64"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "pendingOwner",
    "outputs": [
     {
      "internalType": "address",
@@ -409,6 +548,30 @@
     {
      "internalType": "address[]",
      "name": "",
+     "type": "address[]"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "uint256",
+     "name": "start",
+     "type": "uint256"
+    },
+    {
+     "internalType": "uint256",
+     "name": "count",
+     "type": "uint256"
+    }
+   ],
+   "name": "routersPage",
+   "outputs": [
+    {
+     "internalType": "address[]",
+     "name": "page",
      "type": "address[]"
     }
    ],
@@ -500,6 +663,11 @@
     {
      "components": [
       {
+       "internalType": "address",
+       "name": "factory",
+       "type": "address"
+      },
+      {
        "internalType": "bool",
        "name": "isV4",
        "type": "bool"
@@ -587,6 +755,11 @@
   },
   {
    "inputs": [],
+   "name": "BadBounds",
+   "type": "error"
+  },
+  {
+   "inputs": [],
    "name": "BadCallback",
    "type": "error"
   },
@@ -622,6 +795,11 @@
   },
   {
    "inputs": [],
+   "name": "PriceOutOfBounds",
+   "type": "error"
+  },
+  {
+   "inputs": [],
    "name": "Reentrant",
    "type": "error"
   },
@@ -652,6 +830,57 @@
     }
    ],
    "name": "Collected",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "treasury",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "amount",
+     "type": "uint256"
+    }
+   ],
+   "name": "FeeDeferred",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "treasury",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "amount",
+     "type": "uint256"
+    }
+   ],
+   "name": "FeeSent",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "bool",
+     "name": "allowed",
+     "type": "bool"
+    }
+   ],
+   "name": "KeeperAllowedSet",
    "type": "event"
   },
   {
@@ -889,6 +1118,19 @@
   },
   {
    "inputs": [],
+   "name": "feeOwed",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
    "name": "hooks",
    "outputs": [
     {
@@ -903,6 +1145,19 @@
   {
    "inputs": [],
    "name": "isV4",
+   "outputs": [
+    {
+     "internalType": "bool",
+     "name": "",
+     "type": "bool"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "keeperAllowed",
    "outputs": [
     {
      "internalType": "bool",
@@ -1003,6 +1258,13 @@
     }
    ],
    "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "payFee",
+   "outputs": [],
+   "stateMutability": "nonpayable",
    "type": "function"
   },
   {
@@ -1139,6 +1401,16 @@
      "type": "uint256"
     },
     {
+     "internalType": "uint160",
+     "name": "sqrtPriceMinX96",
+     "type": "uint160"
+    },
+    {
+     "internalType": "uint160",
+     "name": "sqrtPriceMaxX96",
+     "type": "uint160"
+    },
+    {
      "internalType": "uint256",
      "name": "deadline",
      "type": "uint256"
@@ -1160,6 +1432,19 @@
     }
    ],
    "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "bool",
+     "name": "allowed",
+     "type": "bool"
+    }
+   ],
+   "name": "setKeeperAllowed",
+   "outputs": [],
+   "stateMutability": "nonpayable",
    "type": "function"
   },
   {

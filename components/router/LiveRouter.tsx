@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatUnits, type Address } from 'viem';
+import { formatUnits, type Address, type TransactionReceipt } from 'viem';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useCreatedTokens } from '@/components/router/useCreatedTokens';
 import { useUi } from '@/components/providers/UiProvider';
@@ -26,9 +26,13 @@ import {
   allRouters,
   creatorsOf,
   describeRouterError,
+  factoryFeeBps,
+  hookActsOnLiquidity,
   lookupToken,
   readRouters,
-  teamMinRate,
+  routerFromReceipt,
+  routersForTeam,
+  teamRouteArgs,
   type Creator,
   type RouterPool,
   type RouterView,
@@ -92,7 +96,10 @@ export function LiveRouter() {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Address | null>(null);
   const [routers, setRouters] = useState<RouterView[] | null>(null);
+  const [unreadable, setUnreadable] = useState<Address[]>([]);
   const [readError, setReadError] = useState(false);
+  // the fee the deployed factory takes, from the chain; the constant is only what the site expects
+  const [feeBps, setFeeBps] = useState<number>(ROUTER_FEE_BPS);
   const [creators, setCreators] = useState<Record<string, Creator | null>>({});
 
   // the connected wallet's own tokens, found on connect (useCreatedTokens)
@@ -126,7 +133,10 @@ export function LiveRouter() {
     };
   }, [chosen]);
 
-  const pool = lookup?.pools.find((p) => p.id === poolId) ?? lookup?.pools[0];
+  // a pool whose hook acts on liquidity cannot take a router (the factory refuses it)
+  const pools = useMemo(() => (lookup?.pools ?? []).filter((p) => !hookActsOnLiquidity(p.key.hooks)), [lookup]);
+  const refusedPools = (lookup?.pools.length ?? 0) - pools.length;
+  const pool = pools.find((p) => p.id === poolId) ?? pools[0];
   const iCreatedIt = Boolean(wallet && lookup?.creator && lookup.creator.address === wallet.address.toLowerCase());
 
   const symbolOf = useCallback(
@@ -141,14 +151,23 @@ export function LiveRouter() {
   const reload = useCallback(async () => {
     try {
       const client = publicClient();
-      const views = await readRouters(client, await allRouters(client));
+      // the list, plus the wallet's own routers from the factory's index, so a
+      // team always reaches its own whatever the list has grown to
+      const [listed, own] = await Promise.all([
+        allRouters(client),
+        wallet ? routersForTeam(client, wallet.address as Address).catch(() => [] as Address[]) : Promise.resolve([] as Address[]),
+      ]);
+      const addrs = [...new Set([...own, ...listed].map((a) => a.toLowerCase() as Address))];
+      const { views, unreadable: bad } = await readRouters(client, addrs);
       setRouters(views);
+      setUnreadable(bad);
       setReadError(false);
+      void factoryFeeBps(client).then((f) => f !== null && setFeeBps(f)).catch(() => undefined);
       setCreators(await creatorsOf([...new Set(views.map((v) => v.token))]));
     } catch {
       setReadError(true);
     }
-  }, []);
+  }, [wallet]);
   useEffect(() => {
     void reload();
     const t = setInterval(() => void reload(), 30_000);
@@ -157,23 +176,32 @@ export function LiveRouter() {
 
   /** Sends one call through the connected wallet, after the node has run it. */
   const send = useCallback(
-    async (label: string, address: Address, abi: typeof FACTORY_ABI, functionName: string, args: unknown[]): Promise<unknown> => {
+    async (
+      label: string,
+      address: Address,
+      abi: typeof FACTORY_ABI,
+      functionName: string,
+      args: unknown[] | (() => Promise<readonly unknown[]>),
+    ): Promise<TransactionReceipt | undefined> => {
       if (!wallet) {
         openWallet();
         return undefined;
       }
+      // busy first, so a second click cannot start a second transaction
+      // while the first is still being prepared
       setBusy(label);
       setError(null);
       try {
         await ensureChain(wallet.provider);
         const account = wallet.address as Address;
         const client = publicClient();
-        const { request, result } = await client.simulateContract({ account, address, abi, functionName, args } as never);
+        const callArgs = typeof args === 'function' ? await args() : args;
+        const { request } = await client.simulateContract({ account, address, abi, functionName, args: callArgs } as never);
         const hash = await walletClient(wallet.provider, account).writeContract(request as never);
         const receipt = await client.waitForTransactionReceipt({ hash });
         if (receipt.status !== 'success') throw new Error('The transaction reverted on chain.');
         await reload();
-        return result;
+        return receipt;
       } catch (e) {
         setError(describeRouterError(e) ?? describeWalletError(e));
         return undefined;
@@ -187,16 +215,21 @@ export function LiveRouter() {
   const create = async () => {
     if (!pool || !lookup || !ROUTER_FACTORY) return;
     const cadence = hours * 3600;
-    const r = (await send(
+    const receipt = await send(
       'Creating the router…',
       ROUTER_FACTORY,
       FACTORY_ABI,
       pool.protocol === 'v4' ? 'createV4' : 'createV3',
       pool.protocol === 'v4' ? [pool.key, lookup.token.address, cadence, narrow] : [pool.id, cadence, narrow],
-    )) as Address | undefined;
+    );
+    if (!receipt || !wallet) return;
+    // the address the factory actually deployed, read from the receipt
+    const r = routerFromReceipt(receipt, wallet.address);
     if (r) {
       setCreated(r);
       showToast(`Router created for ${lookup.token.symbol}`);
+    } else {
+      setError('The router was created, but its address could not be read from the transaction. Find it under Your routers.');
     }
   };
 
@@ -301,22 +334,33 @@ export function LiveRouter() {
           <div className="field">
             <label htmlFor="r-pool">Destination pool</label>
             <div className="inp" style={{ height: 44 }}>
-              <select id="r-pool" value={pool?.id ?? ''} onChange={(e) => setPoolId(e.target.value)} disabled={!lookup || lookup.pools.length === 0}>
+              <select id="r-pool" value={pool?.id ?? ''} onChange={(e) => setPoolId(e.target.value)} disabled={!lookup || pools.length === 0}>
                 {lookupState === 'loading' && <option value="">Looking for pools on the chain…</option>}
-                {lookup?.pools.map((p) => (
+                {pools.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {poolLabel(lookup.token.symbol, p)}
+                    {poolLabel(lookup?.token.symbol ?? "", p)}
                   </option>
                 ))}
               </select>
             </div>
-            {lookup && lookup.pools.length === 0 && (
-              <p className="hint down">No pool with ETH on the other side was found for this token on Uniswap v3 or v4.</p>
+            {lookup && pools.length === 0 && (
+              <p className="hint down">
+                {refusedPools > 0
+                  ? "This token's only pools with ETH have a hook that acts on liquidity, which a router cannot safely add to."
+                  : 'No pool with ETH on the other side was found for this token on Uniswap v3 or v4.'}
+              </p>
+            )}
+            {pools.length > 0 && refusedPools > 0 && (
+              <p className="hint">
+                {refusedPools} more {refusedPools === 1 ? 'pool is' : 'pools are'} not offered: {refusedPools === 1 ? 'its hook acts' : 'their hooks act'} on
+                liquidity, which a router cannot safely add to.
+              </p>
             )}
             {pool && pool.key.hooks !== ZERO_HOOK && (
               <p className="hint" data-testid="hook-warning">
-                This pool has a hook (<code className="num">{shortWallet(pool.key.hooks)}</code>): its code runs on every route.
-                The router never pays more than it planned, but a hook can refuse a route.
+                This pool has a swap hook (<code className="num">{shortWallet(pool.key.hooks)}</code>): its code runs on each
+                route&apos;s swap. The router never pays more than it planned and never trades outside its price band, but a
+                hook can make a route fail.
               </p>
             )}
             <p className="hint">Fees become liquidity in this pool, and it cannot be changed later.</p>
@@ -404,17 +448,22 @@ export function LiveRouter() {
                 <small>keeper</small>
               </div>
               <div>
-                What arrived is routed: {ROUTER_FEE_BPS / 100}% to LockFi, the rest part-swapped to the token in your pool and
-                added to it, both sides.
+                What arrived is routed: {feeBps / 100}% to LockFi, the rest part-swapped to the token in your pool and added to
+                it, both sides.
                 <div className="st">
-                  The keeper routes only while the price is within 3% of its 30-minute average, and never below 1% of the
-                  quote. It can trigger a route; it never receives funds.
+                  The keeper routes only while the price is within 3% of its own 30-minute average, and every route carries a
+                  price band the contract enforces: the swap stops at its edge and the liquidity is added inside it. The
+                  keeper can trigger a route; it never receives funds, and you can turn it off for your router and route
+                  yourself.
                 </div>
               </div>
             </div>
             <div className="tl">
               <div className="w">Ongoing</div>
-              <div>The liquidity earns swap fees. Each route collects them and adds them back, with no LockFi fee on them.</div>
+              <div>
+                The liquidity earns swap fees. Each route collects them and adds them back, with no LockFi fee on them. Fees
+                collected but not yet routed are unrouted, like new ETH: a paused router can withdraw them.
+              </div>
             </div>
             <div className="tl">
               <div className="w">Always</div>
@@ -434,8 +483,9 @@ export function LiveRouter() {
             <b>Not audited.</b>
             <p className="hint">
               The router contract has been tested against Uniswap&apos;s own contracts but has not had an external audit.
-              LockFi takes {ROUTER_FEE_BPS / 100}% of the ETH routed; the rate is fixed in the contract and can never be
-              raised.
+              Start with a small amount. LockFi takes {feeBps / 100}% of the ETH routed; the rate is fixed in the contract and
+              can never be raised. A new keeper can only take over two days after LockFi names it, so you can turn the keeper
+              off for your router first.
             </p>
           </div>
         </div>
@@ -451,18 +501,27 @@ export function LiveRouter() {
                   <button
                     className="btn btn-ghost btn-sm"
                     disabled={busy !== null || r.quoteBalance === 0n}
-                    onClick={async () => {
-                      try {
-                        const minRate = await teamMinRate(publicClient(), r.address);
-                        await send('Routing…', r.address, ROUTER_ABI, 'route', [minRate, BigInt(deadlineFromNow(300))]);
-                      } catch (e) {
-                        setError(describeRouterError(e) ?? describeWalletError(e));
-                      }
-                    }}
+                    onClick={() =>
+                      void send('Routing…', r.address, ROUTER_ABI, 'route', () =>
+                        teamRouteArgs(publicClient(), r.address, BigInt(deadlineFromNow(300))),
+                      )
+                    }
                   >
                     Route now
                   </button>
                 )}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={busy !== null}
+                  title={r.keeperAllowed ? 'Stop the keeper routing this router; only you will route it' : 'Let the keeper route this router on its schedule'}
+                  onClick={() =>
+                    void send(r.keeperAllowed ? 'Turning the keeper off…' : 'Turning the keeper on…', r.address, ROUTER_ABI, 'setKeeperAllowed', [
+                      !r.keeperAllowed,
+                    ])
+                  }
+                >
+                  {r.keeperAllowed ? 'Keeper off' : 'Keeper on'}
+                </button>
                 <button
                   className="btn btn-ghost btn-sm"
                   disabled={busy !== null}
@@ -489,13 +548,19 @@ export function LiveRouter() {
         <h2 className="sect-h">All routers</h2>
         {routers === null ? (
           <p className="hint">{readError ? 'Could not read the routers from the chain just now.' : 'Reading the routers from the chain…'}</p>
-        ) : routers.length === 0 ? (
+        ) : routers.length === 0 && unreadable.length === 0 ? (
           <p className="hint">No router yet. The first one is yours to create.</p>
         ) : (
           <div className="rt-list">
             {routers.map((r) => (
               <RouterRow key={r.address} r={r} meta={symbolOf(r.token)} creator={creators[r.token.toLowerCase()]} busy={busy} onCopy={copy} />
             ))}
+            {unreadable.length > 0 && (
+              <p className="hint" data-testid="routers-unreadable">
+                {unreadable.length} {unreadable.length === 1 ? 'router' : 'routers'} could not be read: {unreadable.length === 1 ? 'its token does' : 'their tokens do'} not
+                answer as a token should. Treat {unreadable.length === 1 ? 'it' : 'them'} with care.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -539,6 +604,10 @@ function RouterRow({
             <span className="pill grey" title={`The token was created by ${creator.address}; this router by ${r.team}.`}>
               not the creator
             </span>
+          ) : creator === null ? (
+            <span className="pill grey" title="Who created the token could not be read, so this router cannot be shown as the creator's.">
+              creator unknown
+            </span>
           ) : null}
         </b>
         <span className="muted">
@@ -565,6 +634,7 @@ function RouterRow({
       <div>
         <span className="lbl">Status</span>
         <span className={r.paused ? 'pill grey' : 'pill brand'}>{next}</span>
+        {!r.keeperAllowed && <span className="muted"> · keeper off</span>}
       </div>
       {children && <div className="rt-actions">{children}</div>}
       <a className="rt-exp" href={`${EXPLORER_URL}/address/${r.address}`} target="_blank" rel="noreferrer">
