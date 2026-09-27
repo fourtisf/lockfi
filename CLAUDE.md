@@ -6377,3 +6377,16 @@ withdraw only what has not been routed. It says plainly that the contract is
 **not externally audited** and that liquidity is not a price floor. **Publish
 it only once the Router is live** (`ROUTER_FACTORY` set and deployed); until
 then `/router` shows a preview.
+
+---
+
+## 52. The token's address, on the site
+
+The owner launched the token and sent its address:
+`0x2Cc477Fb4Fb0E63CcF5A3673C1628eDc1007B734`. `TOKEN_CA` in `lib/site.ts` is
+that address, checksummed, so the top bar's chip shows it short and copies it
+in full on every page, and the footer prints it. `/learn` no longer says the
+address is coming: it says the official address is the one at the top of the
+site, and any other is not ours. `lib/site.test.ts` asserts the value is valid
+and checksummed. Nothing on the site says the token earns anything; LockFi
+still takes no fee from positions (§20).

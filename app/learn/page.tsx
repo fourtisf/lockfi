@@ -160,9 +160,8 @@ const SECTIONS: { id: string; q: string; a: React.ReactNode }[] = [
           explorer
         </a>
         . Every transaction is checked by the network before your wallet asks you to sign — if it would fail, the site
-        says why instead. Keep a little ETH for gas. LockFi&rsquo;s contract address is coming soon, and it will
-        appear on this site first. Any address circulating as &ldquo;LockFi&rsquo;s token&rdquo; before then is not
-        ours.
+        says why instead. Keep a little ETH for gas. LockFi&rsquo;s token contract address is the one shown at the top of
+        this site. Any other address circulating as &ldquo;LockFi&rsquo;s token&rdquo; is not ours.
       </>
     ),
   },

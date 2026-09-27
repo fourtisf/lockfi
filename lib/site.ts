@@ -70,7 +70,7 @@ export const SOCIAL = {
  * same reason as the X link: a stale value in the box's .env must never be
  * able to point the site at the wrong token. null reads "coming soon".
  */
-export const TOKEN_CA: `0x${string}` | null = null;
+export const TOKEN_CA: `0x${string}` | null = '0x2Cc477Fb4Fb0E63CcF5A3673C1628eDc1007B734';
 
 /** The X handle, for the site's own metadata; derived so it cannot disagree with the link. */
 export const X_HANDLE = `@${SOCIAL.x.replace(/\/+$/, '').split('/').pop()}`;
