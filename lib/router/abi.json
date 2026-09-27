@@ -1,0 +1,1404 @@
+{
+ "compiler": "0.8.26+commit.8a97fa7a.Emscripten.clang",
+ "factory": [
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "poolManager_",
+     "type": "address"
+    },
+    {
+     "internalType": "address",
+     "name": "weth_",
+     "type": "address"
+    },
+    {
+     "internalType": "address",
+     "name": "v3Factory_",
+     "type": "address"
+    },
+    {
+     "internalType": "uint16",
+     "name": "feeBps_",
+     "type": "uint16"
+    },
+    {
+     "internalType": "address",
+     "name": "treasury_",
+     "type": "address"
+    },
+    {
+     "internalType": "address",
+     "name": "keeper_",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "nonpayable",
+   "type": "constructor"
+  },
+  {
+   "inputs": [],
+   "name": "BadCadence",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "BadPool",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "FeeTooHigh",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "NotOwner",
+   "type": "error"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "keeper",
+     "type": "address"
+    }
+   ],
+   "name": "KeeperSet",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "owner",
+     "type": "address"
+    }
+   ],
+   "name": "OwnerSet",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "router",
+     "type": "address"
+    },
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "token",
+     "type": "address"
+    },
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "team",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "bool",
+     "name": "isV4",
+     "type": "bool"
+    },
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "pool",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "bytes32",
+     "name": "poolId",
+     "type": "bytes32"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint32",
+     "name": "cadence",
+     "type": "uint32"
+    },
+    {
+     "indexed": false,
+     "internalType": "bool",
+     "name": "narrow",
+     "type": "bool"
+    }
+   ],
+   "name": "RouterCreated",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "treasury",
+     "type": "address"
+    }
+   ],
+   "name": "TreasurySet",
+   "type": "event"
+  },
+  {
+   "inputs": [],
+   "name": "MAX_CADENCE",
+   "outputs": [
+    {
+     "internalType": "uint32",
+     "name": "",
+     "type": "uint32"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "MAX_FEE_BPS",
+   "outputs": [
+    {
+     "internalType": "uint16",
+     "name": "",
+     "type": "uint16"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "MIN_CADENCE",
+   "outputs": [
+    {
+     "internalType": "uint32",
+     "name": "",
+     "type": "uint32"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "name": "allRouters",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "pool",
+     "type": "address"
+    },
+    {
+     "internalType": "uint32",
+     "name": "cadence",
+     "type": "uint32"
+    },
+    {
+     "internalType": "bool",
+     "name": "narrow",
+     "type": "bool"
+    }
+   ],
+   "name": "createV3",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "components": [
+      {
+       "internalType": "address",
+       "name": "currency0",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "currency1",
+       "type": "address"
+      },
+      {
+       "internalType": "uint24",
+       "name": "fee",
+       "type": "uint24"
+      },
+      {
+       "internalType": "int24",
+       "name": "tickSpacing",
+       "type": "int24"
+      },
+      {
+       "internalType": "address",
+       "name": "hooks",
+       "type": "address"
+      }
+     ],
+     "internalType": "struct PoolKey",
+     "name": "key",
+     "type": "tuple"
+    },
+    {
+     "internalType": "address",
+     "name": "token",
+     "type": "address"
+    },
+    {
+     "internalType": "uint32",
+     "name": "cadence",
+     "type": "uint32"
+    },
+    {
+     "internalType": "bool",
+     "name": "narrow",
+     "type": "bool"
+    }
+   ],
+   "name": "createV4",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "feeBps",
+   "outputs": [
+    {
+     "internalType": "uint16",
+     "name": "",
+     "type": "uint16"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "keeper",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "owner",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "poolManager",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "routerCount",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "routers",
+   "outputs": [
+    {
+     "internalType": "address[]",
+     "name": "",
+     "type": "address[]"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "team",
+     "type": "address"
+    }
+   ],
+   "name": "routersForTeam",
+   "outputs": [
+    {
+     "internalType": "address[]",
+     "name": "",
+     "type": "address[]"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "token",
+     "type": "address"
+    }
+   ],
+   "name": "routersForToken",
+   "outputs": [
+    {
+     "internalType": "address[]",
+     "name": "",
+     "type": "address[]"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "k",
+     "type": "address"
+    }
+   ],
+   "name": "setKeeper",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "o",
+     "type": "address"
+    }
+   ],
+   "name": "setOwner",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "t",
+     "type": "address"
+    }
+   ],
+   "name": "setTreasury",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "treasury",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "v3Factory",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "weth",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  }
+ ],
+ "router": [
+  {
+   "inputs": [
+    {
+     "components": [
+      {
+       "internalType": "bool",
+       "name": "isV4",
+       "type": "bool"
+      },
+      {
+       "internalType": "address",
+       "name": "poolManager",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "v3Pool",
+       "type": "address"
+      },
+      {
+       "components": [
+        {
+         "internalType": "address",
+         "name": "currency0",
+         "type": "address"
+        },
+        {
+         "internalType": "address",
+         "name": "currency1",
+         "type": "address"
+        },
+        {
+         "internalType": "uint24",
+         "name": "fee",
+         "type": "uint24"
+        },
+        {
+         "internalType": "int24",
+         "name": "tickSpacing",
+         "type": "int24"
+        },
+        {
+         "internalType": "address",
+         "name": "hooks",
+         "type": "address"
+        }
+       ],
+       "internalType": "struct PoolKey",
+       "name": "key",
+       "type": "tuple"
+      },
+      {
+       "internalType": "address",
+       "name": "token",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "quote",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "weth",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "team",
+       "type": "address"
+      },
+      {
+       "internalType": "uint32",
+       "name": "cadence",
+       "type": "uint32"
+      },
+      {
+       "internalType": "bool",
+       "name": "narrow",
+       "type": "bool"
+      }
+     ],
+     "internalType": "struct RouterConfig",
+     "name": "c",
+     "type": "tuple"
+    }
+   ],
+   "stateMutability": "nonpayable",
+   "type": "constructor"
+  },
+  {
+   "inputs": [],
+   "name": "BadCallback",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "Expired",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "HookOverdraw",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "IsPaused",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "NotAuthorized",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "NotDue",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "NotPaused",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "Reentrant",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "Slippage",
+   "type": "error"
+  },
+  {
+   "inputs": [],
+   "name": "TransferFailed",
+   "type": "error"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "quote",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "token",
+     "type": "uint256"
+    }
+   ],
+   "name": "Collected",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "bool",
+     "name": "paused",
+     "type": "bool"
+    }
+   ],
+   "name": "PausedSet",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "caller",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "feePaid",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "swapIn",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "tokenOut",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "quoteAdded",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "tokenAdded",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint128",
+     "name": "liquidity",
+     "type": "uint128"
+    },
+    {
+     "indexed": false,
+     "internalType": "int24",
+     "name": "tickLower",
+     "type": "int24"
+    },
+    {
+     "indexed": false,
+     "internalType": "int24",
+     "name": "tickUpper",
+     "type": "int24"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint160",
+     "name": "sqrtPriceX96",
+     "type": "uint160"
+    }
+   ],
+   "name": "Routed",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": false,
+     "internalType": "address",
+     "name": "team",
+     "type": "address"
+    }
+   ],
+   "name": "TeamSet",
+   "type": "event"
+  },
+  {
+   "anonymous": false,
+   "inputs": [
+    {
+     "indexed": true,
+     "internalType": "address",
+     "name": "to",
+     "type": "address"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "eth",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "weth",
+     "type": "uint256"
+    },
+    {
+     "indexed": false,
+     "internalType": "uint256",
+     "name": "token",
+     "type": "uint256"
+    }
+   ],
+   "name": "Withdrawn",
+   "type": "event"
+  },
+  {
+   "inputs": [],
+   "name": "COLLECT_RECENT",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "cadence",
+   "outputs": [
+    {
+     "internalType": "uint32",
+     "name": "",
+     "type": "uint32"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "uint256",
+     "name": "from",
+     "type": "uint256"
+    },
+    {
+     "internalType": "uint256",
+     "name": "to",
+     "type": "uint256"
+    }
+   ],
+   "name": "collect",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "currency0",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "currency1",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "due",
+   "outputs": [
+    {
+     "internalType": "bool",
+     "name": "",
+     "type": "bool"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "factory",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "feeFreeQuote",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "hooks",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "isV4",
+   "outputs": [
+    {
+     "internalType": "bool",
+     "name": "",
+     "type": "bool"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "key",
+   "outputs": [
+    {
+     "components": [
+      {
+       "internalType": "address",
+       "name": "currency0",
+       "type": "address"
+      },
+      {
+       "internalType": "address",
+       "name": "currency1",
+       "type": "address"
+      },
+      {
+       "internalType": "uint24",
+       "name": "fee",
+       "type": "uint24"
+      },
+      {
+       "internalType": "int24",
+       "name": "tickSpacing",
+       "type": "int24"
+      },
+      {
+       "internalType": "address",
+       "name": "hooks",
+       "type": "address"
+      }
+     ],
+     "internalType": "struct PoolKey",
+     "name": "",
+     "type": "tuple"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "lastRouteAt",
+   "outputs": [
+    {
+     "internalType": "uint64",
+     "name": "",
+     "type": "uint64"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "narrow",
+   "outputs": [
+    {
+     "internalType": "bool",
+     "name": "",
+     "type": "bool"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "nextRouteAt",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "paused",
+   "outputs": [
+    {
+     "internalType": "bool",
+     "name": "",
+     "type": "bool"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "plan",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "fee",
+     "type": "uint256"
+    },
+    {
+     "internalType": "uint256",
+     "name": "swapIn",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "poolFee",
+   "outputs": [
+    {
+     "internalType": "uint24",
+     "name": "",
+     "type": "uint24"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "poolManager",
+   "outputs": [
+    {
+     "internalType": "contract IPoolManager",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "price",
+   "outputs": [
+    {
+     "internalType": "uint160",
+     "name": "sqrtPriceX96",
+     "type": "uint160"
+    },
+    {
+     "internalType": "int24",
+     "name": "tick",
+     "type": "int24"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "quote",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "quoteBalance",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "rangeCount",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "ranges",
+   "outputs": [
+    {
+     "components": [
+      {
+       "internalType": "int24",
+       "name": "lower",
+       "type": "int24"
+      },
+      {
+       "internalType": "int24",
+       "name": "upper",
+       "type": "int24"
+      }
+     ],
+     "internalType": "struct LockFiRouter.Range[]",
+     "name": "",
+     "type": "tuple[]"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "uint256",
+     "name": "minTokenPerQuoteE18",
+     "type": "uint256"
+    },
+    {
+     "internalType": "uint256",
+     "name": "deadline",
+     "type": "uint256"
+    }
+   ],
+   "name": "route",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "routes",
+   "outputs": [
+    {
+     "internalType": "uint32",
+     "name": "",
+     "type": "uint32"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "bool",
+     "name": "p",
+     "type": "bool"
+    }
+   ],
+   "name": "setPaused",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "next",
+     "type": "address"
+    }
+   ],
+   "name": "setTeam",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "team",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "tickSpacing",
+   "outputs": [
+    {
+     "internalType": "int24",
+     "name": "",
+     "type": "int24"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "token",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "tokenBalance",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "tokenIs0",
+   "outputs": [
+    {
+     "internalType": "bool",
+     "name": "",
+     "type": "bool"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "totalFeePaid",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "totalQuoteAdded",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "totalTokenAdded",
+   "outputs": [
+    {
+     "internalType": "uint256",
+     "name": "",
+     "type": "uint256"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "uint256",
+     "name": "amount0Owed",
+     "type": "uint256"
+    },
+    {
+     "internalType": "uint256",
+     "name": "amount1Owed",
+     "type": "uint256"
+    },
+    {
+     "internalType": "bytes",
+     "name": "",
+     "type": "bytes"
+    }
+   ],
+   "name": "uniswapV3MintCallback",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "int256",
+     "name": "amount0Delta",
+     "type": "int256"
+    },
+    {
+     "internalType": "int256",
+     "name": "amount1Delta",
+     "type": "int256"
+    },
+    {
+     "internalType": "bytes",
+     "name": "",
+     "type": "bytes"
+    }
+   ],
+   "name": "uniswapV3SwapCallback",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "bytes",
+     "name": "data",
+     "type": "bytes"
+    }
+   ],
+   "name": "unlockCallback",
+   "outputs": [
+    {
+     "internalType": "bytes",
+     "name": "",
+     "type": "bytes"
+    }
+   ],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "v3Pool",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [],
+   "name": "weth",
+   "outputs": [
+    {
+     "internalType": "address",
+     "name": "",
+     "type": "address"
+    }
+   ],
+   "stateMutability": "view",
+   "type": "function"
+  },
+  {
+   "inputs": [
+    {
+     "internalType": "address",
+     "name": "to",
+     "type": "address"
+    }
+   ],
+   "name": "withdrawUnrouted",
+   "outputs": [],
+   "stateMutability": "nonpayable",
+   "type": "function"
+  },
+  {
+   "stateMutability": "payable",
+   "type": "receive"
+  }
+ ]
+}

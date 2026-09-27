@@ -6079,3 +6079,124 @@ and the footnote on every product scene reads *the router is not live yet ·
 illustrative figures*. The simulator's figures on the page (the accrued fees,
 the projection, the *Verified deployer* pill) are illustrative, like
 everything else the films show.
+
+---
+
+## 48. The Router, live: LockFi's own contract
+
+ALFA, on the router page: *ok buat live*. Three decisions came with it, each
+the owner's: **no external audit and no cap** (put to ALFA with a capped beta
+as the recommended option; ALFA chose to go live in full), **a 1% LockFi fee**,
+and **a keeper on the server**. This is the first contract of LockFi's own
+on mainnet, so §20's "no contract of our own" no longer holds for the Router.
+It still holds for everything else.
+
+### The contract
+
+`contracts/LockFiRouter.sol` and `contracts/LockFiRouterFactory.sol`, solc
+0.8.26 with via-IR for Cancun (Uniswap v4 needs Cancun's transient storage, so
+the chain has it). `npm run router:compile` writes the ABIs to
+`lib/router/abi.json`, and the factory's creation bytecode to
+`lib/router/factory-bytecode.json`, which only the deploy page loads.
+Uniswap's math libraries (MIT) are vendored in `contracts/vendor/`.
+
+- **One router per token**, created by the team from the factory, into a
+  Uniswap v4 pool (quote: native ETH or WETH) or a v3 pool (quote: WETH).
+  The pool is fixed at creation.
+- **A route**, which the keeper sends on the cadence or the team sends at
+  any time, runs these steps:
+  1. takes the LockFi fee from the ETH that arrived since the last route;
+  2. collects the fees the router's own liquidity has earned (no LockFi fee
+     on those);
+  3. swaps the constant-product optimal amount of ETH for the token in that
+     same pool, refusing a price below the caller's minimum;
+  4. adds both sides as liquidity owned by the router at the pool itself: v4
+     through `PoolManager.modifyLiquidity` in an unlock, v3 through the pool's
+     `mint`. There is no NFT and no PositionManager.
+- **Permanent by construction.** The router has no call that lowers a
+  position's liquidity. Its only state-changing calls are `route`, `collect`,
+  `setPaused`, `setTeam`, `withdrawUnrouted` and the three pool callbacks, and
+  the test asserts that exact list. The team can pause and withdraw only what
+  has not been routed.
+- **The fee** is set at factory deployment. It is 1%, and the factory refuses
+  more than 2%. There is no setter. The factory owner can name a new keeper
+  or treasury, and nothing else.
+- **Guards:**
+  - swap output below the caller's minimum rate: revert;
+  - a v4 hook that asks the router to pay more than the swap's input, or
+    more than the amounts the liquidity was sized against: revert;
+  - callbacks from anything but the router's own pool, or outside a route:
+    revert.
+- **Two faults fixed before they shipped:**
+  - `collect()` is permissionless and first reset the fee mark to the whole
+    balance, so anyone could have called it to wave through the LockFi fee
+    on new ETH. It now marks only what it collected.
+  - A route swapped a flat half, which after the swap's own price impact
+    left about 4% of the token unused. The optimal-swap formula brings that
+    to about 0.001%.
+
+### The keeper
+
+`server/keeper/main.ts`, the PM2 process `lockfi-keeper` on endpoint 3. The
+decision logic is `lib/router/plan.ts`, which the local test also runs. It
+routes a router when all of these hold:
+
+- the router is due;
+- at least `KEEPER_MIN_ROUTE_ETH` (0.002) of new ETH is waiting;
+- the pool's price is within `KEEPER_MAX_DEVIATION_BPS` (300) of its own
+  30-minute average.
+
+The keeper samples that average itself, every minute, because v4 pools have no
+on-chain oracle. It sends the route with a minimum 1% under Uniswap's own
+quote. After a restart it waits one full window before routing. It never
+receives funds, and without a key or a factory it says so once and waits
+instead of crash-looping.
+
+### The page
+
+`/router` is live once `ROUTER_FACTORY` in `lib/chain.ts` is set. Until then,
+and always on simulated data, it shows the preview, and the navigation's
+"later" tag follows the same constant. Live, it has three parts:
+
+- **Create a router:** the token, the pool (only pools with ETH on the other
+  side and no unchecked hook), a schedule of 6h, 12h, 24h or weekly, and full
+  range or ±20%.
+- **Your routers:** Route now, Pause or Resume, and Withdraw unrouted.
+- **All routers**, every figure read from the contracts.
+
+The page says, in its own card, that the contract is **not audited**, and
+that routed liquidity is permanent. Market-cap milestones are not in this
+version.
+
+`/router/deploy` (not in the navigation, not indexed) deploys the factory from
+the owner's own wallet. No private key goes to the server for it. The steps
+are in `deploy/MAINNET.md` §6.
+
+### Verified
+
+`npm run check:router` runs against Uniswap's own bytecode on a local chain
+(v4 PoolManager, the v3 factory and pools, V4Quoter, QuoterV2): 48 checks,
+all passing. They cover:
+
+- v4 with native ETH, full range;
+- v4 with WETH, ±20%;
+- v3 with WETH, ±20%;
+- the treasury receiving exactly 1%, with none on earned fees;
+- the router's liquidity only ever rising, across routes, a stranger's
+  collect, and pause-and-withdraw;
+- the keeper waiting out a pushed price;
+- a minimum above the pool's price reverting;
+- every authorisation refusal.
+
+Also: 594 unit tests, 50 end-to-end tests, and the production build.
+
+**Not verified:**
+
+- a malicious v4 hook (the guard is in the contract but untested against a
+  real one);
+- anything on Robinhood Chain itself, since the sandbox reaches no RPC;
+- whether a launchpad lets a team set a contract as its creator-fee
+  recipient. If not, the team sends the ETH to the router itself.
+
+The first router should be LockFi's own, with a small amount, watched on the
+explorer.

@@ -223,7 +223,7 @@ if command -v pm2 >/dev/null; then
       let list = [];
       try { list = JSON.parse(raw); } catch { process.stdout.write("PARSE_FAIL\n"); return; }
       const by = new Map(list.map((p) => [p.name, p]));
-      for (const name of ["lockfi-web", "lockfi-api", "lockfi-indexer", "lockfi-logos"]) {
+      for (const name of ["lockfi-web", "lockfi-api", "lockfi-indexer", "lockfi-logos", "lockfi-keeper"]) {
         const p = by.get(name);
         if (!p) { console.log(`${name}\tmissing\t0`); continue; }
         const env = p.pm2_env || {};

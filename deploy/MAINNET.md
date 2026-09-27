@@ -1,10 +1,9 @@
 # Mainnet checklist
 
-What has to be true before Balast is announced as live on Robinhood Chain, in
-order. Balast deploys **no contract of its own** (§20): every action is a
-transaction to Uniswap's audited contracts, built and dry-run by the page. So
-"mainnet" here means the site on `balast.xyz`, pointed at chain 4663, with a
-first round of real transactions watched on the explorer.
+What has to be true before LockFi is announced as live on Robinhood Chain, in
+order. Every liquidity action is a transaction to Uniswap's audited contracts,
+built and dry-run by the page (§20). The one contract of LockFi's own is the
+Router (§48), and it has its own section at the end: section 6.
 
 Commands run on the VPS as root.
 
@@ -94,3 +93,40 @@ first: Balast has no token, and any address circulating as one is not ours.
 - **Vaults with a 7-day stream and a protocol fee** (§3.3) are the same: a
   contract, an audit. Under §20 a stake is a full-range position in the
   wallet and Balast takes no fee.
+
+## 6. The Router
+
+The Router is LockFi's own contract: a factory, deployed once, that creates one
+router per token team. **It has not been externally audited** (the owner's
+decision, §48); it is tested against Uniswap's own contracts with
+`npm run check:router`. Do these in order.
+
+1. **Make a keeper wallet.** A new account in MetaMask, used for nothing else.
+   Send it about 0.005 ETH on Robinhood Chain for gas. It never receives funds.
+2. **Give the box its key.** In MetaMask: account details → show private key.
+   Never paste it anywhere but this command:
+
+   ```bash
+   bash /var/www/balast/deploy/set-env.sh KEEPER_PRIVATE_KEY 0x…
+   ```
+
+3. **Deploy the factory from your own wallet.** Open
+   `https://lockfi.org/router/deploy`, connect the wallet that should own it,
+   enter the keeper wallet's **address** (not its key) and the treasury that
+   receives the 1% fee, and deploy. The page shows the factory's address.
+4. **Send that address to your developer.** It goes in `ROUTER_FACTORY` in
+   `lib/chain.ts`; after the next deploy the router page is live and the
+   navigation's "later" tag is gone.
+
+   ```bash
+   bash /var/www/balast/deploy/deploy.sh
+   pm2 logs lockfi-keeper --lines 20
+   ```
+
+   The keeper's log names its wallet and the factory. It waits 30 minutes
+   after every start before its first route, to build its price average.
+5. **The first router, small and watched.** Create a router for LockFi's own
+   token (or one you control) and send it 0.005 ETH. When it routes, check on
+   the explorer that the treasury received 1%, that the router holds almost
+   no ETH afterwards, and that the pool shows a `ModifyLiquidity` from the
+   router's address.

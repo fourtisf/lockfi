@@ -850,3 +850,19 @@ p.ph-ca{font-size:12px}
 .tier-explain{flex-basis:100%;font-size:13px;line-height:1.55;color:var(--fg-2);background:var(--panel-2);
   border:1px solid var(--bd-n);border-radius:var(--r);padding:12px 14px}
 .tier-explain b{color:var(--fg)}
+
+/* ---------- router, live (§48) ----------
+   One row per router: who it is, what waits, what has been routed. */
+.rt-list{display:flex;flex-direction:column;margin-top:8px}
+.rt-row{display:grid;grid-template-columns:minmax(0,1.6fr) repeat(4,minmax(0,1fr)) auto;gap:6px 16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--bd-n);font-size:13px}
+.rt-row:last-child{border-bottom:0}
+.rt-row>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.rt-row .lbl{font-size:10.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)}
+.rt-id b{font-size:14px}
+.rt-id .muted{font-size:12px}
+.rt-addr{align-self:flex-start;font-family:var(--mono);font-size:12px;color:var(--ac-3);padding:0;background:none;border:0;cursor:pointer}
+.rt-addr:hover{text-decoration:underline}
+.rt-actions{grid-column:1/-1;flex-direction:row!important;flex-wrap:wrap;gap:8px!important}
+.rt-exp{font-size:12px;color:var(--fg-3);white-space:nowrap}
+.rt-exp:hover{color:var(--fg)}
+@media (max-width:900px){.rt-row{grid-template-columns:repeat(2,minmax(0,1fr))}.rt-id{grid-column:1/-1}}

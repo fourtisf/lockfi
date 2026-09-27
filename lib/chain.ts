@@ -74,6 +74,18 @@ export const CONTRACTS = {
 export type ContractName = keyof typeof CONTRACTS;
 
 /**
+ * The LockFi Router factory (§48): the one contract of LockFi's own on this
+ * chain. null until it is deployed. The owner deploys it from /router/deploy
+ * with their own wallet and the address goes here, as a constant for the same
+ * reason the X link and the token address are (§19, §43): a stale value in a
+ * box's .env must never point the page at the wrong contract.
+ */
+export const ROUTER_FACTORY: `0x${string}` | null = null;
+
+/** The fee the factory takes on each route, in basis points. Fixed at deploy, capped at 200 in the contract. */
+export const ROUTER_FEE_BPS = 100;
+
+/**
  * The chain's block explorer, from the ethereum-lists/chains registry entry
  * for chainId 4663. It is a Blockscout, which means a documented JSON API
  * under `/api/v2/` — the indexer asks it for token icons, which §4 allows

@@ -119,7 +119,7 @@ if command -v pm2 >/dev/null; then
       try { list = JSON.parse(raw); } catch { process.stdout.write(" pm2(unreadable)"); return; }
       const by = new Map(list.map((p) => [p.name, p]));
       const out = [];
-      for (const name of ["lockfi-web", "lockfi-api", "lockfi-indexer", "lockfi-logos"]) {
+      for (const name of ["lockfi-web", "lockfi-api", "lockfi-indexer", "lockfi-logos", "lockfi-keeper"]) {
         const p = by.get(name);
         const state = p && p.pm2_env && p.pm2_env.status ? p.pm2_env.status : "missing";
         if (state !== "online") out.push(` ${name}(${state})`);

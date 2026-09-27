@@ -9,6 +9,8 @@
  *   lockfi-indexer  the log poller
  *   lockfi-logos    token logos, one lookup at a time — its own process, so
  *                   a decoration never waits on the sync
+ *   lockfi-keeper   routes the LockFi Routers when they are due (§48); it
+ *                   waits quietly until the factory and its key are set
  *
  * The indexer is the one that matters most when it dies. §7 and the P3
  * criterion both name the same failure: a process that stops quietly while the
@@ -121,6 +123,27 @@ module.exports = {
       },
       error_file: '/var/log/balast/logos.error.log',
       out_file: '/var/log/balast/logos.out.log',
+      time: true,
+    },
+    {
+      name: 'lockfi-keeper',
+      script: 'node_modules/.bin/tsx',
+      args: 'server/keeper/main.ts',
+      cwd: '/var/www/balast',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_memory_restart: '256M',
+      restart_delay: 5_000,
+      min_uptime: 10_000,
+      max_restarts: 10,
+      env: {
+        NODE_ENV: 'production',
+        // Its own endpoint, clear of the backfill, the API and the logos.
+        RPC_START: 3,
+      },
+      error_file: '/var/log/balast/keeper.error.log',
+      out_file: '/var/log/balast/keeper.out.log',
       time: true,
     },
   ],

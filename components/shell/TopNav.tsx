@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
-import { CHAIN } from '@/lib/chain';
+import { CHAIN, ROUTER_FACTORY } from '@/lib/chain';
 import { duration, shortWallet } from '@/lib/format';
 import { BRAND, TOKEN_CA } from '@/lib/site';
 import { Community } from './Community';
@@ -63,7 +63,8 @@ const NAV = [
   { href: '/stakes', label: 'Stakes' },
   { href: '/positions', label: 'Positions' },
   { href: '/portfolio', label: 'Portfolio' },
-  { href: '/router', label: 'Router', later: true },
+  // 'later' until the router factory is deployed on this chain (§48)
+  { href: '/router', label: 'Router', later: ROUTER_FACTORY === null },
   { href: '/learn', label: 'Learn' },
   { href: '/ask', label: 'Ask AI' },
 ];
