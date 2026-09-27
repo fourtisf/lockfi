@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { LiveRouter } from '@/components/router/LiveRouter';
+import { RouterMine } from '@/components/router/RouterMine';
 import { RouterPanel } from '@/components/router/RouterPanel';
 import { Masthead } from '@/components/shell/Masthead';
 import { ROUTER_FACTORY } from '@/lib/chain';
@@ -22,7 +23,14 @@ export default function RouterPage() {
             : 'Point your creator fees at the router and it turns them into permanent liquidity for your pool, on a schedule or at market-cap milestones.'
         }
       />
-      {live ? <LiveRouter /> : <RouterPanel />}
+      {live ? (
+        <LiveRouter />
+      ) : (
+        <>
+          <RouterMine />
+          <RouterPanel />
+        </>
+      )}
     </section>
   );
 }

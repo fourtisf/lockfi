@@ -6,6 +6,7 @@ import { Footer } from '@/components/shell/Footer';
 import { StakeDrawer } from '@/components/shell/StakeDrawer';
 import { Sidebar, TopBar } from '@/components/shell/TopNav';
 import { WalletModal } from '@/components/shell/WalletModal';
+import { CreatedTokensNotice } from '@/components/router/CreatedTokensNotice';
 import { Toast } from '@/components/ui/Toast';
 import { BRAND, SITE_URL, X_HANDLE } from '@/lib/site';
 import './globals.css';
@@ -74,6 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
             <StakeDrawer />
             <WalletModal />
+            <CreatedTokensNotice />
             <Toast />
           </MarketProvider>
         </UiProvider>

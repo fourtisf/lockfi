@@ -37,6 +37,7 @@ import {
   explorerCreationTx,
   explorerInitializeTx,
   explorerWalletTokens,
+  explorerWalletSent,
   type ChainRead,
 } from './router-tokens';
 import { LiveReserves, type ReservesReader } from './live-reserves';
@@ -284,6 +285,7 @@ export async function buildServer(
           read: ((fn) => rpc(fn as never, 'router lookup')) as ChainRead,
           creationTx: explorerCreationTx(env.explorerApiUrl),
           walletTokens: explorerWalletTokens(env.explorerApiUrl),
+          walletSent: explorerWalletSent(env.explorerApiUrl),
           v4PoolIds: dexscreenerV4PoolIds(env.dexscreenerUrl, env.dexscreenerChain),
           initializeTx: explorerInitializeTx(env.explorerApiUrl),
           knownPools: async () => {

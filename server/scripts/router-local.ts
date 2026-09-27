@@ -445,7 +445,8 @@ contract Tok { string public name; string public symbol; uint8 public constant d
   function transfer(address to, uint256 v) external returns (bool) { balanceOf[msg.sender] -= v; balanceOf[to] += v; emit Transfer(msg.sender, to, v); return true; }
   function approve(address sp, uint256 v) external returns (bool) { allowance[msg.sender][sp] = v; emit Approval(msg.sender, sp, v); return true; }
   function transferFrom(address f, address to, uint256 v) external returns (bool) { allowance[f][msg.sender] -= v; balanceOf[f] -= v; balanceOf[to] += v; emit Transfer(f, to, v); return true; } }
-contract Launchpad { function launch(string calldata n, string calldata s) external returns (address t) { t = address(new Tok(n, s, msg.sender, 1e24)); } }`;
+contract Launchpad { function launch(string calldata n, string calldata s) external returns (address t) { t = address(new Tok(n, s, msg.sender, 1e24)); }
+  function launchCurve(string calldata n, string calldata s) external returns (address t) { t = address(new Tok(n, s, address(this), 1e24)); } }`;
   const compiled = JSON.parse(solc.compile(JSON.stringify({
     language: 'Solidity',
     sources: { 'L.sol': { content: LAUNCHPAD_SRC } },
@@ -455,9 +456,17 @@ contract Launchpad { function launch(string calldata n, string calldata s) exter
   const launchpad = await deploy({ abi: lp.abi, bytecode: `0x${lp.evm.bytecode.object}` as Hex });
   const { result: launched } = (await pub.simulateContract({ account: team, address: launchpad, abi: lp.abi, functionName: 'launch', args: ['Dev Coin', 'DEV'] } as never)) as { result: Address };
   const launchRc = await write(team, launchpad, lp.abi as Abi, 'launch', ['Dev Coin', 'DEV']);
+  // and a launch whose whole supply stays on the launchpad's curve, as Pons
+  // does without a dev buy: the creator never holds a single token
+  const { result: curveToken } = (await pub.simulateContract({ account: team, address: launchpad, abi: lp.abi, functionName: 'launchCurve', args: ['Curve Coin', 'CRV2'] } as never)) as { result: Address };
+  const curveRc = await write(team, launchpad, lp.abi as Abi, 'launchCurve', ['Curve Coin', 'CRV2']);
 
   // The explorer's part, stood in for: which transaction created which contract.
-  const creation = new Map<string, Hex>([[launched.toLowerCase(), launchRc.transactionHash], [tkn.toLowerCase(), deployedIn.get(tkn.toLowerCase())!]]);
+  const creation = new Map<string, Hex>([
+    [launched.toLowerCase(), launchRc.transactionHash],
+    [curveToken.toLowerCase(), curveRc.transactionHash],
+    [tkn.toLowerCase(), deployedIn.get(tkn.toLowerCase())!],
+  ]);
   // a non-standard v4 pool the guesses cannot find, listed by an "aggregator"
   const oddKey: PoolKey = { currency0: ZERO, currency1: tkn, fee: 2500, tickSpacing: 50, hooks: ZERO };
   const oddInit = await write(deployer, pm, PM, 'initialize', [oddKey, getSqrtRatioAtTick(69_050)]);
@@ -482,6 +491,35 @@ contract Launchpad { function launch(string calldata n, string calldata s) exter
   const mine = await lookups.createdBy(team);
   check(mine.length === 1 && mine[0].address === launched.toLowerCase() && mine[0].symbol === 'DEV', `the team's own tokens: ${mine.map((t) => t.symbol).join(', ')}`);
   check((await lookups.createdBy(stranger)).length === 0, 'a wallet that created nothing has no tokens');
+
+  // Found from the wallet's own transactions, with nothing held: the explorer
+  // lists what the wallet sent, and the receipts say what each one minted.
+  const approveRc = await write(team, weth, ERC20, 'approve', [launchpad, 1n]);
+  const bySent = new RouterTokens({
+    read: ((fn) => fn(pub as never)) as ChainRead,
+    creationTx: async (t) => creation.get(t) ?? null,
+    walletTokens: async () => [],
+    walletSent: async (w) =>
+      w === team.toLowerCase()
+        ? [
+            { hash: curveRc.transactionHash, created: null, toContract: true },
+            { hash: launchRc.transactionHash, created: null, toContract: true },
+            // an ordinary call that minted nothing new: an approval
+            { hash: approveRc.transactionHash, created: null, toContract: true },
+          ]
+        : w === deployer.toLowerCase()
+          ? [{ hash: deployedIn.get(tkn.toLowerCase())!, created: tkn.toLowerCase(), toContract: false }]
+          : [],
+    v4PoolIds: async () => [],
+    initializeTx: async () => null,
+    knownPools: async () => [],
+    contracts: { poolManager: pm, v3Factory: v3f, weth },
+  });
+  const fromSent = (await bySent.createdBy(team)).map((t) => t.symbol).sort();
+  check(JSON.stringify(fromSent) === JSON.stringify(['CRV2', 'DEV']), `from the wallet's own launches, held or not: ${fromSent.join(', ')}`);
+  const deployed = await bySent.createdBy(deployer);
+  check(deployed.some((t) => t.address === tkn.toLowerCase()), 'and a token the wallet deployed directly');
+  check((await bySent.createdBy(stranger)).length === 0, 'a stranger sent nothing, and is credited with nothing');
 
   const pools = await lookups.poolsFor(tkn);
   const describe = (p: { protocol: string; key: { fee: number; tickSpacing: number }; quote: string }) => `${p.protocol} ${p.quote} ${p.key.fee}/${p.key.tickSpacing}`;

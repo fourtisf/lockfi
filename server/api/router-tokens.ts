@@ -79,12 +79,33 @@ export interface RouterPool {
   source: 'indexer' | 'chain' | 'aggregator';
 }
 
+/** A transaction a wallet sent, as the explorer lists it. */
+export interface SentTx {
+  hash: Hex;
+  /** The contract it deployed directly, if any. */
+  created: string | null;
+  /** Whether it called a contract (a launchpad's `create`, say). */
+  toContract: boolean;
+}
+
+/** ERC-20 `Transfer`: a token's supply is minted from the zero address in the transaction that creates it. */
+export const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const ZERO_TOPIC = `0x${'0'.repeat(64)}`;
+/** How many of a wallet's contract calls have their receipts read for a mint. */
+const SENT_RECEIPTS = 80;
+
 export interface RouterTokenDeps {
   read: ChainRead;
   /** The transaction that created a token's contract, per the explorer; null if it does not say. */
   creationTx: (token: string) => Promise<Hex | null>;
   /** Tokens a wallet has held, per the explorer: candidates for what it created. */
   walletTokens: (wallet: string) => Promise<string[]>;
+  /**
+   * Transactions the wallet sent, per the explorer, newest first. The ones
+   * that created a token are the strongest candidates: a launchpad's token
+   * need never pass through its creator's wallet, so holding is not enough.
+   */
+  walletSent?: (wallet: string) => Promise<SentTx[]>;
   /** v4 pool ids an aggregator lists for a token, with the liquidity it measured. */
   v4PoolIds: (token: string) => Promise<{ id: Hex; liquidityUsd: number | null }[]>;
   /** The transaction that initialised a v4 pool, per the explorer. */
@@ -150,6 +171,7 @@ export class RouterTokens {
   private creators = new Map<string, { value: Creator | null; at: number }>();
   private metas = new Map<string, TokenMetaLite>();
   private pools = new Map<string, { value: RouterPool[]; at: number }>();
+  private mine = new Map<string, { value: (TokenMetaLite & { creator: Creator })[]; at: number }>();
   private readonly c: { poolManager: string; v3Factory: string; weth: string };
 
   constructor(private readonly deps: RouterTokenDeps) {
@@ -216,19 +238,71 @@ export class RouterTokens {
   }
 
   /**
-   * The tokens `wallet` created, among the tokens the indexer knows and the
-   * ones the explorer says the wallet has held. A token found neither way can
-   * still be looked up by its address.
+   * The tokens `wallet` created. Candidates come from three places, and every
+   * one is then proved the same way (`creatorOf`):
+   *
+   * - the contracts the wallet's own transactions deployed, or minted a new
+   *   supply in — a launchpad's token is minted inside the launch
+   *   transaction the creator sent, whoever the supply goes to;
+   * - the tokens the explorer says the wallet has held;
+   * - the board's tokens whose creator is already known.
+   *
+   * A wallet's answer is kept for five minutes (one minute when empty), so a
+   * page that asks on every connect does not re-read a hundred receipts.
    */
   async createdBy(wallet: string): Promise<(TokenMetaLite & { creator: Creator })[]> {
     const w = wallet.toLowerCase();
+    const hit = this.mine.get(w);
+    if (hit && Date.now() - hit.at < (hit.value.length > 0 ? 300_000 : 60_000)) return hit.value;
+    const [sent, held] = await Promise.all([
+      this.deps.walletSent ? this.deps.walletSent(w).catch(() => [] as SentTx[]) : Promise.resolve([] as SentTx[]),
+      this.deps.walletTokens(w).catch(() => [] as string[]),
+    ]);
+    const launched = await this.mintedIn(sent);
     const known = (await this.deps.knownPools().catch(() => [] as Pool[])).map((p) => p.token.address.toLowerCase());
-    const held = await this.deps.walletTokens(w).catch(() => [] as string[]);
-    const candidates = [...new Set([...held.map((t) => t.toLowerCase()), ...known])].slice(0, 150);
+    // The board's creators are learned in the background: asked all at once
+    // they would hold a first connect for the explorer's time per token.
+    this.warmCreators(known);
+    const knownMine = known.filter((t) => this.creators.get(t)?.value?.address === w);
+    const weth = this.c.weth.toLowerCase();
+    const candidates = [...new Set([...launched, ...held.map((t) => t.toLowerCase()), ...knownMine])]
+      .filter((t) => t !== weth)
+      .slice(0, 100);
     const creators = await this.creatorsOf(candidates);
     const mine = candidates.filter((t) => creators[t]?.address === w);
     const metas = await Promise.all(mine.map((t) => this.tokenMeta(t)));
-    return mine.flatMap((t, i) => (metas[i] ? [{ ...metas[i]!, creator: creators[t]! }] : []));
+    const value = mine.flatMap((t, i) => (metas[i] ? [{ ...metas[i]!, creator: creators[t]! }] : []));
+    this.mine.set(w, { value, at: Date.now() });
+    return value;
+  }
+
+  /** The contracts a wallet's transactions deployed, or minted a fresh supply of. */
+  private async mintedIn(sent: SentTx[]): Promise<string[]> {
+    const out = new Set<string>();
+    for (const t of sent) if (t.created) out.add(t.created.toLowerCase());
+    const calls = sent.filter((t) => !t.created && t.toContract).slice(0, SENT_RECEIPTS);
+    const found = await inBatches(calls, 6, async (t) => {
+      try {
+        const receipt = await this.deps.read((client) => client.getTransactionReceipt({ hash: t.hash }));
+        if (receipt.status !== 'success') return [];
+        if (receipt.contractAddress) return [receipt.contractAddress.toLowerCase()];
+        // an ERC-20 mint (three topics; an NFT's has four) from the zero address
+        return receipt.logs
+          .filter((l) => l.topics.length === 3 && l.topics[0]?.toLowerCase() === TRANSFER_TOPIC && l.topics[1]?.toLowerCase() === ZERO_TOPIC)
+          .map((l) => l.address.toLowerCase());
+      } catch {
+        return [];
+      }
+    });
+    for (const list of found) for (const a of list) out.add(a);
+    return [...out];
+  }
+
+  private warmedAt = 0;
+  private warmCreators(tokens: string[]): void {
+    if (tokens.length === 0 || Date.now() - this.warmedAt < 600_000) return;
+    this.warmedAt = Date.now();
+    void this.creatorsOf(tokens).catch(() => undefined);
   }
 
   /** The pools a router can be made for, deepest first. Kept for a minute. */
@@ -404,6 +478,42 @@ export function explorerWalletTokens(base: string, fetchFn: Fetch = fetch) {
       params = next ? { type: 'ERC-20', ...next } : null;
     }
     return [...tokens];
+  };
+}
+
+/**
+ * The transactions a wallet sent, newest first, per Blockscout: three pages.
+ * Only the hash, what it deployed and whether it called a contract are read;
+ * everything that follows is checked against the chain.
+ */
+export function explorerWalletSent(base: string, fetchFn: Fetch = fetch) {
+  const root = base.replace(/\/+$/, '');
+  return async (wallet: string): Promise<SentTx[]> => {
+    const out: SentTx[] = [];
+    let params: Record<string, unknown> | null = { filter: 'from' };
+    for (let page = 0; params && page < 3; page++) {
+      const query = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+      const body = asRecord(await getJson(fetchFn, `${root}/api/v2/addresses/${wallet}/transactions?${query}`));
+      for (const raw of Array.isArray(body?.items) ? body!.items : []) {
+        const item = asRecord(raw);
+        const hash = item?.hash;
+        if (typeof hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(hash)) continue;
+        if (item?.status === 'error') continue;
+        const from = asRecord(item?.from)?.hash;
+        if (typeof from === 'string' && from.toLowerCase() !== wallet.toLowerCase()) continue;
+        const created = asRecord(item?.created_contract)?.hash;
+        const to = asRecord(item?.to);
+        out.push({
+          hash: hash.toLowerCase() as Hex,
+          created: typeof created === 'string' && /^0x[0-9a-fA-F]{40}$/.test(created) ? created.toLowerCase() : null,
+          // a field it leaves out is not a no: only an address it calls an account is skipped
+          toContract: to !== null && to.is_contract !== false,
+        });
+      }
+      const next = asRecord(body?.next_page_params);
+      params = next ? { filter: 'from', ...next } : null;
+    }
+    return out;
   };
 }
 

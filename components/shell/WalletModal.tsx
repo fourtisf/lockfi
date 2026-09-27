@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useUi } from '@/components/providers/UiProvider';
+import { CreatedTokensList } from '@/components/router/CreatedTokensList';
+import { useCreatedTokens } from '@/components/router/useCreatedTokens';
 import { EXPLORER_URL } from '@/lib/chain';
 import { shortWallet } from '@/lib/format';
 import {
@@ -37,6 +39,7 @@ const FOCUSABLE =
  */
 export function WalletModal() {
   const { walletOpen, closeWallet, wallet, setWallet, showToast } = useUi();
+  const created = useCreatedTokens(wallet?.address);
   const [announced, setAnnounced] = useState<AnnouncedWallet[]>([]);
   const [session, setSession] = useState<AnnouncedWallet | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -244,10 +247,13 @@ export function WalletModal() {
                 Disconnect
               </button>
             </div>
+            <div className="ct-sect">
+              <h3 className="lbl">Tokens you created</h3>
+              <CreatedTokensList found={created} compact />
+            </div>
             <p className="hint" style={{ marginTop: 14 }}>
-              Minting and staking on the Positions page send one transaction through Uniswap&rsquo;s
-              PositionManager, after the node has dry-run it. Nothing else on this site asks you to
-              sign.
+              Every transaction here goes to Uniswap&rsquo;s contracts or to a LockFi Router you
+              chose, and the node dry-runs it before your wallet is asked to sign.
             </p>
           </>
         ) : (

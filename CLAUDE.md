@@ -6277,3 +6277,79 @@ token, the creator label and the hook warning all render.
 on this chain. The sandbox reaches neither. The parsers accept both known
 spellings, and a failure leaves the lookup answering what the chain alone can
 say.
+
+---
+
+## 50. A creator's tokens, found the moment the wallet connects
+
+ALFA, after §49: *ketika connect wallet lockfi harus autodetect token yg pernah
+kita deploy sebelumnya* — when a wallet connects, LockFi should find the tokens
+it deployed before. §49 had built the detection, and two faults kept it from
+ever showing on the live site.
+
+**It lived only in the live Router.** `LiveRouter` renders only once
+`ROUTER_FACTORY` is set, and the factory is not deployed yet. So on
+lockfi.org the Router page drew the preview, and a creator who connected saw
+nothing anywhere.
+
+**It looked only at tokens the wallet had held.** A Pons launch without a dev
+buy mints the whole supply to the launchpad's curve, so the creator's wallet
+never receives a single token and the held-tokens list never names it. That
+is the ordinary Pons case, not an edge. And the other candidate list — every
+token on the board, each asked of the explorer on the first connect — could
+outlast the page's 30-second timeout and return nothing.
+
+### Where the candidates come from now
+
+`createdBy` (`server/api/router-tokens.ts`) proves every candidate the same
+way as before (`creatorOf`: the sender of the creating transaction, checked on
+chain). The candidates are:
+
+1. **The wallet's own transactions.** `explorerWalletSent` lists what the
+   wallet sent (Blockscout, three pages). A transaction that deployed a
+   contract names it directly; for the up to 80 newest that called a contract,
+   the receipt is read from the chain, and every ERC-20 minted from the zero
+   address in it is a candidate — a token's supply is minted in the
+   transaction that creates it, whoever receives it. An NFT mint (four topics)
+   and the ether wrapper are left out.
+2. The tokens the wallet has held, as before.
+3. Board tokens whose creator is already known. The rest of the board's
+   creators are learned in the background, at most every ten minutes, rather
+   than holding the first connect.
+
+A wallet's answer is kept for five minutes, one when it is empty.
+
+### Where it shows
+
+`useCreatedTokens` asks once per wallet per page load and shares the answer,
+keeping the last one in this browser so the next visit shows it at once:
+
+- **On connect**, a notice: *Found a token you created: DEV …*, once per
+  wallet per browser session (`CreatedTokensNotice`).
+- **In the wallet dialog**, *Tokens you created*: each with how it was
+  launched, its address to copy, the creating transaction, and a **Router**
+  button that opens `/router?token=…`.
+- **On the Router page**, a *Your tokens* card while the factory is not yet
+  deployed (`RouterMine`), and the existing chips once it is; the live form
+  now reads `?token=` too.
+
+A wallet that created nothing is told so, with the two ways out: connect the
+wallet it launched from, or paste the address. Simulated data has no API, so
+nothing is asked there; `localStorage['lockfi:router-detect'] = 'on'` asks
+anyway, for a test.
+
+The dialog's closing line said nothing else on the site asks for a signature,
+which has not been true since §23. It says every transaction goes to
+Uniswap's contracts or a router the person chose, dry-run first.
+
+**Verified:** `npm run check:router` adds a launch whose supply stays on the
+launchpad, found from the wallet's sent transactions with nothing held; a
+direct deploy found the same way; and an approval that mints nothing, and a
+stranger, credited with nothing. The parser has a unit test (pages, failed
+transactions, another sender, a missing `is_contract`). `e2e/created-tokens.spec.ts`
+connects a fake EIP-6963 wallet and checks the notice, the dialog, the Router
+link and the Router card, with one request for the whole visit.
+
+**Unverified from here:** Blockscout's transaction list on this chain, and
+whether Pons mints the token inside the transaction the creator sends. After
+a deploy, `/api/router/mine?wallet=0x…` on the box answers both.

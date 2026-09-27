@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatUnits, type Address } from 'viem';
 import { useMarket } from '@/components/providers/MarketProvider';
+import { useCreatedTokens } from '@/components/router/useCreatedTokens';
 import { useUi } from '@/components/providers/UiProvider';
 import { EXPLORER_URL, ROUTER_FACTORY, ROUTER_FEE_BPS, deadlineFromNow, isEther } from '@/lib/chain';
 import { duration, feeTierLabel, shortWallet, usd } from '@/lib/format';
@@ -28,7 +29,6 @@ import {
   lookupToken,
   readRouters,
   teamMinRate,
-  tokensCreatedBy,
   type Creator,
   type RouterPool,
   type RouterView,
@@ -85,7 +85,6 @@ export function LiveRouter() {
   const [pasted, setPasted] = useState('');
   const [lookup, setLookup] = useState<TokenLookup | null>(null);
   const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'missing'>('idle');
-  const [myTokens, setMyTokens] = useState<(TokenMetaLite & { creator: Creator })[] | null>(null);
   const [poolId, setPoolId] = useState<string>('');
   const [hours, setHours] = useState(24);
   const [narrow, setNarrow] = useState(false);
@@ -96,21 +95,18 @@ export function LiveRouter() {
   const [readError, setReadError] = useState(false);
   const [creators, setCreators] = useState<Record<string, Creator | null>>({});
 
-  // the connected wallet's own tokens, once per wallet
+  // the connected wallet's own tokens, found on connect (useCreatedTokens)
+  const found = useCreatedTokens(wallet?.address);
+  const myTokens = found.tokens.length > 0 || found.status === 'done' ? found.tokens : null;
   useEffect(() => {
-    setMyTokens(null);
-    if (!wallet) return;
-    let live = true;
-    void tokensCreatedBy(wallet.address).then((t) => {
-      if (!live) return;
-      setMyTokens(t ?? []);
-      // open on the first of them, unless a token is already chosen
-      if (t && t.length > 0) setTokenAddr((cur) => cur || t[0].address);
-    });
-    return () => {
-      live = false;
-    };
-  }, [wallet]);
+    // open on the first of them, unless a token is already chosen
+    if (myTokens && myTokens.length > 0) setTokenAddr((cur) => cur || myTokens[0].address);
+  }, [myTokens]);
+  // a token named in the link (the wallet dialog's "Router" button) comes first
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('token');
+    if (t && /^0x[0-9a-fA-F]{40}$/.test(t)) setTokenAddr(t);
+  }, []);
 
   // the chosen token: its creator and its pools, from the chain
   const chosen = tokenAddr || boardTokens[0]?.address || '';
