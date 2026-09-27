@@ -6353,3 +6353,27 @@ link and the Router card, with one request for the whole visit.
 **Unverified from here:** Blockscout's transaction list on this chain, and
 whether Pons mints the token inside the transaction the creator sends. After
 a deploy, `/api/router/mine?wallet=0x…` on the box answers both.
+
+---
+
+## 51. An X Article for the Router
+
+`brand/lockfi/social/router/` holds an X Article introducing the Router:
+`ARTICLE.md` (the text, about 1,200 words, with a title and two alternatives),
+`article.html` (the same, laid out for pasting into X's editor), the 5:2 cover
+`router-cover.png`, and four inline images `r1`–`r4`. `npm run
+brand:social:router` renders the images; a plain `brand:social` run leaves
+them alone.
+
+The images are drawn by the same renderer and in the same frame as §42's
+banners. The only numbers on them are the contract's own parameters (the 1%
+fee, its 2% cap, the keeper's 3% and 1% guards), which describe the code
+rather than promise a return.
+
+The article states what §48 records and nothing more: routed liquidity is
+permanent for everyone, the fee is 1% of new ETH only and cannot be raised,
+the keeper only triggers, hooks are bounded, and the team can pause and
+withdraw only what has not been routed. It says plainly that the contract is
+**not externally audited** and that liquidity is not a price floor. **Publish
+it only once the Router is live** (`ROUTER_FACTORY` set and deployed); until
+then `/router` shows a preview.

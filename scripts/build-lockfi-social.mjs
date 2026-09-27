@@ -25,7 +25,7 @@ const FONT_FILE = join(ROOT, 'brand', 'lockfi', '.fonts', 'InstrumentSans.ttf');
 if (!existsSync(FONT_FILE)) {
   throw new Error('Instrument Sans is missing: run `npm run brand:lockfi` once first, it fetches the face.');
 }
-mkdirSync(OUT, { recursive: true });
+mkdirSync(join(OUT, 'router'), { recursive: true });
 const only = process.argv.slice(2);
 
 // ── Tokens, from app/globals.css ─────────────────────────────────────────────
@@ -268,6 +268,116 @@ const POSTS = {
   }),
 };
 
+
+// ── The Router article (§51): four inline images and a cover ────────────────
+// Same frame, same rules: no figure a reader could take as a return. The
+// numbers that do appear are the contract's own parameters (the fee, its cap,
+// the keeper's guards), which are facts about the code, not promises.
+const LOCK = `<svg viewBox="0 0 24 24" width="20" height="20"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+const ROUTER_OF = 4;
+
+/** Pool depth drawn as stacked layers that only ever rise: each route adds one. */
+function depthStack(layers = 5, { h = 300 } = {}) {
+  const cols = weights('curve', 21)
+    .map((v) => {
+      const segs = [];
+      for (let k = 0; k < layers; k++) {
+        const share = (v * 0.82 + 0.18) / layers;
+        segs.push(`<i style="height:${share * h * 0.9}px;opacity:${0.35 + (0.65 * (k + 1)) / layers}"></i>`);
+      }
+      return `<span class="dcol">${segs.reverse().join('')}</span>`;
+    })
+    .join('');
+  return `<div class="depth" style="height:${h}px">${cols}</div>`;
+}
+
+const ROUTER = {
+  'router/r1-introducing': post({
+    n: 1,
+    of: ROUTER_OF,
+    eyebrow: 'LockFi Router',
+    title: `Creator fees into<br><span class="ac">permanent liquidity.</span>`,
+    lede: 'For token teams. Point your creator fees at a router and it adds them to your own pool on the schedule you choose, as liquidity no one can pull.',
+    visual: `<div class="rflow">
+      <div class="panel rnode"><span class="lbl">Creator fees</span><b>ETH</b><span>From your launchpad, or sent from your wallet</span></div>
+      <i class="rlink"></i>
+      <div class="panel rnode on"><span class="rtile">${tile(46)}</span><b>Your router</b><span>Swaps the right share, adds both sides</span></div>
+      <i class="rlink"></i>
+      <div class="panel rpool"><div class="ph"><span class="lbl">Your pool</span><span class="perm">${LOCK}Permanent</span></div>${depthStack(5, { h: 200 })}</div>
+    </div>`,
+  }),
+
+  'router/r2-route': post({
+    n: 2,
+    of: ROUTER_OF,
+    eyebrow: 'What one route does',
+    title: `One transaction.<br><span class="ac">Four steps.</span>`,
+    lede: 'The keeper sends a route on your schedule, or you send one yourself. Every step runs inside Uniswap’s own pool, and none of it can be undone.',
+    visual: `<div class="flow">
+      <div class="panel step"><span class="no">1</span><b>Take the LockFi fee</b><span>1% of the new ETH only, never of the pool’s earned fees</span></div>
+      <i class="link"></i>
+      <div class="panel step"><span class="no">2</span><b>Collect what it earned</b><span>Fees from liquidity already routed go back in</span></div>
+      <i class="link"></i>
+      <div class="panel step"><span class="no">3</span><b>Swap the right share</b><span>ETH for your token, in the same pool, above a minimum price</span></div>
+      <i class="link"></i>
+      <div class="panel step on"><span class="no">${LOCK}</span><b>Add both sides, for good</b><span>Owned by the router, which has no way to remove it</span></div>
+    </div>`,
+  }),
+
+  'router/r3-guards': post({
+    n: 3,
+    of: ROUTER_OF,
+    eyebrow: 'The guards',
+    title: `Built so a route<br><span class="ac">can’t be gamed.</span>`,
+    lede: 'A keeper call is a trade at a moment someone can see coming. So the router refuses a bad price rather than accept one.',
+    visual: `<div class="facts">
+      ${[
+        ['30-minute average', 'The keeper routes only when the price is within 3% of its own 30-minute average. A pushed price waits.'],
+        ['Minimum price', 'Every swap carries a floor 1% under Uniswap’s own quote. Below it the route reverts and nothing moves.'],
+        ['Fee fixed at deploy', '1%, capped at 2% in the factory, with no setter. Nobody can raise it later.'],
+        ['Keeper only triggers', 'The keeper never holds funds. It sends the route; the ETH goes into your pool and nowhere else.'],
+      ]
+        .map(([h, p]) => `<div class="panel fact"><span class="tick">${CHECK}</span><b>${h}</b><p>${p}</p></div>`)
+        .join('')}
+    </div>`,
+  }),
+
+  'router/r4-your-token': post({
+    n: 4,
+    of: ROUTER_OF,
+    eyebrow: 'Set up in a minute',
+    title: `Connect the wallet<br>you launched from.<br><span class="ac">Your token is there.</span>`,
+    lede: 'LockFi finds the tokens your wallet created, launches on Pons included, and checks each one on chain. Pick one, pick a schedule, create.',
+    visual: `<div class="panel rsetup">
+      <div class="ph"><span class="lbl">Tokens you created</span></div>
+      ${[
+        [212, true],
+        [28, false],
+      ]
+        .map(
+          ([hue, on]) =>
+            `<div class="rtok${on ? ' on' : ''}">${coin(hue, 40)}<span class="nm">${ghost(80, true)}${ghost(120)}</span><span class="mine">You created this</span></div>`,
+        )
+        .join('')}
+      <div class="rfield"><span class="lbl">Schedule</span><span class="chips"><span class="chip">6h</span><span class="chip">12h</span><span class="chip on">24h</span><span class="chip">Weekly</span></span></div>
+      <div class="rfield"><span class="lbl">Range</span><span class="chips"><span class="chip on">Full range</span><span class="chip">±20%</span></span></div>
+      <span class="btn">Create router</span>
+    </div>`,
+  }),
+};
+
+const ROUTER_COVER = `<div class="art cover" data-w="1500" data-h="600">
+  <div class="grid"></div><div class="glow"></div>
+  <div class="cv-copy">
+    ${brand(52)}
+    <span class="eyebrow"><i></i>Introducing LockFi Router</span>
+    <h1>Creator fees into<br><span class="ac">permanent liquidity.</span></h1>
+    <p>For token teams <i>·</i> on your schedule <i>·</i> no one can pull it</p>
+  </div>
+  <div class="panel cv-chart"><div class="ph"><span class="lbl">Your pool</span><span class="perm">${LOCK}Permanent</span></div>${depthStack(5, { h: 250 })}</div>
+  <span class="cv-url">lockfi.org/router</span>
+</div>`;
+
 const HEADER = `<div class="art header" data-w="1500" data-h="500">
   <div class="grid"></div><div class="glow"></div>
   <div class="hd-chart">${binChart('curve', { n: 27, height: 330, gap: 7, price: true, fade: true })}</div>
@@ -452,6 +562,28 @@ footer i{font-style:normal;margin:0 8px;opacity:.6}
 .hd-copy h1{font-size:46px;margin-top:34px;letter-spacing:-.04em}
 .hd-copy p{margin:18px 0 0;font-size:20px;white-space:nowrap;color:${T.fg2};font-weight:500}
 .hd-copy p i{font-style:normal;margin:0 8px;opacity:.5}
+
+.rflow{display:flex;flex-direction:column}
+.rnode{display:grid;grid-template-columns:1fr;row-gap:4px;padding:20px 26px}
+.rnode b{font-size:24px;letter-spacing:-.02em}
+.rnode span:last-child{font-size:17px;color:${T.fg2};font-weight:500}
+.rnode.on{grid-template-columns:62px 1fr;column-gap:16px;align-items:center;border-color:rgba(59,130,246,.45);background:linear-gradient(180deg,rgba(59,130,246,.12),${T.panel} 70%)}
+.rnode.on .rtile{grid-row:1/3}
+.rlink{display:block;width:2px;height:24px;margin-left:40px;background:linear-gradient(${T.ac},rgba(59,130,246,.2))}
+.rpool{padding:20px 26px 22px}
+.rpool .depth{margin-top:22px}
+.perm{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:99px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.35);color:${T.ac3};font-size:14px;font-weight:700;letter-spacing:.04em}
+.depth{display:flex;align-items:flex-end;gap:6px;border-bottom:1px solid rgba(255,255,255,.08)}
+.dcol{flex:1;display:flex;flex-direction:column;gap:2px}
+.dcol i{display:block;border-radius:3px;background:${T.ac}}
+.cv-chart .depth{margin-top:34px}
+.rsetup{padding:26px 28px;display:flex;flex-direction:column;gap:14px}
+.rtok{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;background:${T.raise};border:1px solid rgba(255,255,255,.06)}
+.rtok.on{border-color:rgba(59,130,246,.45);background:rgba(59,130,246,.08)}
+.rtok .mine{margin-left:auto;font-size:14px;font-weight:700;color:${T.pos};background:rgba(31,203,122,.12);padding:6px 12px;border-radius:99px}
+.rtok:not(.on) .mine{color:${T.fg3};background:rgba(237,238,241,.06)}
+.rfield{display:flex;align-items:center;justify-content:space-between;padding-top:6px}
+.rsetup .btn{margin-top:6px}
 `;
 
 // ── Rasterise ────────────────────────────────────────────────────────────────
@@ -462,9 +594,11 @@ const PREINSTALLED = [
 const browser = await chromium.launch(PREINSTALLED ? { executablePath: PREINSTALLED } : {});
 const page = await browser.newPage({ deviceScaleFactor: 2 });
 
-const jobs = { ...POSTS, 'x-header': HEADER, 'x-article-cover': ARTICLE_COVER };
+const jobs = { ...POSTS, 'x-header': HEADER, 'x-article-cover': ARTICLE_COVER, ...ROUTER, 'router/router-cover': ROUTER_COVER };
 for (const [name, html] of Object.entries(jobs)) {
-  if (only.length && !only.some((o) => name.includes(o))) continue;
+  // The Router article's images render only when asked for (`router`), so a
+  // plain run keeps rewriting exactly the introduction set.
+  if (only.length ? !only.some((o) => name.includes(o)) : name.startsWith('router/')) continue;
   const w = Number(/data-w="(\d+)"/.exec(html)[1]);
   const h = Number(/data-h="(\d+)"/.exec(html)[1]);
   await page.setViewportSize({ width: w, height: h });

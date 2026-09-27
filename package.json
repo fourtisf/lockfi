@@ -33,6 +33,7 @@
     "brand": "python3 scripts/build-brand.py && node scripts/build-brand-png.mjs",
     "postinstall": "prisma generate",
     "brand:social": "node scripts/build-lockfi-social.mjs",
+    "brand:social:router": "node scripts/build-lockfi-social.mjs router",
     "brand:social:balast": "node scripts/render-social.mjs",
     "brand:premium": "tsx scripts/build-premium-banners.ts && node scripts/render-social.mjs p0 p1",
     "brand:shapes": "tsx scripts/build-shape-banners.ts && node scripts/render-social.mjs 08- 09- 10- 11-",
