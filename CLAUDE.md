@@ -6058,3 +6058,24 @@ to the links, and `.foot` is the footer's own class, so the links inherited
 its top border, margin and padding and sat on a line of their own under a
 stray rule. The class is `foot-soc` now, and the links sit in the footer's
 row.
+
+---
+
+## 47. An introduction film for the Router
+
+`npm run brand:ad:router` (`scripts/build-lockfi-router-ad.mjs`) writes
+`brand/lockfi/video/lockfi-router-ad.mp4`: 36 seconds on the same engine as
+the other films, with an opening of its own. Creator fees flow into the
+router, split in half (one half swapped on a 30-minute TWAP), and fill a
+pool, which then carries a *Permanent* lock. The film then shows the real
+`/router` page: the trigger switched to market-cap milestones, the
+destination range, the timeline, and the note that routed liquidity is
+permanent. It closes on *LockFi Router · Coming soon*.
+
+**The router is not live, and the film says so.** It needs a contract of its
+own and ships only after an external audit (§20, §33). So the end card
+reads *Coming soon* and *Launches after an external audit · preview only*,
+and the footnote on every product scene reads *the router is not live yet ·
+illustrative figures*. The simulator's figures on the page (the accrued fees,
+the projection, the *Verified deployer* pill) are illustrative, like
+everything else the films show.

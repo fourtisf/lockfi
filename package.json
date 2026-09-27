@@ -38,7 +38,8 @@
     "brand:ad": "node scripts/build-lockfi-ad.mjs",
     "brand:ad:ai": "node scripts/build-lockfi-ai-ad.mjs",
     "brand:ad:portfolio": "node scripts/build-lockfi-portfolio-ai-ad.mjs",
-    "brand:ad:token": "node scripts/build-lockfi-token-ad.mjs"
+    "brand:ad:token": "node scripts/build-lockfi-token-ad.mjs",
+    "brand:ad:router": "node scripts/build-lockfi-router-ad.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
