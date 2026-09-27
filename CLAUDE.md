@@ -6200,3 +6200,80 @@ Also: 594 unit tests, 50 end-to-end tests, and the production build.
 
 The first router should be LockFi's own, with a small amount, watched on the
 explorer.
+
+---
+
+## 49. The router finds a creator's tokens
+
+ALFA: if a dev has launched a token on Pons and connects their wallet to the
+router, is the token detected? It was not, and now it is.
+
+**A token's creator is the wallet that sent its creation transaction.** The
+explorer names the transaction that created a token's contract
+(`creation_transaction_hash`, or `creation_tx_hash` in older Blockscouts).
+The chain then says who sent it and confirms the token is in its receipt,
+either as the contract created or as the source of a log such as the mint. A
+token launched through a launchpad is created by the launchpad's contract,
+inside a transaction the creator's own wallet sent. So one rule covers Pons,
+any other launchpad, and a direct deploy, without knowing any launchpad's
+ABI. The launchpad's address is kept as `via`. A transaction that never
+touched the token names nobody.
+
+**A token's pools are looked for on chain, not on the board.** The indexer is
+weeks behind (§25), so a token launched since has no pool there.
+`server/api/router-tokens.ts` looks in four places:
+
+- the v3 factory's `getPool` against WETH at each standard fee;
+- the standard v4 keys (ETH or WETH, standard fees, no hook), read from the
+  PoolManager;
+- any v4 pool id DexScreener lists for the token, whose key is recovered from
+  that pool's own `Initialize` log (located by the explorer, read from the
+  receipt, and checked against the id);
+- whatever the indexer knows.
+
+A pool is returned only if it has a price on chain and ETH or WETH on the
+other side.
+
+**Hooked pools are offered, with a warning.** On a launchpad chain the
+graduated pools may carry the launchpad's hook. The router bounds what a
+hook can take (§48): never more than the swap's input, never more than the
+amounts the liquidity was sized against. The worst a hook can do is refuse a
+route, and a refused route moves nothing. The page names the hook under the
+pool.
+
+**Endpoints:**
+
+- `GET /api/router/mine?wallet=`: the wallet's tokens. The candidates are
+  the tokens the explorer says the wallet has held, plus the tokens the
+  indexer knows; each is confirmed by its creator.
+- `GET /api/router/token/:address`: the token, its creator and its pools.
+- `GET /api/router/creators?tokens=`: creators in bulk.
+
+A found creator is kept, since it cannot change; a miss is asked again after
+ten minutes.
+
+**On the page:**
+
+- A connected wallet sees **Your tokens** at the top of the form, and the
+  first of them is chosen for it.
+- Any token can be looked up by pasting its address.
+- The chosen token reads **You created this token**, or names its creator
+  and says a router made by anyone else will show as not the creator's.
+- Every router row carries **token creator** or **not the creator**, so
+  holders can tell an official router from one a stranger made.
+
+**Verified:** `npm run check:router` now also deploys a small launchpad and
+launches a token through it. It checks that the creator is the launching
+wallet, not the launchpad, and that a direct deploy's creator is the
+deployer. It checks that a transaction that never touched a token names
+nobody, and that `createdBy` returns only the wallet's own token. It finds
+the v3 pool, the standard v4 pools, and a non-standard v4 pool whose key comes
+from its own Initialize log, and no pool that does not exist. That is 60
+checks, all passing. There are three route tests for the endpoints. The page
+was checked with a fake EIP-6963 wallet and stubbed lookups: the wallet's
+token, the creator label and the hook warning all render.
+
+**Unverified from here:** Blockscout's field names and DexScreener's pool ids
+on this chain. The sandbox reaches neither. The parsers accept both known
+spellings, and a failure leaves the lookup answering what the chain alone can
+say.

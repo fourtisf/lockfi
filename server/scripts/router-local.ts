@@ -41,6 +41,8 @@ import abi from '../../lib/router/abi.json';
 import factoryBytecode from '../../lib/router/factory-bytecode.json';
 import { getSqrtRatioAtTick } from '../../lib/v4/tick-math';
 import { PriceWindow, decide, readRouter, type PoolKey, type Quoters } from '../../lib/router/plan';
+import { RouterTokens, v4PoolId, type ChainRead } from '../api/router-tokens';
+import solc from 'solc';
 
 const RPC = process.env.LP_RPC ?? 'http://127.0.0.1:8545';
 const ART = process.env.LP_ARTIFACTS ?? '';
@@ -127,10 +129,12 @@ async function main(): Promise<void> {
   const [deployer, team, trader, keeper, treasury, stranger] = (await rpc('eth_accounts')) as Address[];
   const as = (account: Address) => createWalletClient({ chain, account, transport: custom(provider) });
 
+  const deployedIn = new Map<string, Hex>();
   async function deploy(a: { abi: Abi; bytecode: Hex }, args: unknown[] = []): Promise<Address> {
     const hash = await as(deployer).deployContract({ abi: a.abi, bytecode: a.bytecode, args });
     const r = await pub.waitForTransactionReceipt({ hash });
     if (!r.contractAddress) throw new Error('deploy failed');
+    deployedIn.set(r.contractAddress.toLowerCase(), hash);
     return r.contractAddress;
   }
   async function write(account: Address, address: Address, abi: Abi, functionName: string, args: unknown[] = [], value = 0n): Promise<TransactionReceipt> {
@@ -428,6 +432,66 @@ async function main(): Promise<void> {
     .sort();
   check(JSON.stringify(owned) === JSON.stringify(['createV3', 'createV4', 'setKeeper', 'setOwner', 'setTreasury']), `its only state-changing calls: ${owned.join(', ')}`);
   check((await revertName(stranger, factory, FACTORY, 'setKeeper', [stranger])) === 'NotOwner', 'only the owner names the keeper');
+
+  // ======================================================= token lookups ==
+  section('the router page finds a creator’s tokens, and their pools, from the chain');
+  // A launchpad in miniature: the token is created by the launchpad's contract,
+  // inside a transaction the creator's wallet sends — the shape of a Pons launch.
+  const LAUNCHPAD_SRC = `pragma solidity 0.8.26;
+contract Tok { string public name; string public symbol; uint8 public constant decimals = 18; uint256 public totalSupply;
+  mapping(address=>uint256) public balanceOf; mapping(address=>mapping(address=>uint256)) public allowance;
+  event Transfer(address indexed from, address indexed to, uint256 value); event Approval(address indexed o, address indexed s, uint256 v);
+  constructor(string memory n, string memory s, address to, uint256 amt) { name = n; symbol = s; totalSupply = amt; balanceOf[to] = amt; emit Transfer(address(0), to, amt); }
+  function transfer(address to, uint256 v) external returns (bool) { balanceOf[msg.sender] -= v; balanceOf[to] += v; emit Transfer(msg.sender, to, v); return true; }
+  function approve(address sp, uint256 v) external returns (bool) { allowance[msg.sender][sp] = v; emit Approval(msg.sender, sp, v); return true; }
+  function transferFrom(address f, address to, uint256 v) external returns (bool) { allowance[f][msg.sender] -= v; balanceOf[f] -= v; balanceOf[to] += v; emit Transfer(f, to, v); return true; } }
+contract Launchpad { function launch(string calldata n, string calldata s) external returns (address t) { t = address(new Tok(n, s, msg.sender, 1e24)); } }`;
+  const compiled = JSON.parse(solc.compile(JSON.stringify({
+    language: 'Solidity',
+    sources: { 'L.sol': { content: LAUNCHPAD_SRC } },
+    settings: { evmVersion: 'cancun', outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } } },
+  })));
+  const lp = compiled.contracts['L.sol'].Launchpad;
+  const launchpad = await deploy({ abi: lp.abi, bytecode: `0x${lp.evm.bytecode.object}` as Hex });
+  const { result: launched } = (await pub.simulateContract({ account: team, address: launchpad, abi: lp.abi, functionName: 'launch', args: ['Dev Coin', 'DEV'] } as never)) as { result: Address };
+  const launchRc = await write(team, launchpad, lp.abi as Abi, 'launch', ['Dev Coin', 'DEV']);
+
+  // The explorer's part, stood in for: which transaction created which contract.
+  const creation = new Map<string, Hex>([[launched.toLowerCase(), launchRc.transactionHash], [tkn.toLowerCase(), deployedIn.get(tkn.toLowerCase())!]]);
+  // a non-standard v4 pool the guesses cannot find, listed by an "aggregator"
+  const oddKey: PoolKey = { currency0: ZERO, currency1: tkn, fee: 2500, tickSpacing: 50, hooks: ZERO };
+  const oddInit = await write(deployer, pm, PM, 'initialize', [oddKey, getSqrtRatioAtTick(69_050)]);
+  const oddId = v4PoolId(oddKey);
+  const lookups = new RouterTokens({
+    read: ((fn) => fn(pub as never)) as ChainRead,
+    creationTx: async (t) => creation.get(t) ?? null,
+    walletTokens: async () => [launched, tkn],
+    v4PoolIds: async (t) => (t === tkn.toLowerCase() ? [{ id: oddId, liquidityUsd: 1234 }] : []),
+    initializeTx: async (id) => (id === oddId ? oddInit.transactionHash : null),
+    knownPools: async () => [],
+    contracts: { poolManager: pm, v3Factory: v3f, weth },
+  });
+
+  const devCreator = await lookups.creatorOf(launched);
+  check(devCreator?.address === team.toLowerCase(), `a launchpad token's creator is the wallet that launched it, ${devCreator?.address}`);
+  check(devCreator?.via === launchpad.toLowerCase(), 'and it is recorded as created through the launchpad');
+  const tknCreator = await lookups.creatorOf(tkn);
+  check(tknCreator?.address === deployer.toLowerCase() && tknCreator.via === null, 'a token deployed directly: its deployer, with no launchpad');
+  creation.set(stranger.toLowerCase(), launchRc.transactionHash);
+  check((await lookups.creatorOf(stranger)) === null, 'a transaction that never touched the address proves nothing, and names no creator');
+  const mine = await lookups.createdBy(team);
+  check(mine.length === 1 && mine[0].address === launched.toLowerCase() && mine[0].symbol === 'DEV', `the team's own tokens: ${mine.map((t) => t.symbol).join(', ')}`);
+  check((await lookups.createdBy(stranger)).length === 0, 'a wallet that created nothing has no tokens');
+
+  const pools = await lookups.poolsFor(tkn);
+  const describe = (p: { protocol: string; key: { fee: number; tickSpacing: number }; quote: string }) => `${p.protocol} ${p.quote} ${p.key.fee}/${p.key.tickSpacing}`;
+  const names = pools.map(describe);
+  check(names.includes('v4 ETH 3000/60'), 'the v4 ETH pool is found by its standard key');
+  check(names.includes('v4 WETH 500/10'), 'the v4 WETH pool too');
+  check(names.includes('v3 WETH 3000/60'), 'the v3 pool through the factory');
+  check(names.includes('v4 ETH 2500/50') && pools.find((p) => p.id === oddId)?.liquidityUsd === 1234, 'a non-standard pool, its key recovered from its own Initialize log and checked against its id');
+  check(!names.includes('v4 ETH 500/10') && !names.includes('v3 WETH 500/10'), 'no pool that does not exist on chain');
+  check(pools.every((p) => BigInt(p.liquidity) >= 0n), `${pools.length} pools, each read from the chain: ${names.join(' · ')}`);
 
   console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);

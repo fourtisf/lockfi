@@ -666,3 +666,46 @@ describe('/api/ask', () => {
     return built;
   }
 });
+
+describe('/api/router', () => {
+  const creator = { address: '0x70997970c51812dc3a010c7d01b50e0d17dc79c8', tx: `0x${'ab'.repeat(32)}`, via: '0x5fbdb2315678afecb367f032d93f642f64180aa3' };
+  const fake = {
+    createdBy: async (w: string) =>
+      w.toLowerCase() === creator.address ? [{ address: '0x1111111111111111111111111111111111111111', symbol: 'DEV', name: 'Dev Coin', decimals: 18, creator }] : [],
+    tokenMeta: async (t: string) => (t.startsWith('0x11') ? { address: t, symbol: 'DEV', name: 'Dev Coin', decimals: 18 } : null),
+    creatorOf: async () => creator,
+    poolsFor: async () => [],
+    creatorsOf: async (ts: string[]) => Object.fromEntries(ts.map((t) => [t.toLowerCase(), creator])),
+  };
+  async function build(routerTokens: unknown) {
+    const built = await (await import('./server')).buildServer({ portfolioChain: null, reservesReader: null, routerTokens: routerTokens as never });
+    await built.ready();
+    return built;
+  }
+
+  it('lists the tokens a wallet created, and refuses what is not an address', async () => {
+    const app = await build(fake);
+    const mine = await app.inject({ method: 'GET', url: `/api/router/mine?wallet=${creator.address}` });
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json().tokens.map((t: { symbol: string }) => t.symbol)).toEqual(['DEV']);
+    expect((await app.inject({ method: 'GET', url: '/api/router/mine?wallet=nope' })).statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('answers a token with its creator and pools, and 404s an address that is not a token', async () => {
+    const app = await build(fake);
+    const ok = await app.inject({ method: 'GET', url: '/api/router/token/0x1111111111111111111111111111111111111111' });
+    expect(ok.json()).toMatchObject({ token: { symbol: 'DEV' }, creator: { address: creator.address }, pools: [] });
+    const miss = await app.inject({ method: 'GET', url: '/api/router/token/0x2222222222222222222222222222222222222222' });
+    expect(miss.statusCode).toBe(404);
+    const many = await app.inject({ method: 'GET', url: '/api/router/creators?tokens=0x1111111111111111111111111111111111111111,junk' });
+    expect(Object.keys(many.json().creators)).toEqual(['0x1111111111111111111111111111111111111111']);
+    await app.close();
+  });
+
+  it('says it is off when the lookups are', async () => {
+    const app = await build(null);
+    expect((await app.inject({ method: 'GET', url: `/api/router/mine?wallet=${creator.address}` })).statusCode).toBe(503);
+    await app.close();
+  });
+});

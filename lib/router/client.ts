@@ -10,6 +10,7 @@
 
 import { BaseError, ContractFunctionRevertedError, type Address, type PublicClient } from 'viem';
 import { CONTRACTS, ROUTER_FACTORY } from '../chain';
+import { API_BASE } from '../site';
 import { FACTORY_ABI, ROUTER_ABI, minRateFrom, quoteTokenOut, readRouter } from './plan';
 
 export interface RouterView {
@@ -126,3 +127,60 @@ export function describeRouterError(e: unknown): string | null {
   }
   return null;
 }
+
+// ── the API's token lookups (server/api/router-tokens.ts, §49) ───────────────
+
+
+export interface TokenMetaLite {
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+}
+export interface Creator {
+  address: string;
+  tx: string;
+  via: string | null;
+}
+export interface RouterPool {
+  protocol: 'v3' | 'v4';
+  id: string;
+  key: { currency0: string; currency1: string; fee: number; tickSpacing: number; hooks: string };
+  quote: 'ETH' | 'WETH';
+  liquidity: string;
+  liquidityUsd: number | null;
+  source: 'indexer' | 'chain' | 'aggregator';
+}
+export interface TokenLookup {
+  token: TokenMetaLite;
+  creator: Creator | null;
+  pools: RouterPool[];
+}
+
+async function getJson<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The tokens a wallet created, proved on chain by the API; null if it could not be asked. */
+export async function tokensCreatedBy(wallet: string): Promise<(TokenMetaLite & { creator: Creator })[] | null> {
+  const body = await getJson<{ tokens: (TokenMetaLite & { creator: Creator })[] }>(`/api/router/mine?wallet=${wallet}`);
+  return body ? body.tokens : null;
+}
+
+/** A token, its creator and the pools a router can be made for; null if it is not a token or could not be asked. */
+export async function lookupToken(address: string): Promise<TokenLookup | null> {
+  return getJson<TokenLookup>(`/api/router/token/${address}`);
+}
+
+export async function creatorsOf(tokens: string[]): Promise<Record<string, Creator | null>> {
+  if (tokens.length === 0) return {};
+  const body = await getJson<{ creators: Record<string, Creator | null> }>(`/api/router/creators?tokens=${tokens.join(',')}`);
+  return body?.creators ?? {};
+}
+
+export const ZERO_HOOK = '0x0000000000000000000000000000000000000000';

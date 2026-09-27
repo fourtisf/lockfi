@@ -7,6 +7,11 @@
  * Everything here is read from the contracts (lib/router/client.ts) and sent
  * through the person's own wallet. The keeper routes on the schedule; the
  * team can also route at any time, pause, and withdraw what is not routed.
+ *
+ * A token and its pools come from the API's lookups (§49), proved on chain,
+ * not from the board: the indexer is weeks behind, and a token launched
+ * since would otherwise have no pool to route into. A connected wallet's own
+ * tokens are found for it.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,7 +20,21 @@ import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { EXPLORER_URL, ROUTER_FACTORY, ROUTER_FEE_BPS, deadlineFromNow, isEther } from '@/lib/chain';
 import { duration, feeTierLabel, shortWallet, usd } from '@/lib/format';
-import { allRouters, describeRouterError, readRouters, teamMinRate, type RouterView } from '@/lib/router/client';
+import {
+  ZERO_HOOK,
+  allRouters,
+  creatorsOf,
+  describeRouterError,
+  lookupToken,
+  readRouters,
+  teamMinRate,
+  tokensCreatedBy,
+  type Creator,
+  type RouterPool,
+  type RouterView,
+  type TokenLookup,
+  type TokenMetaLite,
+} from '@/lib/router/client';
 import { FACTORY_ABI, ROUTER_ABI } from '@/lib/router/plan';
 import { publicClient, walletClient } from '@/lib/v4/client';
 import { describeWalletError, ensureChain } from '@/lib/wallet';
@@ -28,11 +47,18 @@ const CADENCES = [
   { hours: 168, label: 'Weekly' },
 ];
 
-/** A pool the router can take: a key, ether on the other side, and no hook LockFi has not checked. */
-function routable(p: Pool): boolean {
-  if (!p.key || !p.stakeable) return false;
+/** A board token that trades against ETH: a starting point for the token picker. */
+function againstEth(p: Pool): boolean {
+  if (!p.key) return false;
   const other = p.key.currency0.toLowerCase() === p.token.address.toLowerCase() ? p.key.currency1 : p.key.currency0;
   return isEther(other);
+}
+
+function poolLabel(symbol: string, p: RouterPool): string {
+  const fee = (p.key.fee & 0x800000) !== 0 ? 'dynamic fee' : feeTierLabel(p.key.fee / 100);
+  const depth = p.liquidityUsd !== null ? usd(p.liquidityUsd) : BigInt(p.liquidity) > 0n ? 'liquidity on chain' : 'no liquidity yet';
+  const hook = p.key.hooks !== ZERO_HOOK ? ' · hook' : '';
+  return `${symbol} / ETH · Uniswap ${p.protocol} · ${fee}${hook} · ${depth}`;
 }
 
 function amount(wei: bigint, decimals = 18, digits = 4): string {
@@ -45,20 +71,21 @@ function amount(wei: bigint, decimals = 18, digits = 4): string {
 export function LiveRouter() {
   const snap = useMarket();
   const { wallet, openWallet, showToast } = useUi();
-  const pools = useMemo(() => [...snap.pools, ...(snap.otherPools ?? [])].filter(routable), [snap.pools, snap.otherPools]);
-
-  // token → its routable pools, deepest first
-  const tokens = useMemo(() => {
-    const by = new Map<string, Pool[]>();
-    for (const p of pools) {
-      const k = p.token.address.toLowerCase();
-      by.set(k, [...(by.get(k) ?? []), p]);
+  // the board's tokens against ETH, alphabetical: the picker's starting list
+  const boardTokens = useMemo(() => {
+    const by = new Map<string, TokenMetaLite>();
+    for (const p of [...snap.pools, ...(snap.otherPools ?? [])]) {
+      if (!againstEth(p)) continue;
+      by.set(p.token.address.toLowerCase(), { address: p.token.address, symbol: p.token.symbol, name: p.token.name, decimals: p.token.decimals });
     }
-    for (const list of by.values()) list.sort((a, b) => b.tvlUsd - a.tvlUsd);
-    return [...by.values()].sort((a, b) => a[0].token.symbol.localeCompare(b[0].token.symbol));
-  }, [pools]);
+    return [...by.values()].sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }, [snap.pools, snap.otherPools]);
 
   const [tokenAddr, setTokenAddr] = useState<string>('');
+  const [pasted, setPasted] = useState('');
+  const [lookup, setLookup] = useState<TokenLookup | null>(null);
+  const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'missing'>('idle');
+  const [myTokens, setMyTokens] = useState<(TokenMetaLite & { creator: Creator })[] | null>(null);
   const [poolId, setPoolId] = useState<string>('');
   const [hours, setHours] = useState(24);
   const [narrow, setNarrow] = useState(false);
@@ -67,23 +94,61 @@ export function LiveRouter() {
   const [created, setCreated] = useState<Address | null>(null);
   const [routers, setRouters] = useState<RouterView[] | null>(null);
   const [readError, setReadError] = useState(false);
+  const [creators, setCreators] = useState<Record<string, Creator | null>>({});
 
-  const tokenPools = tokens.find((l) => l[0].token.address.toLowerCase() === tokenAddr.toLowerCase()) ?? tokens[0] ?? [];
-  const pool = tokenPools.find((p) => p.id === poolId) ?? tokenPools[0];
+  // the connected wallet's own tokens, once per wallet
+  useEffect(() => {
+    setMyTokens(null);
+    if (!wallet) return;
+    let live = true;
+    void tokensCreatedBy(wallet.address).then((t) => {
+      if (!live) return;
+      setMyTokens(t ?? []);
+      // open on the first of them, unless a token is already chosen
+      if (t && t.length > 0) setTokenAddr((cur) => cur || t[0].address);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wallet]);
+
+  // the chosen token: its creator and its pools, from the chain
+  const chosen = tokenAddr || boardTokens[0]?.address || '';
+  useEffect(() => {
+    setLookup(null);
+    setPoolId('');
+    if (!chosen) return;
+    let live = true;
+    setLookupState('loading');
+    void lookupToken(chosen).then((l) => {
+      if (!live) return;
+      setLookup(l);
+      setLookupState(l ? 'idle' : 'missing');
+    });
+    return () => {
+      live = false;
+    };
+  }, [chosen]);
+
+  const pool = lookup?.pools.find((p) => p.id === poolId) ?? lookup?.pools[0];
+  const iCreatedIt = Boolean(wallet && lookup?.creator && lookup.creator.address === wallet.address.toLowerCase());
 
   const symbolOf = useCallback(
     (token: string) => {
-      const p = [...snap.pools, ...(snap.otherPools ?? [])].find((x) => x.token.address.toLowerCase() === token.toLowerCase());
-      return p ? { symbol: p.token.symbol, decimals: p.token.decimals } : { symbol: shortWallet(token), decimals: 18 };
+      const t = token.toLowerCase();
+      const known = [...boardTokens, ...(myTokens ?? []), ...(lookup ? [lookup.token] : [])].find((x) => x.address.toLowerCase() === t);
+      return known ? { symbol: known.symbol, decimals: known.decimals } : { symbol: shortWallet(token), decimals: 18 };
     },
-    [snap.pools, snap.otherPools],
+    [boardTokens, myTokens, lookup],
   );
 
   const reload = useCallback(async () => {
     try {
       const client = publicClient();
-      setRouters(await readRouters(client, await allRouters(client)));
+      const views = await readRouters(client, await allRouters(client));
+      setRouters(views);
       setReadError(false);
+      setCreators(await creatorsOf([...new Set(views.map((v) => v.token))]));
     } catch {
       setReadError(true);
     }
@@ -124,20 +189,18 @@ export function LiveRouter() {
   );
 
   const create = async () => {
-    if (!pool?.key || !ROUTER_FACTORY) return;
-    const k = pool.key;
-    const key = { currency0: k.currency0, currency1: k.currency1, fee: k.fee, tickSpacing: k.tickSpacing, hooks: k.hooks };
+    if (!pool || !lookup || !ROUTER_FACTORY) return;
     const cadence = hours * 3600;
     const r = (await send(
       'Creating the router…',
       ROUTER_FACTORY,
       FACTORY_ABI,
       pool.protocol === 'v4' ? 'createV4' : 'createV3',
-      pool.protocol === 'v4' ? [key, pool.token.address, cadence, narrow] : [pool.address, cadence, narrow],
+      pool.protocol === 'v4' ? [pool.key, lookup.token.address, cadence, narrow] : [pool.id, cadence, narrow],
     )) as Address | undefined;
     if (r) {
       setCreated(r);
-      showToast(`Router created for ${pool.token.symbol}`);
+      showToast(`Router created for ${lookup.token.symbol}`);
     }
   };
 
@@ -156,38 +219,110 @@ export function LiveRouter() {
       <div className="router">
         <div className="card panel">
           <h2 className="sect-h" style={{ marginBottom: 14 }}>Create a router</h2>
+          {myTokens && myTokens.length > 0 && (
+            <div className="field" data-testid="my-tokens">
+              <span className="lbl">Your tokens</span>
+              <div className="rt-mine">
+                {myTokens.map((t) => (
+                  <button
+                    key={t.address}
+                    type="button"
+                    className={`btn btn-ghost btn-sm${chosen.toLowerCase() === t.address.toLowerCase() ? ' on' : ''}`}
+                    onClick={() => {
+                      setTokenAddr(t.address);
+                      setCreated(null);
+                    }}
+                  >
+                    {t.symbol}
+                  </button>
+                ))}
+              </div>
+              <p className="hint">Found from the transactions that created them: this wallet sent each one.</p>
+            </div>
+          )}
+
           <div className="field">
-            <label htmlFor="r-token">Your token</label>
+            <label htmlFor="r-token">Token</label>
             <div className="inp" style={{ height: 44 }}>
-            <select
-              id="r-token"
-              value={tokenPools[0]?.token.address ?? ''}
-              onChange={(e) => {
-                setTokenAddr(e.target.value);
-                setPoolId('');
-                setCreated(null);
+              <select
+                id="r-token"
+                value={boardTokens.some((t) => t.address.toLowerCase() === chosen.toLowerCase()) ? chosen : ''}
+                onChange={(e) => {
+                  setTokenAddr(e.target.value);
+                  setCreated(null);
+                }}
+              >
+                {!boardTokens.some((t) => t.address.toLowerCase() === chosen.toLowerCase()) && (
+                  <option value="">{lookup ? `${lookup.token.symbol} · ${shortWallet(lookup.token.address)}` : 'Choose a token'}</option>
+                )}
+                {boardTokens.map((t) => (
+                  <option key={t.address} value={t.address}>
+                    {t.symbol} · {shortWallet(t.address)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <form
+              className="rt-paste"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const a = pasted.trim();
+                if (/^0x[0-9a-fA-F]{40}$/.test(a)) {
+                  setTokenAddr(a);
+                  setCreated(null);
+                  setPasted('');
+                }
               }}
             >
-              {tokens.map((l) => (
-                <option key={l[0].token.address} value={l[0].token.address}>
-                  {l[0].token.symbol} · {shortWallet(l[0].token.address)}
-                </option>
-              ))}
-            </select>
-            </div>
+              <label className="sr-only" htmlFor="r-paste">
+                Or paste a token address
+              </label>
+              <div className="inp" style={{ height: 38 }}>
+                <input id="r-paste" placeholder="Or paste a token address, 0x…" value={pasted} onChange={(e) => setPasted(e.target.value)} />
+              </div>
+              <button className="btn btn-ghost btn-sm" type="submit" disabled={!/^0x[0-9a-fA-F]{40}$/.test(pasted.trim())}>
+                Look up
+              </button>
+            </form>
+            {lookup && (
+              <p className="hint" data-testid="token-creator">
+                {iCreatedIt ? (
+                  <span className="pill up">You created this token</span>
+                ) : lookup.creator ? (
+                  <>
+                    Created by <code className="num">{shortWallet(lookup.creator.address)}</code>
+                    {lookup.creator.via ? ' through a launchpad' : ''}. You can still create a router; it will show as not
+                    the creator&apos;s.
+                  </>
+                ) : (
+                  'Its creator could not be read just now.'
+                )}
+              </p>
+            )}
+            {lookupState === 'missing' && <p className="hint down">That address does not answer as a token on this chain, or the lookup failed. Try again.</p>}
           </div>
 
           <div className="field">
             <label htmlFor="r-pool">Destination pool</label>
             <div className="inp" style={{ height: 44 }}>
-            <select id="r-pool" value={pool?.id ?? ''} onChange={(e) => setPoolId(e.target.value)}>
-              {tokenPools.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.token.symbol} / ETH · Uniswap {p.protocol} · {feeTierLabel(p.feeTierBps)} · {usd(p.tvlUsd)}
-                </option>
-              ))}
-            </select>
+              <select id="r-pool" value={pool?.id ?? ''} onChange={(e) => setPoolId(e.target.value)} disabled={!lookup || lookup.pools.length === 0}>
+                {lookupState === 'loading' && <option value="">Looking for pools on the chain…</option>}
+                {lookup?.pools.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {poolLabel(lookup.token.symbol, p)}
+                  </option>
+                ))}
+              </select>
             </div>
+            {lookup && lookup.pools.length === 0 && (
+              <p className="hint down">No pool with ETH on the other side was found for this token on Uniswap v3 or v4.</p>
+            )}
+            {pool && pool.key.hooks !== ZERO_HOOK && (
+              <p className="hint" data-testid="hook-warning">
+                This pool has a hook (<code className="num">{shortWallet(pool.key.hooks)}</code>): its code runs on every route.
+                The router never pays more than it planned, but a hook can refuse a route.
+              </p>
+            )}
             <p className="hint">Fees become liquidity in this pool, and it cannot be changed later.</p>
           </div>
 
@@ -233,7 +368,6 @@ export function LiveRouter() {
               {error}
             </p>
           )}
-          {!pool && <p className="hint">No listed pool can take a router yet: it needs ETH on the other side.</p>}
 
           {created && (
             <div className="note" style={{ marginTop: 12 }} data-testid="router-created">
@@ -316,7 +450,7 @@ export function LiveRouter() {
           <h2 className="sect-h">Your routers</h2>
           <div className="rt-list">
             {mine.map((r) => (
-              <RouterRow key={r.address} r={r} meta={symbolOf(r.token)} busy={busy} onCopy={copy}>
+              <RouterRow key={r.address} r={r} meta={symbolOf(r.token)} creator={creators[r.token.toLowerCase()]} busy={busy} onCopy={copy}>
                 {!r.paused && (
                   <button
                     className="btn btn-ghost btn-sm"
@@ -364,7 +498,7 @@ export function LiveRouter() {
         ) : (
           <div className="rt-list">
             {routers.map((r) => (
-              <RouterRow key={r.address} r={r} meta={symbolOf(r.token)} busy={busy} onCopy={copy} />
+              <RouterRow key={r.address} r={r} meta={symbolOf(r.token)} creator={creators[r.token.toLowerCase()]} busy={busy} onCopy={copy} />
             ))}
           </div>
         )}
@@ -376,11 +510,14 @@ export function LiveRouter() {
 function RouterRow({
   r,
   meta,
+  creator,
   onCopy,
   children,
 }: {
   r: RouterView;
   meta: { symbol: string; decimals: number };
+  /** The token's creator, per the chain; undefined while it is being read, null when it could not be. */
+  creator?: Creator | null;
   busy: string | null;
   onCopy: (a: string) => void;
   children?: React.ReactNode;
@@ -396,7 +533,18 @@ function RouterRow({
   return (
     <div className="rt-row" data-testid="router-row">
       <div className="rt-id">
-        <b>{meta.symbol}</b>
+        <b>
+          {meta.symbol}{' '}
+          {creator && creator.address === r.team.toLowerCase() ? (
+            <span className="pill up" title="The wallet that created this router is the wallet that created the token.">
+              token creator
+            </span>
+          ) : creator ? (
+            <span className="pill grey" title={`The token was created by ${creator.address}; this router by ${r.team}.`}>
+              not the creator
+            </span>
+          ) : null}
+        </b>
         <span className="muted">
           Uniswap {r.isV4 ? 'v4' : 'v3'} · {r.narrow ? '±20%' : 'full range'} · every {duration(r.cadence)}
         </span>

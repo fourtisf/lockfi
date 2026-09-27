@@ -30,6 +30,15 @@ import { chainPortfolioReader, chainScannerSource } from './chain-portfolio';
 import { buildPortfolio, type ChainPortfolioReader } from './portfolio';
 import { V4TokenScanner } from './v4-scanner';
 import { ExplorerPositions, type ExplorerFetch } from './explorer-positions';
+import { rpc } from '../chain/client';
+import {
+  RouterTokens,
+  dexscreenerV4PoolIds,
+  explorerCreationTx,
+  explorerInitializeTx,
+  explorerWalletTokens,
+  type ChainRead,
+} from './router-tokens';
 import { LiveReserves, type ReservesReader } from './live-reserves';
 import { recentHead } from './recent';
 import { AskError, DailyCounter, answer, parseAskBody, providerName, type AskConfig, type AskFetch } from './ask';
@@ -234,6 +243,8 @@ export async function buildServer(
     reservesReader?: ReservesReader | null;
     /** The assistant's settings and transport; a test passes a fake fetch. Defaults to `env.ai` and `fetch`. */
     ask?: { config?: AskConfig; fetch?: AskFetch };
+    /** The router page's token lookups (§49); a test passes its own, or null to turn them off. */
+    routerTokens?: RouterTokens | null;
   } = {},
 ): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
@@ -266,6 +277,21 @@ export async function buildServer(
   const askConfig: AskConfig = options.ask?.config ?? env.ai;
   const askFetch: AskFetch = options.ask?.fetch ?? ((url, init) => fetch(url, init));
   const askCounter = new DailyCounter(askConfig.dailyLimit);
+  const routerTokens =
+    options.routerTokens !== undefined
+      ? options.routerTokens
+      : new RouterTokens({
+          read: ((fn) => rpc(fn as never, 'router lookup')) as ChainRead,
+          creationTx: explorerCreationTx(env.explorerApiUrl),
+          walletTokens: explorerWalletTokens(env.explorerApiUrl),
+          v4PoolIds: dexscreenerV4PoolIds(env.dexscreenerUrl, env.dexscreenerChain),
+          initializeTx: explorerInitializeTx(env.explorerApiUrl),
+          knownPools: async () => {
+            const s = await snapshot().catch(() => null);
+            return s ? [...s.pools, ...(s.otherPools ?? [])] : [];
+          },
+          log: (line) => app.log.warn(line),
+        });
   const reserves =
     options.reservesReader === null || (options.reservesReader === undefined && process.env.LIVE_RESERVES === 'false')
       ? null
@@ -876,6 +902,33 @@ export async function buildServer(
    * panel rather than offer a box that always fails; POST answers from the
    * snapshot's own figures for the pool named.
    */
+  // ── the router page's lookups (§49) ──────────────────────────────────────────
+  const isAddr = (a: string | undefined): a is string => typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a);
+  app.get<{ Querystring: { wallet?: string } }>('/api/router/mine', async (request, reply) => {
+    if (!routerTokens) return reply.code(503).send({ error: 'off' });
+    const wallet = request.query.wallet;
+    if (!isAddr(wallet)) return reply.code(400).send({ error: 'bad-address', message: 'Not an address.' });
+    const tokens = await routerTokens.createdBy(wallet);
+    return reply.header('cache-control', 'no-store').send({ wallet: wallet.toLowerCase(), tokens });
+  });
+  app.get<{ Params: { address: string } }>('/api/router/token/:address', async (request, reply) => {
+    if (!routerTokens) return reply.code(503).send({ error: 'off' });
+    const token = request.params.address;
+    if (!isAddr(token)) return reply.code(400).send({ error: 'bad-address', message: 'Not an address.' });
+    const [meta, creator, pools] = await Promise.all([
+      routerTokens.tokenMeta(token),
+      routerTokens.creatorOf(token),
+      routerTokens.poolsFor(token),
+    ]);
+    if (!meta) return reply.code(404).send({ error: 'not-a-token', message: 'That address does not answer as a token on this chain.' });
+    return reply.header('cache-control', 'no-store').send({ token: meta, creator, pools });
+  });
+  app.get<{ Querystring: { tokens?: string } }>('/api/router/creators', async (request, reply) => {
+    if (!routerTokens) return reply.code(503).send({ error: 'off' });
+    const tokens = (request.query.tokens ?? '').split(',').filter(isAddr).slice(0, 100);
+    return reply.header('cache-control', 'no-store').send({ creators: await routerTokens.creatorsOf(tokens) });
+  });
+
   app.get('/api/ask', async (_request, reply) =>
     reply.header('cache-control', 'no-store').send({
       enabled: askConfig.apiKey !== '',
