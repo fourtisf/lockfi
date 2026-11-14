@@ -3,7 +3,8 @@
 # First-time server setup for tidewell.live. Run once, as root, on a fresh
 # Ubuntu VPS whose DNS already points here.
 #
-#   bash deploy/bootstrap.sh
+#   bash deploy/bootstrap.sh                    # the site shows the indexer's numbers
+#   DATA_SOURCE=sim bash deploy/bootstrap.sh    # the site shows the simulator
 #
 # Safe to re-run: it skips what already exists. It does not reboot and it does
 # not apply system updates — do both yourself first.
@@ -16,11 +17,63 @@ REPO=https://github.com/fourtisf/lockfi.git
 BRANCH="${DEPLOY_BRANCH:-claude/happy-johnson-9vztsw}"
 NODE_MAJOR=20
 
+# What the site shows. `live` reads the indexer, which on a fresh box has
+# nothing yet, so every page honestly says "waiting for the indexer" until the
+# first sync reaches the chain head. `sim` is the simulator, labelled
+# Simulated on every page, for a full preview meanwhile. The indexer runs and
+# syncs in either mode; deploy/data-source.sh switches later.
+#
+# Read once and unset: from here on .env is the only place it lives, so the
+# build cannot quietly pick up a value from this shell instead.
+DATA_SOURCE_GIVEN=${DATA_SOURCE+1}
+SITE_DATA=${DATA_SOURCE:-live}
+unset DATA_SOURCE
+[[ "$SITE_DATA" == live || "$SITE_DATA" == sim ]] \
+  || { echo "DATA_SOURCE must be live or sim, not '$SITE_DATA'"; exit 1; }
+
 [[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }
 
 # runuser rather than sudo: it is part of util-linux, so it is always present,
 # and it is the right tool for root dropping to a service account.
 as_app() { runuser -u "$APP_USER" -- "$@"; }
+
+echo "==> does $DOMAIN point here?"
+# The certificate is the last step. Finding out there that DNS is wrong costs
+# ten minutes of installs and leaves a half-configured box, so ask first.
+#
+# Exact match, not "contains": a new domain's zone often still carries the
+# registrar's parking A record beside ours, and Let's Encrypt may ask either.
+# And an AAAA record pointing anywhere else fails the certificate outright,
+# because Let's Encrypt tries IPv6 first.
+if [[ "${SKIP_DNS_CHECK:-0}" != 1 ]]; then
+  here4=$(curl -4 -fsS --max-time 10 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+  here6=$(ip -6 addr show scope global 2>/dev/null | awk '/inet6/ {sub(/\/.*/, "", $2); print $2}' || true)
+  dns_ok=1
+  for name in "$DOMAIN" "www.$DOMAIN"; do
+    got4=$( { getent ahostsv4 "$name" || true; } | awk '{print $1}' | sort -u | paste -sd' ')
+    if [[ "$got4" == "$here4" ]]; then
+      echo "   $name -> $got4  ok"
+    else
+      echo "   !! $name resolves to '${got4:-nothing}', but this server is $here4"
+      dns_ok=0
+    fi
+    for ip6 in $( { getent ahosts "$name" || true; } | awk '$1 ~ /:/ && $1 !~ /^::ffff:/ {print $1}' | sort -u); do
+      if ! grep -qxF "$ip6" <<<"$here6"; then
+        echo "   !! $name has an AAAA record ($ip6) that is not this server"
+        dns_ok=0
+      fi
+    done
+  done
+  if [[ $dns_ok != 1 ]]; then
+    echo
+    echo "   Fix the DNS zone for $DOMAIN at the registrar: exactly one A record for"
+    echo "   @ and one for www, both $here4, and no AAAA record unless it is this"
+    echo "   server's own IPv6. Changes can take a few minutes to be seen. Then run"
+    echo "   this script again — nothing has been installed yet."
+    echo "   (SKIP_DNS_CHECK=1 skips this check, if you know better.)"
+    exit 1
+  fi
+fi
 
 # A server with unrelated broken third-party repositories — an unsigned
 # ClickHouse list, an expired GitHub CLI key — makes `apt-get update` exit
@@ -147,16 +200,18 @@ if [[ ! -f "$APP_DIR/.env" ]]; then
     runuser -u postgres -- psql -p "$PG_PORT" -qc "ALTER ROLE $DB_USER PASSWORD '$DB_PASS'"
   fi
   cat > "$APP_DIR/.env" <<ENVEOF
-DATA_SOURCE=live
+# DATA_SOURCE: live = the indexer's numbers, sim = the simulator. Fixed when
+# the site is BUILT, so change it with deploy/data-source.sh, which rebuilds.
+DATA_SOURCE=$SITE_DATA
 DATABASE_URL="postgresql://$DB_USER:$DB_PASS@127.0.0.1:$PG_PORT/$DB_NAME?schema=public"
 REDIS_URL="redis://127.0.0.1:6379"
 API_PORT=3001
 API_HOST=127.0.0.1
 START_BLOCK=0
 INDEXER_BLOCK_RANGE=2000
-# THE INDEXER WILL NOT START WITHOUT THIS.
-# USDG is the day-one stablecoin on this chain, not USDC, and the WETH/USDG
-# pool is the site's one USD anchor. Look it up on the explorer and set it.
+# Optional. Left blank, the indexer finds the WETH/USDG pool itself — the
+# site's one USD anchor — and /api/health says which token it chose and why.
+# Set it only to pin a specific token.
 USDG_ADDRESS=
 LAUNCHPAD_HOOKS=
 V3_POOLS=
@@ -179,6 +234,10 @@ else
     chmod --reference="$APP_DIR/.env" "$TMP_ENV"
     mv "$TMP_ENV" "$APP_DIR/.env"
     echo "      corrected to $PG_PORT"
+  fi
+  # ...and the data source, but only when this run was asked for one.
+  if [[ -n "$DATA_SOURCE_GIVEN" ]]; then
+    bash "$APP_DIR/deploy/data-source.sh" "$SITE_DATA" --no-build
   fi
 fi
 
@@ -286,15 +345,24 @@ nginx -t && systemctl reload nginx
 
 echo
 echo "done — https://$DOMAIN"
-echo "prove the renewal path works:  certbot renew --dry-run"
 echo
-if ! grep -qE '^USDG_ADDRESS=.+' "$APP_DIR/.env"; then
-  echo "!! USDG_ADDRESS is still blank in $APP_DIR/.env."
-  echo "   balast-indexer will refuse to start until it is set — deliberately,"
-  echo "   because without the WETH/USDG anchor every USD figure reads zero."
-  echo "   Find USDG on the explorer, set it, then:"
-  echo "     pm2 restart balast-indexer --update-env"
-  echo
+if grep -qE '^DATA_SOURCE=sim' "$APP_DIR/.env"; then
+  echo "The site shows the SIMULATOR: generated numbers, labelled Simulated on every"
+  echo "page. The indexer is syncing the real chain meanwhile. Once it has caught up,"
+  echo "switch the site to real numbers with:"
+  echo "  bash $APP_DIR/deploy/data-source.sh live"
+else
+  echo "The site shows the indexer's REAL numbers. Until the first sync reaches the"
+  echo "chain head it says \"waiting for the indexer\" — that is correct, not broken."
+  echo "For a full preview meanwhile, labelled Simulated:"
+  echo "  bash $APP_DIR/deploy/data-source.sh sim"
 fi
-echo "watch it index:   pm2 logs balast-indexer"
-echo "check the lag:    curl -s localhost:3001/api/health | head -20"
+echo
+# The processes belong to $APP_USER, so a bare `pm2 status` as root asks a
+# different, empty PM2 and reports nothing running — which looks like failure.
+echo "the processes run as $APP_USER, so ask pm2 as $APP_USER:"
+echo "  runuser -u $APP_USER -- pm2 status"
+echo "  runuser -u $APP_USER -- pm2 logs balast-indexer"
+echo "indexer progress:          curl -s localhost:3001/api/health"
+echo "prove renewal works:       certbot renew --dry-run"
+echo "one answer if not right:   bash $APP_DIR/deploy/doctor.sh"

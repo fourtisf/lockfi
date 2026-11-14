@@ -35,7 +35,7 @@ Three processes in production, and P1 adds the last two:
 
 ```bash
 cp .env.example .env
-# Set DATABASE_URL, and USDG_ADDRESS — the indexer refuses to start without it.
+# Set DATABASE_URL. USDG_ADDRESS is optional: the indexer finds the anchor itself.
 # Each server entry point reads .env itself (server/load-env.ts): Node does
 # not read one, and neither does PM2, so nothing else would.
 npm run db:migrate
@@ -229,7 +229,11 @@ is one line in `.env`.
 
 ```bash
 # first time, as root, on a box whose DNS already points here
-bash deploy/bootstrap.sh
+bash deploy/bootstrap.sh                    # the site shows the indexer's numbers
+DATA_SOURCE=sim bash deploy/bootstrap.sh    # the site shows the simulator
+
+# switch what the site shows later; rebuilds, because it is fixed at build time
+bash /var/www/balast/deploy/data-source.sh live
 
 # every time after: deploys the branch the box is on
 bash /var/www/balast/deploy/deploy.sh
@@ -280,8 +284,27 @@ runs the migrations, starts the three PM2 processes and obtains the
 certificate. It is safe to re-run: it skips what exists and never regenerates
 the password or overwrites `.env`.
 
-It will finish with `USDG_ADDRESS` still blank and tell you so. Set it, then
-`pm2 restart balast-indexer --update-env`.
+**On an empty server**, clone the repository anywhere first and run the
+script from there; it clones its own copy into `/var/www/balast`:
+
+```bash
+git clone --branch claude/happy-johnson-9vztsw https://github.com/fourtisf/lockfi.git /root/lockfi
+bash /root/lockfi/deploy/bootstrap.sh
+```
+
+It checks DNS before installing anything: the A records for the apex and
+`www` must be exactly this server, and an AAAA record pointing anywhere else
+stops it, because Let's Encrypt tries IPv6 first and the certificate would
+fail ten minutes later.
+
+`USDG_ADDRESS` is left blank on purpose: the indexer finds the WETH/USDG
+anchor itself and `/api/health` says which token it chose.
+
+**What the site shows** is `DATA_SOURCE`, and Next.js inlines it at build
+time, so editing `.env` and restarting changes nothing. `data-source.sh`
+writes it and rebuilds. On a fresh box `live` says "waiting for the indexer"
+until the first sync reaches the chain head; `sim` is a full preview labelled
+Simulated on every page. The indexer syncs in either mode.
 
 The pieces:
 
@@ -290,6 +313,7 @@ The pieces:
 | `ecosystem.config.js` | PM2: `balast-web`, `balast-api`, `balast-indexer` |
 | `deploy/nginx.conf` | TLS, security headers, `/api/` (never cached), `/api/stream` (websocket, 1h timeout), immutable `/_next/static` |
 | `deploy/nginx-bootstrap.conf` | HTTP-only first pass, so certbot has something to answer with |
+| `deploy/data-source.sh` | switch the site between `live` and `sim`, and rebuild |
 | `deploy/upgrade-map.conf` | the `$connection_upgrade` map — only install it if nothing else on the box defines one |
 | `.nvmrc` | Node version, also used by CI |
 
@@ -300,10 +324,12 @@ broken link fails `nginx -t` and blocks reloads for every site on the machine.
 And check for an existing `$connection_upgrade` before installing the map — a
 duplicate `map` fails the same test.
 
-Watching it work:
+Watching it work. The processes belong to `balast`, so ask PM2 as `balast` —
+a bare `pm2 status` as root asks a different, empty PM2 and shows nothing:
 
 ```bash
-pm2 logs balast-indexer
+runuser -u balast -- pm2 status
+runuser -u balast -- pm2 logs balast-indexer
 curl -s localhost:3001/api/health
 ```
 

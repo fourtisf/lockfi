@@ -38,8 +38,9 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3000,
-        // P1: the front end reads the indexer through the API.
-        DATA_SOURCE: 'live',
+        // No DATA_SOURCE here. next.config.mjs inlines it when the site is
+        // BUILT, from .env, so a value here changes nothing at runtime and
+        // only looks authoritative. deploy/data-source.sh switches it.
       },
       error_file: '/var/log/balast/web.error.log',
       out_file: '/var/log/balast/web.out.log',

@@ -69,9 +69,10 @@ export DATABASE_URL
 # DATABASE_URL present even though it never connects.
 as_app env DATABASE_URL="$DATABASE_URL" npm ci
 
-# DATA_SOURCE comes from .env and ecosystem.config.js, not from here. Pinning
+# DATA_SOURCE comes from .env, which the build reads, not from here. Pinning
 # it on the build line is how a box ends up serving simulated numbers because
-# someone forgot to change one word in a script.
+# someone forgot to change one word in a script. deploy/data-source.sh is the
+# one way to change it.
 as_app npm run build
 
 # Migrations before the reload: the new code may need the new columns, and

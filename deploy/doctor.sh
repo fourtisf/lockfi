@@ -98,15 +98,23 @@ else
   START_BLOCK=$(env_get START_BLOCK)
   V3_FACTORY=$(env_get V3_FACTORY)
 
+  case "$(env_get DATA_SOURCE)" in
+    sim)  ok "DATA_SOURCE sim — the site shows the simulator, labelled Simulated" ;;
+    live) ok "DATA_SOURCE live — the site shows the indexer's numbers" ;;
+    *)    warn "DATA_SOURCE unset or unknown — the build falls back to sim"
+          also "bash $APP_DIR/deploy/data-source.sh live" ;;
+  esac
+
   [[ -n "$DB_URL" ]] && ok "DATABASE_URL set" || {
     bad "DATABASE_URL is empty"
     first "bash $APP_DIR/deploy/bootstrap.sh   # rewrites .env"
   }
 
   if [[ -z "$USDG" ]]; then
-    # Not a warning. The indexer will not start, by design.
-    bad "USDG_ADDRESS is empty — the indexer refuses to start without it"
-    also "cd $APP_DIR && npm run find:tokens   # then ./deploy/set-env.sh USDG_ADDRESS 0x..."
+    # Blank is the normal case since §17: the indexer discovers the anchor
+    # itself. This used to say BAD, which on a fresh box sent the operator
+    # looking up an address nothing needed.
+    ok "USDG_ADDRESS blank — the indexer discovers the anchor (usdgSource in /api/health)"
   elif [[ ! "$USDG" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
     bad "USDG_ADDRESS is not an address: $USDG"
     also "cd $APP_DIR && ./deploy/set-env.sh USDG_ADDRESS 0x..."

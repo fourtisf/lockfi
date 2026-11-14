@@ -1319,6 +1319,34 @@ certificate the box does not have, because that config passes nothing at the
 time and takes the site down at the next nginx restart. Both configs were run
 under a real nginx with throwaway certificates and every redirect probed.
 
+### The first deploy on an empty server
+
+The tidewell.live VPS is a fresh box — no `balast` user, nothing in
+`/var/www` — so it takes `bootstrap.sh`, not `deploy.sh`. Four things in that
+path were wrong for a first run and are fixed:
+
+- **DNS is checked before anything is installed.** The certificate was the
+  last step, so a wrong record surfaced after ten minutes of installs on a
+  half-configured box. The A records for the apex and `www` must be exactly
+  this server — a registrar's parking record left beside ours is refused — and
+  an AAAA record pointing elsewhere is refused too, because Let's Encrypt tries
+  IPv6 first.
+- **What the site shows is chosen, not assumed.** `DATA_SOURCE` is inlined by
+  `next.config.mjs` at build time, so editing `.env` and restarting changed
+  nothing, and `ecosystem.config.js` carried a `DATA_SOURCE: 'live'` that did
+  nothing at all while looking authoritative. It is gone. `bootstrap.sh` takes
+  `DATA_SOURCE=sim|live` (default `live`) and `deploy/data-source.sh` switches
+  later and rebuilds. On a fresh box `live` honestly says "waiting for the
+  indexer" until the first sync reaches head; `sim` is labelled Simulated on
+  every page. The indexer syncs in either mode.
+- **Two diagnostics still said the indexer refuses to start without
+  `USDG_ADDRESS`.** Untrue since §17's anchor discovery. `bootstrap.sh` ended
+  on that warning and `doctor.sh` reported it as BAD — the same invented
+  failure §17 recorded once already. Blank is now reported as normal.
+- **`pm2` as root shows an empty list**, because the processes belong to
+  `balast`. Every instruction printed or documented now says
+  `runuser -u balast -- pm2 …`.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in
