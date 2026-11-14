@@ -7,7 +7,9 @@ import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { DATA_SOURCE } from '@/lib/data';
 import { usd, usdExact } from '@/lib/format';
-import { Mark } from './Logo';
+import { BRAND } from '@/lib/site';
+import { Lockup, Mark } from './Logo';
+import { NavLinks } from './Nav';
 
 /** Above this the indexer is behind and the top bar has to say so (§7). */
 const LAG_THRESHOLD_SECONDS = 30;
@@ -56,9 +58,16 @@ export function TopBar() {
   return (
     <header className="top">
       <div className="top-in">
-        <Link href="/pools" className="brand-m" aria-label="Balast, pools">
-          <Mark size={28} />
+        <Link href="/pools" className="brand" aria-label={`${BRAND}, pools`}>
+          <span className="brand-full">
+            <Lockup size={28} />
+          </span>
+          <span className="brand-m">
+            <Mark size={28} />
+          </span>
         </Link>
+
+        <NavLinks />
 
         <div className="search">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -77,14 +86,6 @@ export function TopBar() {
             autoComplete="off"
           />
           <kbd aria-hidden="true">/</kbd>
-        </div>
-
-        {/* Every figure here is summed from the pools below it (§12). */}
-        <div className="tstats">
-          <Stat label="TVL" value={usdExact(global.tvlUsd)} />
-          <Stat label="Fees 24h" value={usdExact(featured.fees24hUsd)} />
-          <Stat label="Volume 24h" value={usd(featured.volume24hUsd)} />
-          <Stat label="ETH" value={usdExact(global.ethPriceUsd, 2)} />
         </div>
 
         <div className="top-r">
@@ -115,6 +116,22 @@ export function TopBar() {
             </svg>
             <span className="wallet-long">{wallet ?? 'Connect wallet'}</span>
           </button>
+        </div>
+      </div>
+
+      {/* The market strip. Every figure is summed from the pools (§12). */}
+      <div className="strip">
+        <div className="strip-in">
+          <div className="tstats">
+            <Stat label="TVL" value={usdExact(global.tvlUsd)} />
+            <Stat label="Fees 24h" value={usdExact(featured.fees24hUsd)} />
+            <Stat label="Volume 24h" value={usd(featured.volume24hUsd)} />
+            <Stat label="ETH" value={usdExact(global.ethPriceUsd, 2)} />
+          </div>
+          {simulated && (
+            // Said in words, where it cannot be mistaken for a live feed (§7).
+            <p className="strip-note">Simulated data · numbers are generated and no transaction is ever sent</p>
+          )}
         </div>
       </div>
     </header>

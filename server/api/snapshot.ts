@@ -433,7 +433,7 @@ async function queryPortfolio(wallet: string | null): Promise<Portfolio> {
 /**
  * The router plan.
  *
- * `BalastRouter` is P4, so nothing has accrued and nothing has been routed.
+ * `TidewellRouter` is P4, so nothing has accrued and nothing has been routed.
  * The current depth is real — it is the pool's own — and everything that
  * depends on a fee stream is zero.
  */

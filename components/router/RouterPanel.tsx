@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { usd, usdExact } from '@/lib/format';
+import { BRAND } from '@/lib/site';
 
 type Trigger = 'cadence' | 'milestone';
 interface Milestone {
@@ -234,7 +235,7 @@ export function RouterPanel() {
         <div className="note" style={{ marginTop: 8 }}>
           <b>Routed liquidity is permanent.</b>
           <p className="hint">
-            Once fees become pool depth they cannot be withdrawn — not by you, not by Balast, not by
+            Once fees become pool depth they cannot be withdrawn — not by you, not by {BRAND}, not by
             anyone. Pausing stops future routes and releases only fees that have not been routed
             yet. The keeper can trigger a route but never receives funds, and the destination pool
             cannot be changed.

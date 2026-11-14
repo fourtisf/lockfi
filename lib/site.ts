@@ -3,7 +3,16 @@
  * metadata, Open Graph cards, the nginx config and every link we ever print.
  */
 
-/** The apex domain. No protocol, no trailing slash. */
+/** The product's name, everywhere it is printed (§19). */
+export const BRAND = 'Tidewell';
+
+/**
+ * The apex domain. No protocol, no trailing slash.
+ *
+ * Still the Balast domain: the product was renamed Tidewell (§19) and no
+ * Tidewell domain has been registered yet. Change this one line when one is,
+ * together with deploy/nginx.conf.
+ */
 export const DOMAIN = 'balast.xyz';
 
 export const SITE_URL = `https://${DOMAIN}`;

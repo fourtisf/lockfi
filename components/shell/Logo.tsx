@@ -1,104 +1,94 @@
+'use client';
+
+import { useId } from 'react';
+import { BRAND } from '@/lib/site';
+
 /**
- * The Balast mark: two solid blocks tapering toward a central gap.
+ * The Tidewell mark: a well seen from above, filled to the tide line.
  *
- * Heavy at the edges, void in the middle — the bid-ask distribution
- * `BalastShaper` mints, drawn at brand scale. The meaning lives in a wide void
- * rather than a hairline, which is why this cut needs no small-size variant:
- * the gap is 5 of 32 units, still 2.5px at favicon size.
+ * The ring is the well; the water inside it is a wave, so the level reads as
+ * something that rises and falls. That is the product's one promise in a
+ * picture: the yield fills with real trading volume and drops when it drops.
  *
- * Construction, on a 32 × 32 grid (32 halves cleanly to 16, so every even
- * coordinate lands on a whole pixel in the favicon):
+ * Construction, on a 32 × 32 grid:
  *
- *   outer edges    x = 5 and 27, full height from y = 6 to 26
- *   inner edges    x = 13.5 and 18.5, starting lower at y = 13
- *   central gap    5 units
- *   ink box        23.6 × 21.6, centred on (16, 16)
- *
- * The corners are softened by a same-colour stroke with round joins, which
- * matches the product's radius language without moving the silhouette.
+ *   ring           centre (16, 16), radius 12.2, stroke 2.4
+ *   water          clipped to radius 11, so a 1.2-unit gap separates it from
+ *                  the ring at every size down to a 16px favicon
+ *   tide line      a sine wave of four half-periods from x = 3 to x = 29.4,
+ *                  mean height y = 17.5, amplitude 2.4
  *
  * The distributable files in brand/ are generated from these same numbers by
  * scripts/build-brand.py — change one, rerun `npm run brand`.
  */
 
-const BLOCK_NEAR = 'M 5 6 L 13.5 13 L 13.5 26 L 5 26 Z';
-const BLOCK_FAR = 'M 27 6 L 18.5 13 L 18.5 26 L 27 26 Z';
-const JOIN = 1.6;
+export const MARK = {
+  ring: { cx: 16, cy: 16, r: 12.2, stroke: 2.4 },
+  clipR: 11,
+  water:
+    'M3 17.5c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 6.6 0 4.4 2.4 6.6 0V30H3z',
+} as const;
 
 export interface MarkProps {
   /** Rendered size in px. */
   size?: number;
-  /**
-   * `duo` is the primary: the near block in the accent, the far one in the
-   * deep accent, so the pair reads as depth rather than as two bars. `mono`
-   * is the one-colour version every token list and block explorer will use.
-   */
-  tone?: 'duo' | 'mono';
-  /** Any CSS colour. Overrides both blocks. */
+  /** Any CSS colour. Defaults to the brand teal. */
   color?: string;
   title?: string;
   className?: string;
 }
 
-export function Mark({ size = 32, tone = 'duo', color, title, className }: MarkProps) {
-  const near = color ?? 'var(--ac)';
-  const far = color ?? (tone === 'duo' ? 'var(--ac-3)' : 'var(--ac)');
+export function Mark({ size = 32, color = 'var(--ac)', title, className }: MarkProps) {
+  // A clip path id has to be unique on the page; the mark appears more than once.
+  const clip = `tw-${useId().replace(/:/g, '')}`;
   const labelled = title
     ? { role: 'img' as const, 'aria-label': title }
     : { 'aria-hidden': true };
 
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" className={className} {...labelled}>
-      {([[BLOCK_NEAR, near], [BLOCK_FAR, far]] as const).map(([d, fill]) => (
-        <path
-          key={d}
-          d={d}
-          fill={fill}
-          stroke={fill}
-          strokeWidth={JOIN}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      ))}
+      <defs>
+        <clipPath id={clip}>
+          <circle cx={MARK.ring.cx} cy={MARK.ring.cy} r={MARK.clipR} />
+        </clipPath>
+      </defs>
+      <circle
+        cx={MARK.ring.cx}
+        cy={MARK.ring.cy}
+        r={MARK.ring.r}
+        fill="none"
+        stroke={color}
+        strokeWidth={MARK.ring.stroke}
+      />
+      <path d={MARK.water} fill={color} clipPath={`url(#${clip})`} />
     </svg>
   );
 }
 
-/**
- * Mark plus wordmark.
- *
- * At a font size of 0.62 × the mark's box, JetBrains Mono's cap height puts
- * the mark's ink at 1.491 × the caps. The flex gap sits between the two boxes
- * and the mark carries 4.2 units of padding inside its own, so the optical
- * gap lands near 0.36 × the box.
- */
+/** Mark plus wordmark, in Sora at 600 — the display face the app ships. */
 export function Lockup({
-  size = 26,
-  tone = 'duo',
+  size = 28,
   color,
   wordColor = 'var(--fg)',
 }: {
   size?: number;
-  tone?: 'duo' | 'mono';
   color?: string;
   wordColor?: string;
 }) {
   return (
-    <span
-      className="lockup"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: size * 0.22 }}
-    >
-      <Mark size={size} tone={tone} color={color} />
+    <span className="lockup" style={{ display: 'inline-flex', alignItems: 'center', gap: size * 0.34 }}>
+      <Mark size={size} color={color} />
       <span
         style={{
-          fontSize: size * 0.62,
-          fontWeight: 700,
-          letterSpacing: '.14em',
+          fontFamily: 'var(--disp)',
+          fontSize: size * 0.76,
+          fontWeight: 600,
+          letterSpacing: '-.02em',
           color: wordColor,
           lineHeight: 1,
         }}
       >
-        BALAST
+        {BRAND}
       </span>
     </span>
   );

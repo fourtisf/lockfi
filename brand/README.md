@@ -1,90 +1,40 @@
-# Balast — brand assets
+# Tidewell — brand assets
 
 Generated, not hand-edited. Change the geometry in `components/shell/Logo.tsx`
 and `scripts/build-brand.py`, then rerun:
 
 ```bash
-npm run brand          # SVGs, then PNGs
+npm run brand          # SVGs, then PNGs, then public/og-card.png
 ```
 
-The wordmark is outlined from JetBrains Mono at weight 700 — the same variable
-font the app ships, instanced at 700 — so **no file here depends on a font
-being installed**. The generator reads that font out of `.next/`, so
-`npm run build` has to have run at least once.
+The wordmark is outlined from Sora at weight 600 and the card copy from
+Manrope — the same variable fonts the app ships, instanced — so **no file here
+depends on a font being installed**. The generator reads those fonts out of
+`.next/`, so `npm run build` has to have run at least once.
+
+## The mark
+
+A well seen from above, filled to the tide line: the yield fills with real
+trading volume and drops when it drops. On a 32 × 32 grid, a ring of radius
+12.2 (stroke 2.4) around water clipped to radius 11, so a clear gap separates
+the two at every size down to a 16px favicon. One colour, always: the brand
+teal `#0B6E86`, white on the brand ground, or ink `#0C1E24`.
 
 ## Which file
 
 | Use | File |
 |---|---|
-| X / Telegram avatar, app stores, wallet lists | `icon-black-1024.png` — full bleed, black to every edge |
-| The same, one colour | `icon-black-mono-1024.png` |
-| Where you want the squircle yourself | `icon-black-rounded-1024.png` — corners transparent |
-| On the app's own ground rather than black | `icon-app-ground-1024.png` |
-| Inverted, on accent | `icon-accent-1024.png` |
+| X / Telegram avatar, app stores, wallet lists | `icon-brand-1024.png` — full bleed, brand to every edge |
+| Where you want the squircle yourself | `icon-brand-rounded-1024.png` — corners transparent |
+| On the app's light ground | `icon-light-rounded-1024.png` |
 | iOS home screen | `apple-touch-icon-180.png` |
-| Browser tab | `favicon.svg`, `favicon-16/32/48.png` |
-| The mark alone, dark ground | `balast-mark.svg`, `balast-mark-1024.png` |
-| The mark alone, light ground | `balast-mark-light.svg` |
-| Inside a React component | `balast-mark-currentcolor.svg`, or `<Mark>` from `components/shell/Logo.tsx` |
-| One colour, dark ink / knocked out | `balast-mark-black.svg` · `balast-mark-white.svg` |
-| Full logo, dark ground | `balast-lockup.svg`, `balast-lockup-1200.png` |
-| Full logo, light ground | `balast-lockup-light.svg`, `balast-lockup-light-1200.png` |
-| Link previews on X, Telegram, Discord, Slack | `og-card.png` — 1200 × 630, also served at `/og-card.png` |
+| Browser tab | `favicon.svg`, `favicon-16/32/48.png` (also `app/icon.svg`) |
+| The mark alone | `tidewell-mark.svg`, `tidewell-mark-1024.png` |
+| One colour, ink / knocked out | `tidewell-mark-ink.svg` · `tidewell-mark-white.svg` |
+| Inside a React component | `tidewell-mark-currentcolor.svg`, or `<Mark>` from `components/shell/Logo.tsx` |
+| Full logo, light ground | `tidewell-lockup.svg`, `tidewell-lockup-1200.png` |
+| Full logo, brand or dark ground | `tidewell-lockup-white.svg`, `tidewell-lockup-white-1200.png` |
+| Social card | `og-card.png` (1200 × 630; copied to `public/`) |
 
-**No PNG here has a white pixel in it.** Every one is rasterised with
-`omitBackground`, so whatever the SVG does not paint stays transparent. That
-is not cosmetic: with a page background behind them, Chromium fills the area
-outside a rounded corner with white, and the icon ships with four white
-notches. It did, once.
-
-Prefer **full bleed** for avatars and stores. Every one of those surfaces
-applies its own rounded mask, and a pre-rounded PNG inside their mask shows a
-sliver of whatever sits behind it.
-
-## The rules that matter
-
-**Minimum size.** 16px. The mark needs no small-size variant: its meaning is
-a 5-unit central void rather than a hairline, so it is still 2.5px of clear
-gap at favicon size.
-
-**Clear space.** Half the mark's height on every side. Nothing intrudes.
-
-**Colour.** One accent. `#3DD68C` on dark, `#1E5E43` on light — the latter is
-7.0:1 against `#F2F5F3`, so it clears AA for a graphical object with room to
-spare. Never colour the contours separately: §5 allows one accent, and red
-means a negative number and nothing else.
-
-**Proportion.** In the lockup the mark's ink is **1.491×** the wordmark's cap
-height, and the optical gap is 0.62× cap height.
-
-**Don't** flip or rotate the mark, close up the central gap, or scale it
-non-uniformly. The gap is the idea.
-
-## Construction
-
-32 × 32 grid, because 32 halves cleanly to 16 and every even coordinate lands
-on a whole pixel in the favicon.
-
-| | |
-|---|---|
-| Outer edges | x = 5 and 27, full height y = 6 to 26 |
-| Inner edges | x = 13.5 and 18.5, starting lower at y = 13 |
-| Central gap | 5 units |
-| Corner softening | a same-colour stroke, width 1.6, round joins |
-| Ink box | 23.6 × 21.6, centred on (16, 16) |
-
-Two solid blocks tapering toward a central gap: heavy at the edges, void in
-the middle. That is the bid-ask distribution `BalastShaper` mints, so the shape
-says something specific about this product rather than being a generic angular
-mark.
-
-One thing worth knowing, recorded rather than hidden: the silhouette reads as
-the letter M, which is a mismatch for a product called Balast and is why the
-shape feels familiar — angular M marks are a crowded space.
-
-Every text outline here — the wordmark and all three rows of the Open Graph
-card — comes from the same `outline()` helper, so nothing in `brand/` needs a
-font installed to render correctly.
-
-Full specification: `CLAUDE.md` §5 and §13, and the mark's own source in
-`components/shell/Logo.tsx`.
+The social card carries no URL: no Tidewell domain is registered yet (§19).
+Add one to `scripts/build-brand.py` when there is.

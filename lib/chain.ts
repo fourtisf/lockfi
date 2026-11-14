@@ -1,5 +1,5 @@
 /**
- * Robinhood Chain, and the addresses Balast talks to (§2).
+ * Robinhood Chain, and the addresses Tidewell talks to (§2).
  *
  * Every address here is UNVERIFIED: the handoff says to check each one on the
  * explorer before mainnet, and nothing in P0 sends a transaction. Keep them in

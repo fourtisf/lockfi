@@ -1,8 +1,12 @@
-# Balast
+# Tidewell
 
-Liquidity layer for Robinhood Chain (chainId 4663), at **balast.xyz**. Users
-deposit into a token pool and collect a proportional share of swap fees, paid
-in WETH.
+Liquidity layer for Robinhood Chain (chainId 4663). Users deposit into a token
+pool and collect a proportional share of swap fees, paid in WETH.
+
+Formerly **Balast**; renamed in CLAUDE.md §19. The infrastructure keeps its
+old identifiers on purpose — the PM2 processes, `/var/www/balast`, the database
+role and the `balast_test` test database are names a running deploy depends
+on, not branding.
 
 `CLAUDE.md` is the engineering handoff and the source of truth. `design/depth.html`
 is the approved design prototype. Where the two disagree, `CLAUDE.md` wins.
@@ -60,7 +64,7 @@ npm run test:e2e     # browser — flash, FLIP, focus trap, overflow, the §7 ru
 ```
 
 `npm test` covers the honest-numbers rules (`lib/yield.ts`), the bin weights
-(`lib/shapes.ts` — they must sum to exactly 10,000 or `BalastShaper` reverts),
+(`lib/shapes.ts` — they must sum to exactly 10,000 or `TidewellShaper` reverts),
 `SimProvider`'s determinism, the tick and price maths, and P1's whole pipeline.
 
 ### Running the P1 tests
@@ -345,8 +349,10 @@ Run it. If `poolManager` is wrong the indexer starts cleanly, subscribes to an
 address that emits nothing, and reports a lag that climbs forever — a
 working-looking site with an empty table and no error anywhere.
 
-The domain is **balast.xyz**, set in `lib/site.ts` and `deploy/nginx.conf`.
-`www` 301s to the apex so there is one canonical host.
+The site still serves on **balast.xyz**, set in `lib/site.ts` and
+`deploy/nginx.conf`; no Tidewell domain is registered yet. Changing `DOMAIN` in
+`lib/site.ts` and the nginx `server_name` is the whole switch. `www` 301s to
+the apex so there is one canonical host.
 
 **Open gap:** `ballast.xyz` — the English spelling on the same TLD — is
 registered and parked for sale by a third party. For a front-end that asks
@@ -357,10 +363,11 @@ redirect stanza ready, commented out.
 
 ## Design
 
-All tokens live in `app/globals.css`. No component hardcodes a colour. Green is
-the only accent — brand, a positive number, or an active control. Red means
-exactly one thing: a negative number. Token logo colours arrive as token
-metadata, which is data rather than a palette decision.
+All tokens live in `app/globals.css`. No component hardcodes a colour. The
+brand teal means identity and action; green means a positive number and
+nothing else; red means a negative number and nothing else (§19). Token logo
+colours arrive as token metadata, which is data rather than a palette decision.
+Brand assets are generated: `npm run brand` (see `brand/README.md`).
 
 `prefers-reduced-motion` disables the flash and the FLIP transform. It does not
 disable the data updates.
@@ -372,7 +379,7 @@ app/                  routes + globals.css (the whole design system)
                       error.tsx / loading.tsx / not-found.tsx
 components/
   providers/          MarketProvider (DataProvider → React), UiProvider
-  shell/              sidebar, top bar, stake drawer, footer
+  shell/              top bar + market strip, tab bar, stake drawer, footer
   pools/ stakes/ positions/ router/ portfolio/
   ui/                 badges, sparklines, flashing cell, toast
 hooks/                useFlip, useFlash, useReducedMotion

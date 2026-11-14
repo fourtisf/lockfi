@@ -3,10 +3,10 @@
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
-import { countdown, usd, usdExact, weth } from '@/lib/format';
+import { countdown, usd, weth } from '@/lib/format';
 
 export function MyStakes() {
-  const { portfolio, pools, global } = useMarket();
+  const { portfolio, pools } = useMarket();
   const { act, query } = useUi();
 
   const q = query.trim().toLowerCase();
@@ -23,10 +23,7 @@ export function MyStakes() {
     <div className="card mine">
       <div className="mine-h">
         <h2 className="sect-h">Your stakes</h2>
-        <span className="pill weth">
-          Claimable {portfolio.claimableWeth.toFixed(3)} WETH ·{' '}
-          {usdExact(portfolio.claimableWeth * global.ethPriceUsd)}
-        </span>
+        <span className="muted" style={{ fontSize: 12.5 }}>fees drip over 7 days, so a deposit just before a harvest earns no more than its share</span>
       </div>
 
       <div className="tbl-wrap" style={{ maxHeight: 'none' }}>

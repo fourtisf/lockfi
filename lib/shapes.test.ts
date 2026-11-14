@@ -43,7 +43,7 @@ describe('shapeWeights', () => {
 
 describe('weightsToBps', () => {
   /**
-   * §3.2: BalastShaper enforces sum(weightBps) == 10_000 on-chain. A rounding
+   * §3.2: TidewellShaper enforces sum(weightBps) == 10_000 on-chain. A rounding
    * bug here is a reverted mint, so every shape at every bin count is checked.
    */
   it('sums to exactly 10000 for every shape and every legal bin count', () => {

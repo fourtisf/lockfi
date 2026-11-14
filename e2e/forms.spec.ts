@@ -93,3 +93,42 @@ test.describe('search', () => {
     await expect(page.locator('#main tbody tr .tok-btn').first()).toContainText('MOONCAT');
   });
 });
+
+test.describe('stakes page', () => {
+  test('choosing a vault fills the stake panel, fee disclosed before staking', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/stakes', { waitUntil: 'networkidle' });
+    const rows = page.locator('.vault');
+    const second = rows.nth(1);
+    const symbol = (await second.locator('.tok b').innerText()).split(' / ')[0].trim();
+    await second.click();
+    await expect(second).toHaveAttribute('aria-pressed', 'true');
+
+    const panel = page.locator('.spanel');
+    await expect(panel.locator('h2')).toContainText(`Stake ${symbol}`);
+    await expect(panel).toContainText('10% of fees earned');
+    await expect(panel).toContainText('Lockup');
+
+    // Over the balance: refused with a reason, not staked.
+    await panel.locator('#sp-amount').fill('999');
+    await expect(panel.getByRole('button', { name: `Stake ${symbol}` })).toBeDisabled();
+    await expect(panel.locator('[role="alert"]')).toContainText('above your balance');
+  });
+
+  test('ranks vaults by fee yield', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/stakes', { waitUntil: 'networkidle' });
+    const yields = await page
+      .locator('.vault .apr')
+      .evaluateAll((els) => els.map((el) => Number.parseFloat(el.firstChild?.textContent ?? '') || -1));
+    expect(yields).toEqual([...yields].sort((a, b) => b - a));
+  });
+
+  test('on a phone a vault opens the drawer instead', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/stakes', { waitUntil: 'networkidle' });
+    await expect(page.locator('.spanel')).toBeHidden();
+    await page.locator('.vault').first().click();
+    await expect(page.locator('.drawer')).toHaveClass(/on/);
+  });
+});

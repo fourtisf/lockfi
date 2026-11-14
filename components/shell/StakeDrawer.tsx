@@ -7,6 +7,8 @@ import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { PROTOCOL_FEE_BPS } from '@/lib/chain';
 import { ageLabel, usd, weth } from '@/lib/format';
+import { BRAND } from '@/lib/site';
+import { PREVIEW_BALANCE_ETH, stakeQuote } from '@/lib/stake';
 import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldTitle, feeYieldValue } from '@/lib/yield';
 
 const FOCUSABLE =
@@ -61,15 +63,13 @@ export function StakeDrawer() {
   }, [open, closeStake]);
 
   const eth = Number.parseFloat(amount) || 0;
-  const depositUsd = eth * global.ethPriceUsd;
-  const share = pool ? depositUsd / (pool.tvlUsd + depositUsd) : 0;
   const enoughData = pool?.feeYield.basis !== 'insufficient';
-  // Weekly fees, after the protocol's cut, from the trailing window only. The
-  // cut and its disclosure below read the same constant, so they cannot drift.
-  const lpShare = 1 - PROTOCOL_FEE_BPS / 10_000;
-  const weeklyWeth = pool
-    ? ((pool.feesWindowUsd * (168 / pool.feeWindowHours)) * share * lpShare) / global.ethPriceUsd
-    : 0;
+  // The same sum the stake panel does (lib/stake.ts): weekly fees from the
+  // trailing window, after the protocol's cut, which the disclosure below
+  // reads from the same constant.
+  const quote = pool ? stakeQuote(pool, eth, global.ethPriceUsd) : null;
+  const share = quote?.share ?? 0;
+  const weeklyWeth = quote?.weeklyWeth ?? null;
 
   return (
     <>
@@ -153,7 +153,7 @@ export function StakeDrawer() {
                         onChange={(e) => setAmount(e.target.value)}
                       />
                       <span className="unit">ETH</span>
-                      <span className="max">Max 4.18</span>
+                      <span className="max">Max {PREVIEW_BALANCE_ETH}</span>
                     </div>
                   </div>
 
@@ -164,11 +164,11 @@ export function StakeDrawer() {
                     </div>
                     <div className="disclose">
                       <span className="muted">Est. weekly fees · from trailing 7d</span>
-                      <b className="num">{enoughData ? weth(weeklyWeth) : '—'}</b>
+                      <b className="num">{weeklyWeth === null ? '—' : weth(weeklyWeth)}</b>
                     </div>
                     {/* §7: the protocol fee is disclosed here, before signing. */}
                     <div className="disclose">
-                      <span className="muted">Balast fee</span>
+                      <span className="muted">{BRAND} fee</span>
                       <b className="num">{PROTOCOL_FEE_BPS / 100}% of fees earned</b>
                     </div>
                     <div className="disclose">

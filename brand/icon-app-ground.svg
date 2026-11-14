@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="1024" height="1024" role="img" aria-label="Balast">
-  <rect width="32" height="32" rx="7" fill="#050807"/>
-  <g transform="translate(2.56 2.56) scale(0.84)"><path d="M 5 6 L 13.5 13 L 13.5 26 L 5 26 Z" fill="#3DD68C" stroke="#3DD68C" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
-  <path d="M 27 6 L 18.5 13 L 18.5 26 L 27 26 Z" fill="#1E5E43" stroke="#1E5E43" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></g>
-</svg>

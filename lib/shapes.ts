@@ -2,7 +2,7 @@ import type { ShapeId } from './data/types';
 
 /**
  * Liquidity shapes are weight generators in the frontend, not contract modes
- * (§3.2). BalastShaper takes whatever bins we hand it, so a new shape ships
+ * (§3.2). TidewellShaper takes whatever bins we hand it, so a new shape ships
  * without touching a contract.
  */
 export const SHAPES: { id: ShapeId; label: string; hint: string }[] = [

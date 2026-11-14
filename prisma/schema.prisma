@@ -1,4 +1,4 @@
-// Balast P1 — the indexer's database (§4).
+// Tidewell (formerly Balast) P1 — the indexer's database (§4).
 //
 // The schema sketch in §4 is followed field for field. Two things are added,
 // and both exist to make §9's acceptance criterion reachable rather than

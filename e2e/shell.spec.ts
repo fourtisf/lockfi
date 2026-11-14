@@ -50,14 +50,19 @@ test.describe('shell', () => {
     });
   }
 
-  test('the rail collapses to icons below 1180px', async ({ page }) => {
-    await page.goto('/pools');
+  // §19: the destinations live in the top bar on a wide screen and move to a
+  // tab bar below 1024px. Exactly one of the two is ever displayed.
+  test('navigation is in the top bar, and in a tab bar below 1024px', async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
-    await expect(page.locator('.rail a', { hasText: 'Pools' }).first()).toBeVisible();
+    await page.goto('/pools');
+    await expect(page.locator('.top .links a', { hasText: 'Stakes' })).toBeVisible();
+    await expect(page.locator('.tabbar')).toBeHidden();
+    await expect(page.locator('.top .links a.on')).toHaveText('Pools');
+
     await page.setViewportSize({ width: 900, height: 900 });
-    const railWidth = await page.evaluate(
-      () => document.querySelector('.rail')!.getBoundingClientRect().width,
-    );
-    expect(railWidth).toBeLessThanOrEqual(64);
+    await expect(page.locator('.top .links')).toBeHidden();
+    await expect(page.locator('.tabbar a', { hasText: 'Stakes' })).toBeVisible();
+    await page.locator('.tabbar a', { hasText: 'Stakes' }).click();
+    await expect(page).toHaveURL(/\/stakes$/);
   });
 });

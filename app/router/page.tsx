@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { RouterPanel } from '@/components/router/RouterPanel';
+import { BRAND } from '@/lib/site';
 
-export const metadata: Metadata = { title: 'Router — Balast' };
+export const metadata: Metadata = { title: `Router — ${BRAND}` };
 
 export default function RouterPage() {
   return (

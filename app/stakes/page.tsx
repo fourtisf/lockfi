@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { MyStakes } from '@/components/stakes/MyStakes';
-import { VaultGrid } from '@/components/stakes/VaultGrid';
+import { StakesBody } from '@/components/stakes/StakesBody';
+import { BRAND } from '@/lib/site';
 
-export const metadata: Metadata = { title: 'Stakes — Balast' };
+export const metadata: Metadata = { title: `Stakes — ${BRAND}` };
 
 export default function StakesPage() {
   return (
@@ -11,14 +12,12 @@ export default function StakesPage() {
         <div>
           <h1>Stakes</h1>
           <p className="lede">
-            Stake once and your share of fees streams to you as WETH over a rolling 7 days. Drop in
-            one token; Balast pairs it, places it and harvests. Claim, compound or leave whenever
-            you like.
+            Drop in one token. Your share of the pool&rsquo;s swap fees streams to you in WETH over a
+            rolling seven days. Leave whenever you like.
           </p>
         </div>
       </div>
-
-      <VaultGrid />
+      <StakesBody />
       <MyStakes />
     </section>
   );

@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { PortfolioBody, ShareCardButton } from '@/components/portfolio/PortfolioStats';
+import { BRAND } from '@/lib/site';
 
-export const metadata: Metadata = { title: 'Portfolio — Balast' };
+export const metadata: Metadata = { title: `Portfolio — ${BRAND}` };
 
 export default function PortfolioPage() {
   return (

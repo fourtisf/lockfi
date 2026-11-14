@@ -1,4 +1,8 @@
-# Balast — engineering handoff
+# Tidewell (formerly Balast) — engineering handoff
+
+> **Renamed.** The product is **Tidewell** (§19). Sections written before the
+> rename say *Balast*; read it as Tidewell. §19 also supersedes §5's palette
+> and type, and §18 where they differ.
 
 Liquidity layer for Robinhood Chain. Users deposit into a token pool and collect a
 proportional share of swap fees, paid in WETH. Two products: **Stakes** (passive,
@@ -357,7 +361,7 @@ the UI showed the harvest lag the whole time.
 - **Minimum pool age before a pool appears in Established.** 7 days is assumed.
 - **Whether Balast seeds its own liquidity in launch pools.** Affects whether the
   displayed TVL is honest as "user liquidity" or needs a separate line.
-- **Domain and token.** ~~`Depth` is the working name.~~ **Decided: the product is `Balast`, on `balast.xyz`.** The token is still open — see §12.
+- **Domain and token.** ~~`Depth` is the working name.~~ ~~**Decided: the product is `Balast`, on `balast.xyz`.**~~ **Decided: the product is `Tidewell`** (§19). The Tidewell domain and the token are still open.
 
 ---
 
@@ -1180,3 +1184,98 @@ Each was a §7 problem found while reviewing the UI, not a style choice.
 The §12 questions are unchanged: the six-hours-per-tick simulator clock needs
 sign-off, and `/positions`' forward-looking *Est. fee yield* still needs a keep,
 cap or drop.
+
+---
+
+## 19. Tidewell: the rename, the identity, and the new Stakes page
+
+ALFA asked for the product to stop being Balast — a different name, a
+different brand, and feature pages that look different. Four names were
+proposed as brand boards with a working Stakes page each (Holdfast, Plumb,
+Slipway, Tidewell); **ALFA chose Tidewell.**
+
+### The name
+
+*A well that fills with every tide.* Yield comes from real trading volume: it
+rises when the market moves and slows when it slows, which is §1 in one line.
+The tagline is **Fees rise with the tide.**
+
+- **Known neighbours.** A web search found no DeFi project called Tidewell,
+  but two close ones: TideFi (a DEX on its own chain) and Tidal Finance (DeFi
+  cover). Neither is a liquidity layer; the confusion risk is real but small.
+- **No domain yet.** The registry lookup could not be run from the build
+  environment. The site still serves on `balast.xyz` (`lib/site.ts`); switching
+  is `DOMAIN` there plus `server_name` in `deploy/nginx.conf`. The social card
+  carries no URL until there is one.
+- **Contracts.** §3's four contracts are `TidewellZap`, `TidewellShaper`,
+  `TidewellVault`, `TidewellRouter`. None is deployed, so this is free.
+- **What kept the old name, deliberately.** PM2 process names
+  (`balast-web`, `balast-api`, `balast-indexer`), `/var/www/balast`, the
+  database role and name, `balast_test`, the Redis channel and every path in
+  `deploy/`. Those are identifiers a running deploy depends on, not branding;
+  renaming them is an operations change with a migration, to be done on the
+  box when ALFA chooses, not a find-and-replace.
+- **`BRAND` in `lib/site.ts`** is the one place the name is printed from:
+  metadata, the lockup, the footer, the drawer's fee line, page titles.
+
+### The identity (supersedes §5's palette and type, and §18 where they differ)
+
+- **Light, not dark.** Ground `#ECF2F2`, white cards with a soft shadow, ink
+  `#0C1E24`. Every text token is at least 4.5:1 on white *and* on the ground;
+  the lowest, `--fg-3` `#566C74`, is 5.5:1 and 4.9:1.
+- **The colour rule, split three ways.** The brand teal `#0B6E86` means
+  identity and action — the logo, primary buttons, the active control, a single
+  chart series. Green `#0A7D4A` means a positive number and nothing else. Red
+  `#C23B2E` means a negative number and nothing else. §5 gave one green all
+  three meanings, so a button and a gain looked alike; that is the change.
+- **Type.** Sora for display, Manrope for words, IBM Plex Mono for every number
+  and ticker. Figures in prose stay proportional — Manrope's tabular 1 reads as
+  "1 1" — while every data figure is mono, and mono is tabular.
+- **The mark.** A ring around water clipped to a wave: the well, filled to the
+  tide line. Geometry in `components/shell/Logo.tsx`; every file in `brand/`,
+  `app/icon.svg` and `public/og-card.png` is generated from the same numbers by
+  `npm run brand`.
+- **Top navigation, not a rail.** The bar holds the lockup, the five
+  destinations, search, the data-status chip and the wallet; a market strip
+  under it carries TVL, Fees 24h, Volume 24h and ETH, and in the simulator says
+  in words that the numbers are generated. Below 1024px the destinations move
+  to a bottom tab bar.
+- **Columns drop by the board's width, not the window's** — container queries,
+  because the same board is 680px side by side and 1300px stacked. §5's
+  priority order is unchanged: Vol 24h / Depth first, then Age, then MC, then
+  the sparkline and Stake column.
+- **Heatmap reads darker = more**, the honest caption on a light ground.
+
+### The Stakes page
+
+Rebuilt rather than restyled, because ALFA asked for features that look
+different and the old page made you compare vaults in one place and stake in
+another.
+
+- **Your earnings first**: claimable now (with Claim all), your fees over the
+  last 7 days against the week before, what you have staked, and the next
+  harvest among your vaults. All of it read from the portfolio, so it cannot
+  disagree with `/portfolio`.
+- **Vaults as a ranked list**, by fee yield (§1), each with its last seven days
+  of fees as daily bars — the live API's 14 half-day buckets folded into days
+  (`dailyFromHalfDays`) — plus staked, stakers and next harvest. The `est.` and
+  `—` states of §7 render exactly as everywhere else.
+- **Stake beside the list, not in a drawer.** Choose a vault and the panel
+  shows the deposit, the quick 25/50/75/Max chips, your share, estimated weekly
+  fees from the trailing window, the 10% fee and "Lockup: None" before anything
+  is signed, and the harvest → stream → claim cycle in three steps. Below 980px
+  there is no room for it, and choosing a vault opens the drawer instead.
+- **One sum for both forms.** The drawer and the panel quote through
+  `lib/stake.ts` (`stakeQuote`, `depositProblem`, `PREVIEW_BALANCE_ETH`), so
+  they cannot disagree, and the fee they deduct is `PROTOCOL_FEE_BPS`, the same
+  constant the disclosure prints.
+
+### Still open
+
+- **A Tidewell domain**, and the same defensive registrations §13 argued for
+  under the old name.
+- **The token**: unchanged from §13 — the recommendation is still to ship
+  without one.
+- **The §12 questions**: the six-hours-per-tick simulator clock needs sign-off,
+  and `/positions`' forward-looking *Est. fee yield* still needs a keep, cap or
+  drop.

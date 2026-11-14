@@ -68,7 +68,7 @@ export function PortfolioBody() {
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
             <h2 className="sect-h">Daily fees · 8 weeks</h2>
             <span className="muted" style={{ fontSize: 12.5 }}>
-              brighter = more WETH
+              darker = more WETH
             </span>
           </div>
           <FeeHeatmap values={portfolio.dailyFeesWeth} />

@@ -1,8 +1,8 @@
 {
-  "name": "balast",
+  "name": "tidewell",
   "version": "0.1.0",
   "private": true,
-  "description": "Balast \u2014 liquidity layer for Robinhood Chain. P0: shell and simulated data.",
+  "description": "Tidewell \u2014 liquidity layer for Robinhood Chain. P0: shell and simulated data.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

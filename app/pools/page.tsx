@@ -3,8 +3,9 @@ import Link from 'next/link';
 import { Featured, MiniCards } from '@/components/pools/Featured';
 import { LivePayouts } from '@/components/pools/LivePayouts';
 import { PoolBoard } from '@/components/pools/PoolBoard';
+import { BRAND } from '@/lib/site';
 
-export const metadata: Metadata = { title: 'Pools — Balast' };
+export const metadata: Metadata = { title: `Pools — ${BRAND}` };
 
 export default function PoolsPage() {
   return (
@@ -54,7 +55,7 @@ export default function PoolsPage() {
             </li>
             <li>
               <b>10%</b>
-              <span>Balast&rsquo;s fee, taken from fees earned at harvest. Never from your deposit.</span>
+              <span>{BRAND}&rsquo;s fee, taken from fees earned at harvest. Never from your deposit.</span>
             </li>
             <li>
               <b>0</b>

@@ -13,7 +13,7 @@
  */
 
 import { chromium } from 'playwright';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,31 +23,30 @@ const BRAND = join(dirname(fileURLToPath(import.meta.url)), '..', 'brand');
 const PREINSTALLED = [
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   '/opt/pw-browsers/chromium/chrome-linux/chrome',
-].find((p) => existsSync(p));
+  '/opt/pw-browsers/chromium',
+].find((p) => existsSync(p) && statSync(p).isFile());
 
 /** [source svg, output png, width] */
 const JOBS = [
   // The mark alone, transparent.
-  ['balast-mark.svg', 'balast-mark-512.png', 512],
-  ['balast-mark.svg', 'balast-mark-1024.png', 1024],
-  ['balast-mark-white.svg', 'balast-mark-white-512.png', 512],
-  ['balast-mark-black.svg', 'balast-mark-black-512.png', 512],
+  ['tidewell-mark.svg', 'tidewell-mark-512.png', 512],
+  ['tidewell-mark.svg', 'tidewell-mark-1024.png', 1024],
+  ['tidewell-mark-white.svg', 'tidewell-mark-white-512.png', 512],
+  ['tidewell-mark-ink.svg', 'tidewell-mark-ink-512.png', 512],
 
-  // Icons on black, full bleed — no corners, so nothing shows through. This is
-  // the cut for an X avatar, Telegram, a wallet's dapp list and the app
-  // stores, all of which apply their own mask.
-  ['icon-black.svg', 'icon-black-1024.png', 1024],
-  ['icon-black.svg', 'icon-black-512.png', 512],
-  ['icon-black.svg', 'icon-black-192.png', 192],
-  ['icon-black-mono.svg', 'icon-black-mono-1024.png', 1024],
-  ['icon-accent.svg', 'icon-accent-1024.png', 1024],
+  // Brand ground, full bleed — no corners, so nothing shows through. The cut
+  // for an X avatar, Telegram, a wallet's dapp list and the app stores, all
+  // of which apply their own mask.
+  ['icon-brand.svg', 'icon-brand-1024.png', 1024],
+  ['icon-brand.svg', 'icon-brand-512.png', 512],
+  ['icon-brand.svg', 'icon-brand-192.png', 192],
 
   // Squircle, for surfaces that do not mask for you.
-  ['icon-black-rounded.svg', 'icon-black-rounded-1024.png', 1024],
-  ['icon-app-ground.svg', 'icon-app-ground-1024.png', 1024],
+  ['icon-brand-rounded.svg', 'icon-brand-rounded-1024.png', 1024],
+  ['icon-light-rounded.svg', 'icon-light-rounded-1024.png', 1024],
 
   // iOS composites a touch icon onto white, so it takes the full-bleed cut.
-  ['icon-black.svg', 'apple-touch-icon-180.png', 180],
+  ['icon-brand.svg', 'apple-touch-icon-180.png', 180],
 
   ['favicon.svg', 'favicon-16.png', 16],
   ['favicon.svg', 'favicon-32.png', 32],
@@ -56,9 +55,8 @@ const JOBS = [
   // Open Graph: 1200 × 630 is what X, Telegram, Discord and Slack crop from.
   ['og-card.svg', 'og-card.png', 1200],
 
-  ['balast-lockup.svg', 'balast-lockup-1200.png', 1200],
-  ['balast-lockup-light.svg', 'balast-lockup-light-1200.png', 1200],
-  ['balast-lockup-white.svg', 'balast-lockup-white-1200.png', 1200],
+  ['tidewell-lockup.svg', 'tidewell-lockup-1200.png', 1200],
+  ['tidewell-lockup-white.svg', 'tidewell-lockup-white-1200.png', 1200],
 ];
 
 const browser = await chromium.launch(
@@ -91,3 +89,7 @@ for (const [src, out, width] of JOBS) {
 }
 
 await browser.close();
+
+// The card the site actually serves is the one in public/.
+copyFileSync(join(BRAND, 'og-card.png'), join(BRAND, '..', 'public', 'og-card.png'));
+console.log('  public/og-card.png                    copied');

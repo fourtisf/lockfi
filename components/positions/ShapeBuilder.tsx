@@ -7,10 +7,9 @@ import { BinChart } from '@/components/positions/BinChart';
 import type { ShapeId } from '@/lib/data/types';
 import { price as fmtPrice } from '@/lib/format';
 import { MAX_BINS, MIN_BINS, SHAPES, shapeWeights } from '@/lib/shapes';
+import { BRAND } from '@/lib/site';
+import { PREVIEW_BALANCE_ETH as MAX_DEPOSIT_ETH } from '@/lib/stake';
 import { yieldPct } from '@/lib/yield';
-
-/** P0 has no wallet, so the spendable balance is a fixed stand-in until P2. */
-const MAX_DEPOSIT_ETH = 4.18;
 
 const SHAPE_ICONS: Record<ShapeId, number[]> = {
   spot: [20, 20, 20, 20, 20, 20, 20, 20],
@@ -105,7 +104,7 @@ export function ShapeBuilder() {
             <span className="max">Max {MAX_DEPOSIT_ETH}</span>
           </div>
           <p className="hint">
-            Balast swaps part of this into {pool.token.symbol} to fill the shape you choose.
+            {BRAND} swaps part of this into {pool.token.symbol} to fill the shape you choose.
           </p>
         </div>
 
