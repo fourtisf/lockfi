@@ -111,10 +111,32 @@ const ASSETS: Asset[] = [
     files: [{ label: 'PNG 1024', file: 'icon-brand-1024.png' }],
   },
   {
+    title: 'X profile picture',
+    use: 'Square, cropped to a circle by X, Telegram and Discord.',
+    preview: 'x-avatar-premium-1000.png',
+    ground: 'light',
+    files: [
+      { label: 'Premium', file: 'x-avatar-premium-1000.png' },
+      { label: 'Teal', file: 'x-avatar-teal-1000.png' },
+    ],
+  },
+  {
+    title: 'X header',
+    use: '1500 × 500. The lockup is centred, clear of the avatar in the lower left.',
+    preview: 'x-header-1500.png',
+    ground: 'light',
+    wide: true,
+    files: [
+      { label: 'PNG 1500', file: 'x-header-1500.png' },
+      { label: 'PNG 3000', file: 'x-header-3000.png' },
+    ],
+  },
+  {
     title: 'Social card',
     use: 'What a link to the site shows on X, Telegram and Discord.',
     preview: 'og-card.png',
     ground: 'light',
+    wide: true,
     files: [{ label: 'PNG 1200', file: 'og-card.png' }],
   },
 ];
@@ -123,7 +145,10 @@ const ASSETS: Asset[] = [
 function previewStyle(a: Asset): React.CSSProperties {
   if (a.preview.startsWith('tidewell-mark')) return { width: 128, height: 128 };
   if (a.preview.startsWith('icon-')) return { width: 132, height: 132 };
-  if (a.preview === 'og-card.png') return { width: '100%', height: 'auto', maxWidth: 300 };
+  // Shown the way it will be seen: cut to a circle.
+  if (a.preview.startsWith('x-avatar')) return { width: 132, height: 132, borderRadius: '50%' };
+  if (a.preview.startsWith('x-header')) return { width: '100%', height: 'auto', maxWidth: 456 };
+  if (a.preview === 'og-card.png') return { width: 'auto', height: 152, maxWidth: '100%' };
   if (a.preview.endsWith('showcase.png')) return { width: 'auto', height: 152, maxWidth: '100%' };
   return { width: 'auto', height: 104, maxWidth: '100%' };
 }

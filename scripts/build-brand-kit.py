@@ -44,6 +44,10 @@ DOWNLOADS = [
     'icon-brand-1024.png',
     'tidewell-premium-showcase.png',
     'og-card.png',
+    'x-avatar-premium-1000.png',
+    'x-avatar-teal-1000.png',
+    'x-header-1500.png',
+    'x-header-3000.png',
 ]
 
 

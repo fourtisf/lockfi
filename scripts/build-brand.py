@@ -263,6 +263,60 @@ def main() -> None:
         write(o(name), svg(mark_premium(tone) + f'\n  <path d="{d}" fill="{wcol}"/>', view,
                            round(vb[2] * 4, 2), round(vb[3] * 4, 2)))
 
+    # ------------------------------------------------------- social profile --
+    # X (and Telegram, Discord) show the avatar as a circle cut from a square
+    # upload, so the ground runs to every edge and the mark sits well inside
+    # the inscribed circle: 52% of the width, centred, nothing near a corner.
+    print('social profile')
+
+    def avatar_ground(uid: str, kind: str) -> str:
+        if kind == 'teal':
+            return f'<rect width="32" height="32" fill="{BRAND}"/>'
+        return (
+            # Lighter than the deep-sea ground: at 32–48px on a dark timeline a
+            # near-black edge disappears into the page. This one still reads.
+            f'<defs><radialGradient id="{uid}g" cx="50%" cy="38%" r="70%">'
+            f'<stop offset="0" stop-color="#1A86A1"/><stop offset=".6" stop-color="#0D5A6C"/>'
+            f'<stop offset="1" stop-color="#0B4A59"/></radialGradient></defs>\n  '
+            f'<rect width="32" height="32" fill="url(#{uid}g)"/>'
+        )
+
+    av = 0.62
+    av_pad = (32 - 32 * av) / 2
+    write(o('x-avatar-premium.svg'), svg(
+        avatar_ground('xa', 'premium') +
+        f'\n  <g transform="translate({av_pad:g} {av_pad:g}) scale({av:g})">{mark_premium("dark", "xm")}</g>',
+        '0 0 32 32', 1000, 1000))
+    write(o('x-avatar-teal.svg'), svg(
+        avatar_ground('xt', 'teal') +
+        f'\n  <g transform="translate({av_pad:g} {av_pad:g}) scale({av:g})">{mark(WHITE, "xt")}</g>',
+        '0 0 32 32', 1000, 1000))
+
+    # Header, 1500 × 500 (3:1). The avatar overlaps its lower-left corner on
+    # every client, so the lockup is centred and the left fifth stays empty.
+    HW, HH = 1500, 500
+    HS = 4.2
+    h_mark = (INK1 - INK0) * HS
+    h_size = 32 * HS * 0.60
+    h_cap = h_size * cap
+    h_word_w = (ink_right - (INK1 + GAP_CAPS * cap_h)) * (h_size / size)
+    h_total = h_mark + GAP_CAPS * h_cap + h_word_w
+    hx = (HW - h_total) / 2 + 60
+    h_top = 150.0
+    h_word, _ = outline(word, 'Tidewell', h_size, h_top + h_mark / 2 + h_cap / 2,
+                        hx + h_mark + GAP_CAPS * h_cap, TRACKING_EM)
+    h_tag_font = load('Manrope', 500, 'Fees')
+    _, h_tag_r = outline(h_tag_font, 'Fees rise with the tide.', 34, 0, 0)
+    h_tag, _ = outline(h_tag_font, 'Fees rise with the tide.', 34, h_top + h_mark + 78,
+                       hx + (h_total - h_tag_r) / 2)
+    write(o('x-header.svg'), svg(
+        premium_ground('xh', HW, HH).split('\n  <rect x=".25"')[0] +
+        f'\n  <g transform="translate({hx - INK0 * HS:.2f} {h_top - INK0 * HS:.2f}) scale({HS})">'
+        f'{mark_premium("dark", "hm")}</g>\n  '
+        f'<path d="{h_word}" fill="{WHITE}"/>\n  '
+        f'<path d="{h_tag}" fill="#CFE7EC"/>',
+        f'0 0 {HW} {HH}', HW, HH))
+
     # The hero: the premium lockup on the deep-sea ground, with the tagline.
     SW, SH = 2400, 1350
     PS = 13.0

@@ -68,6 +68,15 @@ const JOBS = [
   ['tidewell-lockup-premium.svg', 'tidewell-lockup-premium-2400.png', 2400],
   ['tidewell-lockup-premium-dark.svg', 'tidewell-lockup-premium-dark-2400.png', 2400],
   ['tidewell-premium-showcase.svg', 'tidewell-premium-showcase.png', 2400],
+
+  // Social profiles: X recommends a 400 × 400 avatar and a 1500 × 500
+  // header; the larger cuts stay sharp on high-density screens.
+  ['x-avatar-premium.svg', 'x-avatar-premium-400.png', 400],
+  ['x-avatar-premium.svg', 'x-avatar-premium-1000.png', 1000],
+  ['x-avatar-teal.svg', 'x-avatar-teal-400.png', 400],
+  ['x-avatar-teal.svg', 'x-avatar-teal-1000.png', 1000],
+  ['x-header.svg', 'x-header-1500.png', 1500],
+  ['x-header.svg', 'x-header-3000.png', 3000],
 ];
 
 const browser = await chromium.launch(
