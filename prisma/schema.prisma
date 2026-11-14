@@ -44,6 +44,15 @@ model Token {
   /// refreshed on a cadence rather than once at discovery.
   supplyReadAt DateTime? @map("supply_read_at")
   logoUrl      String?   @map("logo_url")
+  /// Where logoUrl came from: "list" (config/tokens.json or TOKEN_LIST_URL),
+  /// "geckoterminal", "dexscreener" or "blockscout". Kept so a wrong logo can
+  /// be traced to the source that supplied it. Only the image URL is ever
+  /// taken from these: §4 allows logos from outside, and numbers from nowhere.
+  logoSource   String?   @map("logo_source")
+  /// When to look this token up in the logo sources again. Null means never
+  /// looked; a token with no logo anywhere is retried a day later, one whose
+  /// lookup failed (rate limit, timeout) half an hour later.
+  logoRetryAt  DateTime? @map("logo_retry_at")
   /// Brand colour. Metadata, not a design decision (§5).
   logoColor    String?   @map("logo_color")
   /// Pons, Bags, Bottom.fun — set when the token came from a launchpad (§4).

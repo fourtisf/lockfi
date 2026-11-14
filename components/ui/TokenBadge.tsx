@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import { monogram, tokenMark } from '@/lib/token-mark';
 import type { TokenMeta } from '@/lib/data/types';
 
@@ -16,8 +19,9 @@ import type { TokenMeta } from '@/lib/data/types';
  * at this lightness is far brighter than blue at the same lightness and no
  * single ink stays legible across the wheel.
  *
- * The colour is always painted underneath the image too, so a logo that fails
- * to load leaves something considered rather than a blank hole.
+ * The colour is always painted underneath the image too, and a logo that
+ * fails to load — a dead link on a third-party CDN — falls back to the
+ * monogram rather than the browser's broken-image icon.
  */
 export function TokenBadge({
   token,
@@ -31,6 +35,10 @@ export function TokenBadge({
   // when there is none, so a badge is never unstyled.
   const mark = tokenMark(token.address);
   const background = token.logoColor || mark.bg;
+  // Which URL failed, not just "failed": a corrected logo arriving in a later
+  // snapshot gets its chance instead of staying on the monogram.
+  const [failed, setFailed] = useState<string | null>(null);
+  const logo = token.logoUrl && token.logoUrl !== failed ? token.logoUrl : null;
 
   return (
     <span
@@ -38,18 +46,19 @@ export function TokenBadge({
       style={{ background, color: mark.ink }}
       aria-hidden="true"
     >
-      {token.logoUrl ? (
+      {logo ? (
         /* next/image would proxy these through our own server and needs every
            remote host whitelisted in `images.remotePatterns` up front. The
            host comes from a third-party token list, so it is not knowable in
            advance — and there is nothing to optimise about a 22px badge. */
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={token.logoUrl}
+          src={logo}
           alt=""
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
+          onError={() => setFailed(logo)}
         />
       ) : (
         monogram(token.symbol)

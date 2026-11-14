@@ -35,6 +35,10 @@ import {
 import { resolveUsdg } from './anchor';
 import { planIngest } from './ingest';
 import { refreshLogos } from './logos';
+import { sweepLogos, type LogoSource } from './logo-sources';
+
+/** How often the logo sweep may run. GeckoTerminal rate-limits a burst. */
+const LOGO_SWEEP_MS = 30_000;
 import {
   loadFeeTiers,
   loadKnownPools,
@@ -131,6 +135,11 @@ export interface PollerOptions {
   maxBlockRange?: number;
   /** Where token symbol/name/decimals come from. Defaults to the token contract. */
   tokenReader?: TokenReader;
+  /**
+   * External logo sources (logo-sources.ts). Opt-in: the real indexer passes
+   * them, a test does not, so no test ever reaches the network.
+   */
+  logoSources?: LogoSource[];
   log?: (message: string) => void;
 }
 
@@ -167,6 +176,9 @@ export class Poller {
   private v3Pools: string[];
   /** Set once the known v3 pools have been loaded from the database. */
   private v3Loaded = false;
+  private readonly logoSources: LogoSource[] | null;
+  private lastLogoSweep = 0;
+  private sweeping = false;
   /** Pools stored before native ETH was understood get corrected once a run. */
   private nativeAdopted = false;
 
@@ -183,7 +195,28 @@ export class Poller {
     this.v3Pools = (options.v3Pools ?? []).map((a) => a.toLowerCase());
     this.v3Factory = options.v3Factory?.toLowerCase() ?? null;
     this.tokenReader = options.tokenReader;
+    this.logoSources = options.logoSources ?? null;
     this.log = options.log ?? (() => {});
+  }
+
+  /**
+   * Fill in missing logos, at most every 30 seconds, in the background.
+   *
+   * Never awaited by the pass: a logo is decoration, and a slow or
+   * rate-limited image service must not delay one block of indexing. Never
+   * two at once, and never throws into the pass.
+   */
+  private maybeSweepLogos(): void {
+    if (!this.logoSources || this.sweeping) return;
+    const now = Date.now();
+    if (now - this.lastLogoSweep < LOGO_SWEEP_MS) return;
+    this.sweeping = true;
+    this.lastLogoSweep = now;
+    void sweepLogos({ sources: this.logoSources, log: this.log })
+      .catch((error) => this.log(`  logo sweep failed: ${(error as Error).message}`))
+      .finally(() => {
+        this.sweeping = false;
+      });
   }
 
   /**
@@ -228,6 +261,7 @@ export class Poller {
 
     const head = await this.source.getHeadBlock();
     const cursor = await readCursor(POOL_MANAGER_CURSOR);
+    this.maybeSweepLogos();
 
     if (!this.nativeAdopted) {
       const adopted = await adoptNativeEthPools(head.timestamp, this.tokenReader);

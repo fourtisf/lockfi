@@ -221,9 +221,20 @@ path and `config/tokens.json` ships with the repository:
 ] }
 ```
 
-Add entries, and the indexer picks them up on its next pass. A token that is
-not listed keeps its derived mark. Switching to a public list when one exists
-is one line in `.env`.
+Add entries, and the indexer picks them up on its next pass. Switching to a
+public list when one exists is one line in `.env`.
+
+Every token the list does not cover is looked up **by address** in
+GeckoTerminal, then DexScreener, then Blockscout — about 30 tokens every 30
+seconds, busiest first, in the background so it never slows indexing. Only the
+image URL is taken (§4). A curated logo always wins, and `tokens.logo_source`
+records where each one came from. A token none of them knows keeps its derived
+mark and is asked again a day later; one a source failed to answer for (rate
+limit, timeout) is asked again in half an hour. `LOGO_SOURCES=off` turns it off.
+
+Matching by address is the point, not a detail: this chain has three tokens
+called CASHCAT and four called SPCX, and a copycat must never wear the real
+token's logo.
 
 ## Deploy
 

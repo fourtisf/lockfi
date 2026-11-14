@@ -1,10 +1,12 @@
 /**
- * Token logos, from an external token list.
+ * Token logos, from a curated token list.
  *
  * §4 draws the line precisely: "logos and token metadata may come from
- * external sources, numbers may not." So this file is allowed to fetch, and
- * it is the ONLY file in `server/` that talks to anything other than a node
- * or the database. Two rules keep it on the right side of that line:
+ * external sources, numbers may not." So this file and `logo-sources.ts` —
+ * which fills the tokens no list covers, from GeckoTerminal, DexScreener and
+ * Blockscout — are the ONLY files in `server/` that talk to anything other
+ * than a node or the database. A logo from this list always wins over one
+ * from those sources. Two rules keep both on the right side of that line:
  *
  *   It reads `logoURI` and nothing else. Not price, not supply, not decimals
  *   — decimals are an input to every price, so they stay an on-chain read
@@ -15,8 +17,9 @@
  *   number on the site changes. A logo is decoration; the site works without
  *   one and must never wait on one.
  *
- * The list is opt-in via TOKEN_LIST_URL, because there is no canonical list
- * for this chain yet and guessing at one would be worse than no logos.
+ * TOKEN_LIST_URL picks the list. Unset, it is `config/tokens.json`, the
+ * curated list that ships with the repository — it used to be opt-in, and
+ * `bootstrap.sh` never set it, so on the real box the file was never read.
  *
  * It accepts a LOCAL PATH as well as a URL, which matters more than it looks.
  * Robinhood Chain has no public token list, so waiting for one means no token
@@ -42,6 +45,8 @@ interface TokenList {
 }
 
 const FETCH_TIMEOUT_MS = 10_000;
+/** The curated list in the repository, read when TOKEN_LIST_URL is unset. */
+const DEFAULT_LIST = 'config/tokens.json';
 /** Data URIs and oversized strings do not belong in a database column. */
 const MAX_URL_LENGTH = 512;
 
@@ -91,7 +96,7 @@ export async function refreshLogos(
     chainId: 0,
   },
 ): Promise<number> {
-  const url = options.url ?? process.env.TOKEN_LIST_URL ?? null;
+  const url = options.url ?? process.env.TOKEN_LIST_URL ?? DEFAULT_LIST;
   const log = options.log ?? (() => {});
   if (!url) return 0;
   // A URL has to be http(s); a path is taken as a path. Anything else — a
@@ -136,7 +141,7 @@ export async function refreshLogos(
     if (!next || token.logoUrl === next) continue;
     await prisma.token.update({
       where: { address: token.address },
-      data: { logoUrl: next },
+      data: { logoUrl: next, logoSource: 'list' },
     });
     updated++;
   }

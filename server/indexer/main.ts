@@ -24,6 +24,7 @@ import { env } from '../env';
 import { prisma } from '../db';
 import { publishTick } from '../api/bus';
 import { Poller } from './poller';
+import { defaultLogoSources } from './logo-sources';
 import { ViemLogSource } from './viem-source';
 
 const USDG = process.env.USDG_ADDRESS;
@@ -77,6 +78,10 @@ async function main(): Promise<void> {
     startBlock,
     v3Factory,
     v3Pools: (process.env.V3_POOLS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    // Logos from GeckoTerminal, DexScreener and Blockscout for tokens the
+    // curated list does not cover. Image URLs only (§4). LOGO_SOURCES=off
+    // turns it off.
+    logoSources: defaultLogoSources(),
     log,
   });
 

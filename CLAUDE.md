@@ -1427,6 +1427,45 @@ chain's RPC is not reachable from the build sandbox. If the anchor is still
 missing once the indexer has caught up, the next suspect is that USDG trades
 only on v3 here, which needs `V3_FACTORY`.
 
+### Every token a logo: from the services that have them
+
+The native-ETH fix worked: the live site found its anchor and listed 143 real
+pools. ALFA then asked for a logo on every token. `config/tokens.json` was the
+only source and it was empty — and `bootstrap.sh` never set `TOKEN_LIST_URL`,
+so the box never read it at all. It is the default now.
+
+`server/indexer/logo-sources.ts` fills every token the list does not cover,
+by **address**, from GeckoTerminal (CoinGecko images), then DexScreener (images
+a project registered), then Blockscout (the chain's explorer). The response
+shapes were read off the live APIs for real tokens on this chain before any
+parsing was written, and those real bodies are the test fixtures:
+
+- GeckoTerminal: `data[].attributes.image_url`, null when it has none; 200
+  `{"data":[]}` for a token it does not know; **429 after a short burst**.
+- DexScreener: `[].info.imageUrl`, which belongs to the pair's `baseToken`
+  only — so asked about WETH, the quote in every pair, the answer is none,
+  not a memecoin's face.
+- Blockscout: `icon_url`; refuses any request without a User-Agent (403), and
+  answers 403 `{"message":"Not found"}` for a token it does not know, which is
+  an answer, not an error.
+
+Rules: image URLs only (§4); a curated logo always wins and is never replaced;
+`tokens.logo_source` says where each came from; a token no source knows is
+asked again in a day, one a source failed on (rate limit, timeout) in half an
+hour, so a 429 delays a logo instead of losing it. It runs in the background
+at most every 30 seconds, ~30 tokens a sweep, busiest first, never awaited by
+a pass. Opt-in on `Poller`, so no test reaches the network. `TokenBadge` falls
+back to the monogram when a logo fails to load, rather than a broken image.
+
+Run end to end against the real services: **12 of 19 real tokens got a logo**
+(9 GeckoTerminal, 3 DexScreener). The seven without were all copycats — other
+contracts calling themselves CASHCAT, SPCX, TSLA and USDe. Matching by
+address is what keeps them on a derived mark; matching by symbol would have
+dressed every one of them as the real token, on a site that will one day ask
+people to deposit into them. "Every token has a logo" therefore means every
+token with a real one; the rest have a mark unique to their address, and that
+difference is information.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in
