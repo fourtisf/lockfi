@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import glob
 import os
+from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
@@ -39,6 +40,13 @@ SWELL = 'M3 15.6c2.2 2.4 4.4 2.4 6.6 0s4.4-2.4 6.6 0 4.4 2.4 6.6 0 4.4-2.4 6.6 0
 # Ink box, including the ring's stroke: 26.8 × 26.8, centred on (16, 16).
 INK0 = RING_C - RING_R - RING_W / 2
 INK1 = RING_C + RING_R + RING_W / 2
+
+# Logo files are cropped to the artwork: no ground, no built-in margin. A
+# hairline of slack keeps the ring's anti-aliased edge from being shaved off.
+# Clear space is a usage rule (the /brand page states it), not padding baked
+# into every file someone then has to trim.
+TRIM = 0.06
+MARK_VIEW = f'{INK0 - TRIM:g} {INK0 - TRIM:g} {INK1 - INK0 + 2 * TRIM:g} {INK1 - INK0 + 2 * TRIM:g}'
 
 # ------------------------------------------------------------------ colour --
 BRAND = '#0B6E86'       # --ac
@@ -74,10 +82,13 @@ def mark(color: str, clip_id: str = 'tw') -> str:
 # for hero use — app icons, the brand page, decks — and the flat mark stays the
 # one for UI, favicons and anything printed in one colour.
 PREMIUM = {
-    'light': dict(ring=('#2FA6BE', '#0A4F60'), swell=('#7FD0DF', 0.55),
-                  water=('#1590AB', '#084556'), crest=('#BDEAF2', 0.9)),
-    'dark': dict(ring=('#FFFFFF', '#8FDCEA'), swell=('#5CC6D9', 0.45),
-                 water=('#7AD8E8', '#1C93AD'), crest=('#FFFFFF', 0.85)),
+    # Every fill is opaque: the files have no ground, so a translucent swell
+    # would take on whatever it is placed over and the logo would not look the
+    # same twice. These are the old tints pre-mixed onto white and deep sea.
+    'light': dict(ring=('#2FA6BE', '#0A4F60'), swell=('#B4E4EC', 1),
+                  water=('#1590AB', '#084556'), crest=('#BDEAF2', 1)),
+    'dark': dict(ring=('#FFFFFF', '#8FDCEA'), swell=('#2F7B8A', 1),
+                 water=('#7AD8E8', '#1C93AD'), crest=('#FFFFFF', 1)),
 }
 
 
@@ -157,7 +168,8 @@ def load(family: str, weight: int, sample: str) -> TTFont:
 
 def outline(font: TTFont, text: str, size: float, baseline_y: float, x0: float,
             tracking_em: float = 0.0) -> tuple[str, float]:
-    """Any string as outlines, plus the ink's right edge."""
+    """Any string as outlines, plus the ink's right edge — the last glyph's
+    actual ink, not its advance, so a crop to it leaves no side bearing."""
     upm = font['head'].unitsPerEm
     glyphs = font.getGlyphSet()
     cmap = font.getBestCmap()
@@ -180,7 +192,10 @@ def outline(font: TTFont, text: str, size: float, baseline_y: float, x0: float,
         d = pen.getCommands()
         if d:
             data.append(d)
-            right = pen_x + hmtx[name][0] * scale
+            bounds = BoundsPen(glyphs)
+            glyphs[name].draw(bounds)
+            if bounds.bounds:
+                right = pen_x + bounds.bounds[2] * scale
         pen_x += hmtx[name][0] * scale + tracking
     return ' '.join(data), right
 
@@ -197,7 +212,7 @@ def main() -> None:
         ('tidewell-mark-ink.svg', INK),
         ('tidewell-mark-currentcolor.svg', 'currentColor'),
     ]:
-        write(o(name), svg(mark(color), '0 0 32 32', 32, 32))
+        write(o(name), svg(mark(color), MARK_VIEW, 512, 512))
 
     print('icons')
     # Full bleed: brand to every edge. Every avatar surface masks it itself.
@@ -218,7 +233,7 @@ def main() -> None:
     baseline = 16 + cap_h / 2
     d, ink_right = outline(word, 'Tidewell', size, baseline, INK1 + GAP_CAPS * cap_h, TRACKING_EM)
 
-    pad = 2.0
+    pad = TRIM
     vb = (INK0 - pad, INK0 - pad, (ink_right - INK0) + pad * 2, (INK1 - INK0) + pad * 2)
     view = f'{vb[0]:.2f} {vb[1]:.2f} {vb[2]:.2f} {vb[3]:.2f}'
     for name, mcol, wcol in [
@@ -229,8 +244,8 @@ def main() -> None:
                            round(vb[2] * 4, 2), round(vb[3] * 4, 2)))
 
     print('premium')
-    write(o('tidewell-mark-premium.svg'), svg(mark_premium('light'), '0 0 32 32', 32, 32))
-    write(o('tidewell-mark-premium-dark.svg'), svg(mark_premium('dark'), '0 0 32 32', 32, 32))
+    write(o('tidewell-mark-premium.svg'), svg(mark_premium('light'), MARK_VIEW, 512, 512))
+    write(o('tidewell-mark-premium-dark.svg'), svg(mark_premium('dark'), MARK_VIEW, 512, 512))
     sc = 0.70
     pad_p = (32 - 32 * sc) / 2
     write(o('icon-premium.svg'), svg(
