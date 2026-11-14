@@ -3,6 +3,7 @@
 # Every deploy after the first. Run as root:
 #
 #   bash /var/www/balast/deploy/deploy.sh
+#   DEPLOY_BRANCH=<branch> bash /var/www/balast/deploy/deploy.sh   # switch branch
 #
 # Builds and migrates before it reloads, so a build that fails leaves the
 # running version serving rather than taking the site down.
@@ -10,12 +11,17 @@ set -euo pipefail
 
 APP_USER=balast
 APP_DIR=/var/www/balast
-BRANCH=claude/new-session-c0aptv
 
 [[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }
 cd "$APP_DIR"
 
 as_app() { runuser -u "$APP_USER" -- "$@"; }
+
+# The branch to deploy: DEPLOY_BRANCH when given, otherwise the branch the box
+# is already on. It used to be a constant here, which meant moving the site to
+# another branch took an edit on the server before the first deploy could run.
+BRANCH="${DEPLOY_BRANCH:-$(as_app git rev-parse --abbrev-ref HEAD)}"
+[[ "$BRANCH" != "HEAD" ]] || { echo "detached HEAD: set DEPLOY_BRANCH=<branch>"; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Pull, then hand over to the version that was pulled.

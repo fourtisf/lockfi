@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const ROUTES = ['/pools', '/stakes', '/positions', '/router', '/portfolio'];
+const ROUTES = ['/pools', '/stakes', '/positions', '/router', '/portfolio', '/brand'];
 const WIDTHS = [1600, 1180, 760, 360];
 
 test.describe('shell', () => {
@@ -64,5 +64,25 @@ test.describe('shell', () => {
     await expect(page.locator('.tabbar a', { hasText: 'Stakes' })).toBeVisible();
     await page.locator('.tabbar a', { hasText: 'Stakes' }).click();
     await expect(page).toHaveURL(/\/stakes$/);
+  });
+});
+
+test.describe('brand', () => {
+  test('the brand page serves every file it offers', async ({ page, request }) => {
+    await page.goto('/brand', { waitUntil: 'networkidle' });
+    const links = await page
+      .locator('#main a[download]')
+      .evaluateAll((els) => els.map((el) => (el as HTMLAnchorElement).getAttribute('href')!));
+    expect(links.length).toBeGreaterThan(10);
+    for (const href of new Set(links)) {
+      const res = await request.get(href);
+      expect(res.status(), href).toBe(200);
+    }
+  });
+
+  test('the site ships its icons and manifest', async ({ request }) => {
+    for (const path of ['/icon.svg', '/apple-icon.png', '/manifest.webmanifest', '/icons/icon-512.png', '/og-card.png']) {
+      expect((await request.get(path)).status(), path).toBe(200);
+    }
   });
 });

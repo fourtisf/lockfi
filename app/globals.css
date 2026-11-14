@@ -39,6 +39,7 @@
   --ac-dim:#E4F2F5;          /* active row, brand pill ground */
   --ac-row:#EEF7F9;          /* leader row */
   --on-ac:#FFFFFF;           /* ink on a brand fill */
+  --deep:#0A3D4A;            /* deep sea: the ground the premium mark sits on */
 
   /* numbers: up and down, and nothing else */
   --pos:#0A7D4A;  --pos-dim:#E5F3EB;
@@ -429,6 +430,27 @@ td.fd{animation:fd 1.1s ease-out}
 .rules li{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--bd-n);font-size:13.5px;color:var(--fg-2);line-height:1.5}
 .rules li:last-child{border-bottom:0}
 .rules li b{flex:none;width:58px;font:600 13px var(--mono);color:var(--ac)}
+
+/* ---------- brand page ---------- */
+.bk-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:20px}
+.bk{overflow:hidden;display:flex;flex-direction:column;grid-column:span 2}
+.bk.wide{grid-column:span 3}
+.bk-art{display:grid;place-items:center;height:200px;padding:24px;border-bottom:1px solid var(--bd)}
+.bk-art.g-light{background:var(--panel-2)}
+.bk-art.g-deep{background:radial-gradient(120% 140% at 50% 20%,var(--ac) 0%,var(--deep) 55%,var(--fg) 100%)}
+.bk-art.g-brand{background:var(--ac)}
+.bk-body{padding:16px 18px 18px;display:flex;flex-direction:column;flex:1}
+.bk-files{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:14px}
+.bk-swatches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}
+.bk-swatches>div{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.bk-swatches i{display:block;height:56px;border-radius:var(--r);border:1px solid var(--bd);margin-bottom:6px}
+.bk-swatches span{font-size:12.5px;color:var(--fg-2)}
+.bk-swatches small{font-size:12px;color:var(--fg-3)}
+.bk-rules{list-style:none;margin-top:10px}
+.bk-rules li{padding:9px 0;border-bottom:1px solid var(--bd-n);font-size:13.5px;color:var(--fg-2)}
+.bk-rules li:last-child{border-bottom:0}
+@media (max-width:980px){.bk{grid-column:span 3}.bk.wide{grid-column:span 6}}
+@media (max-width:640px){.bk-grid{grid-template-columns:1fr}.bk,.bk.wide{grid-column:auto}.bk-swatches{grid-template-columns:1fr 1fr}.bk-art{height:170px}}
 
 /* ---------- footer, empty, toast ---------- */
 .foot{display:flex;justify-content:space-between;align-items:center;margin-top:36px;padding-top:18px;border-top:1px solid var(--bd);font-size:13px;color:var(--fg-3);flex-wrap:wrap;gap:10px}

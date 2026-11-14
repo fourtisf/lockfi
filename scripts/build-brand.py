@@ -31,6 +31,10 @@ OUT = os.path.join(ROOT, 'brand')
 RING_C, RING_R, RING_W = 16, 12.2, 2.4
 CLIP_R = 11
 WATER = 'M3 17.5c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 6.6 0 4.4 2.4 6.6 0V30H3z'
+# Premium only: the tide line alone (for a highlight), and a swell behind it —
+# the same wave, half a period out of phase and 1.9 units higher.
+CREST = 'M3 17.5c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 6.6 0 4.4 2.4 6.6 0'
+SWELL = 'M3 15.6c2.2 2.4 4.4 2.4 6.6 0s4.4-2.4 6.6 0 4.4 2.4 6.6 0 4.4-2.4 6.6 0V30H3z'
 
 # Ink box, including the ring's stroke: 26.8 × 26.8, centred on (16, 16).
 INK0 = RING_C - RING_R - RING_W / 2
@@ -61,6 +65,54 @@ def mark(color: str, clip_id: str = 'tw') -> str:
         f'<circle cx="{RING_C}" cy="{RING_C}" r="{RING_R}" fill="none" stroke="{color}" '
         f'stroke-width="{RING_W}"/>\n  '
         f'<path d="{WATER}" fill="{color}" clip-path="url(#{clip_id})"/>'
+    )
+
+
+# The premium cut: depth instead of flat colour. A gradient ring, a swell behind
+# the tide, water that darkens with depth and a highlight on the crest. Same
+# silhouette as the flat mark, so it reads as the same logo at any size; it is
+# for hero use — app icons, the brand page, decks — and the flat mark stays the
+# one for UI, favicons and anything printed in one colour.
+PREMIUM = {
+    'light': dict(ring=('#2FA6BE', '#0A4F60'), swell=('#7FD0DF', 0.55),
+                  water=('#1590AB', '#084556'), crest=('#BDEAF2', 0.9)),
+    'dark': dict(ring=('#FFFFFF', '#8FDCEA'), swell=('#5CC6D9', 0.45),
+                 water=('#7AD8E8', '#1C93AD'), crest=('#FFFFFF', 0.85)),
+}
+
+
+def mark_premium(tone: str, uid: str = 'p') -> str:
+    t = PREMIUM[tone]
+    return (
+        f'<defs>'
+        f'<linearGradient id="{uid}r" x1="16" y1="{INK0}" x2="16" y2="{INK1}" '
+        f'gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{t["ring"][0]}"/>'
+        f'<stop offset="1" stop-color="{t["ring"][1]}"/></linearGradient>'
+        f'<linearGradient id="{uid}w" x1="16" y1="14" x2="16" y2="28" '
+        f'gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{t["water"][0]}"/>'
+        f'<stop offset="1" stop-color="{t["water"][1]}"/></linearGradient>'
+        f'<clipPath id="{uid}c"><circle cx="{RING_C}" cy="{RING_C}" r="{CLIP_R}"/></clipPath>'
+        f'</defs>\n  '
+        f'<circle cx="{RING_C}" cy="{RING_C}" r="{RING_R}" fill="none" stroke="url(#{uid}r)" '
+        f'stroke-width="{RING_W}"/>\n  '
+        f'<g clip-path="url(#{uid}c)">'
+        f'<path d="{SWELL}" fill="{t["swell"][0]}" opacity="{t["swell"][1]}"/>'
+        f'<path d="{WATER}" fill="url(#{uid}w)"/>'
+        f'<path d="{CREST}" fill="none" stroke="{t["crest"][0]}" stroke-width="0.6" '
+        f'stroke-linecap="round" opacity="{t["crest"][1]}"/></g>'
+    )
+
+
+def premium_ground(uid: str, w: float, h: float, rx: float = 0) -> str:
+    """Deep sea: a lit centre falling off to near-black teal, with a hairline edge."""
+    edge = f' rx="{rx:g}"' if rx else ''
+    return (
+        f'<defs><radialGradient id="{uid}g" cx="50%" cy="30%" r="80%">'
+        f'<stop offset="0" stop-color="#11657A"/><stop offset=".55" stop-color="#0A3D4A"/>'
+        f'<stop offset="1" stop-color="#05222A"/></radialGradient></defs>\n  '
+        f'<rect width="{w:g}" height="{h:g}"{edge} fill="url(#{uid}g)"/>\n  '
+        f'<rect x=".25" y=".25" width="{w - 0.5:g}" height="{h - 0.5:g}"{edge} fill="none" '
+        f'stroke="#FFFFFF" stroke-opacity=".10" stroke-width=".5"/>'
     )
 
 
@@ -175,6 +227,49 @@ def main() -> None:
     ]:
         write(o(name), svg(mark(mcol) + f'\n  <path d="{d}" fill="{wcol}"/>', view,
                            round(vb[2] * 4, 2), round(vb[3] * 4, 2)))
+
+    print('premium')
+    write(o('tidewell-mark-premium.svg'), svg(mark_premium('light'), '0 0 32 32', 32, 32))
+    write(o('tidewell-mark-premium-dark.svg'), svg(mark_premium('dark'), '0 0 32 32', 32, 32))
+    sc = 0.70
+    pad_p = (32 - 32 * sc) / 2
+    write(o('icon-premium.svg'), svg(
+        premium_ground('i', 32, 32, TILE_R) +
+        f'\n  <g transform="translate({pad_p:g} {pad_p:g}) scale({sc:g})">{mark_premium("dark")}</g>',
+        '0 0 32 32', 1024, 1024))
+    write(o('icon-premium-fullbleed.svg'), svg(
+        premium_ground('f', 32, 32) +
+        f'\n  <g transform="translate({pad_p:g} {pad_p:g}) scale({sc:g})">{mark_premium("dark")}</g>',
+        '0 0 32 32', 1024, 1024))
+    for name, tone, wcol in [
+        ('tidewell-lockup-premium.svg', 'light', INK),
+        ('tidewell-lockup-premium-dark.svg', 'dark', WHITE),
+    ]:
+        write(o(name), svg(mark_premium(tone) + f'\n  <path d="{d}" fill="{wcol}"/>', view,
+                           round(vb[2] * 4, 2), round(vb[3] * 4, 2)))
+
+    # The hero: the premium lockup on the deep-sea ground, with the tagline.
+    SW, SH = 2400, 1350
+    PS = 13.0
+    p_mark = (INK1 - INK0) * PS
+    p_size = 32 * PS * 0.60
+    p_cap = p_size * cap
+    total_w = p_mark + GAP_CAPS * p_cap + (ink_right - (INK1 + GAP_CAPS * cap_h)) * (p_size / size)
+    x0 = (SW - total_w) / 2
+    p_top = 430.0
+    show_word, _ = outline(word, 'Tidewell', p_size, p_top + p_mark / 2 + p_cap / 2,
+                           x0 + p_mark + GAP_CAPS * p_cap, TRACKING_EM)
+    tag_font = load('Manrope', 500, 'Fees')
+    tag_d, tag_r = outline(tag_font, 'Fees rise with the tide.', 64, 0, 0)
+    tag_x = (SW - tag_r) / 2
+    tag_d, _ = outline(tag_font, 'Fees rise with the tide.', 64, p_top + p_mark + 190, tag_x)
+    write(o('tidewell-premium-showcase.svg'), svg(
+        premium_ground('s', SW, SH) +
+        f'\n  <g transform="translate({x0 - INK0 * PS:.2f} {p_top - INK0 * PS:.2f}) scale({PS})">'
+        f'{mark_premium("dark", "sm")}</g>\n  '
+        f'<path d="{show_word}" fill="{WHITE}"/>\n  '
+        f'<path d="{tag_d}" fill="#CFE7EC"/>',
+        f'0 0 {SW} {SH}', SW, SH))
 
     # ------------------------------------------------------------- og card --
     # 1200 × 630 is what X, Telegram, Discord and Slack all crop from. No URL

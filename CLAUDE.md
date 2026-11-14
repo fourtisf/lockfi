@@ -1270,6 +1270,29 @@ another.
   they cannot disagree, and the fee they deduct is `PROTOCOL_FEE_BPS`, the same
   constant the disclosure prints.
 
+### The premium cut, and the logo on the website
+
+- **Two cuts of one mark.** The flat mark is for interfaces, favicons and one
+  colour. The **premium** cut — a gradient ring, a swell behind the tide, water
+  that darkens with depth and a highlight on the crest — is for hero use: the
+  app icon, decks, the press. Same silhouette, so it reads as the same logo at
+  any size. Both come out of `npm run brand`, which now has a third step,
+  `scripts/build-brand-kit.py`.
+- **What the website serves.** `app/icon.svg` (favicon), `app/apple-icon.png`
+  (iOS home screen), `app/manifest.ts` with `public/icons/` (add to home
+  screen), `public/og-card.png` (link previews), and **`/brand`**: every logo
+  as SVG and high-resolution PNG, plus `tidewell-brand-kit.zip` with all of
+  `brand/`. The footer links to it. An e2e test fetches every file the page
+  offers.
+
+### Deploying it
+
+`deploy/deploy.sh` hardcoded `BRANCH=claude/new-session-c0aptv`, so the box
+could only ever deploy that branch. It now deploys `DEPLOY_BRANCH` when given,
+otherwise whatever branch the checkout is on. The server still has the old
+script, so the first switch is by hand (see the README's deploy section);
+every deploy after that follows the branch the box is on.
+
 ### Still open
 
 - **A Tidewell domain**, and the same defensive registrations §13 argued for

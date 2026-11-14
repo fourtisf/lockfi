@@ -231,11 +231,25 @@ is one line in `.env`.
 # first time, as root, on a box whose DNS already points here
 bash deploy/bootstrap.sh
 
-# every time after
+# every time after: deploys the branch the box is on
 bash /var/www/balast/deploy/deploy.sh
+
+# deploy a different branch from now on
+DEPLOY_BRANCH=<branch> bash /var/www/balast/deploy/deploy.sh
 
 # when something is wrong and you want one answer rather than a stack trace
 bash /var/www/balast/deploy/doctor.sh
+```
+
+**Moving a box that still has the old `deploy.sh`** (which hardcoded
+`claude/new-session-c0aptv`) onto another branch takes one manual checkout,
+after which the new script takes over:
+
+```bash
+cd /var/www/balast
+runuser -u balast -- git fetch origin <branch>
+runuser -u balast -- git checkout -B <branch> origin/<branch>
+bash deploy/deploy.sh
 ```
 
 `doctor.sh` checks code, configuration, database, migrations, the three PM2

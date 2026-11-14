@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Tidewell">
+  <defs><linearGradient id="pr" x1="16" y1="2.6000000000000005" x2="16" y2="29.4" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#8FDCEA"/></linearGradient><linearGradient id="pw" x1="16" y1="14" x2="16" y2="28" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7AD8E8"/><stop offset="1" stop-color="#1C93AD"/></linearGradient><clipPath id="pc"><circle cx="16" cy="16" r="11"/></clipPath></defs>
+  <circle cx="16" cy="16" r="12.2" fill="none" stroke="url(#pr)" stroke-width="2.4"/>
+  <g clip-path="url(#pc)"><path d="M3 15.6c2.2 2.4 4.4 2.4 6.6 0s4.4-2.4 6.6 0 4.4 2.4 6.6 0 4.4-2.4 6.6 0V30H3z" fill="#5CC6D9" opacity="0.45"/><path d="M3 17.5c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 6.6 0 4.4 2.4 6.6 0V30H3z" fill="url(#pw)"/><path d="M3 17.5c2.2-2.4 4.4-2.4 6.6 0s4.4 2.4 6.6 0 4.4-2.4 6.6 0 4.4 2.4 6.6 0" fill="none" stroke="#FFFFFF" stroke-width="0.6" stroke-linecap="round" opacity="0.85"/></g>
+</svg>

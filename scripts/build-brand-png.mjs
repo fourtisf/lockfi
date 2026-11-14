@@ -57,6 +57,17 @@ const JOBS = [
 
   ['tidewell-lockup.svg', 'tidewell-lockup-1200.png', 1200],
   ['tidewell-lockup-white.svg', 'tidewell-lockup-white-1200.png', 1200],
+
+  // Premium: hero use — app icons, the brand page, decks. High resolution,
+  // because these are the files people put on a slide or a billboard.
+  ['tidewell-mark-premium.svg', 'tidewell-mark-premium-2048.png', 2048],
+  ['tidewell-mark-premium-dark.svg', 'tidewell-mark-premium-dark-2048.png', 2048],
+  ['icon-premium.svg', 'icon-premium-1024.png', 1024],
+  ['icon-premium.svg', 'icon-premium-2048.png', 2048],
+  ['icon-premium-fullbleed.svg', 'icon-premium-fullbleed-1024.png', 1024],
+  ['tidewell-lockup-premium.svg', 'tidewell-lockup-premium-2400.png', 2400],
+  ['tidewell-lockup-premium-dark.svg', 'tidewell-lockup-premium-dark-2400.png', 2400],
+  ['tidewell-premium-showcase.svg', 'tidewell-premium-showcase.png', 2400],
 ];
 
 const browser = await chromium.launch(

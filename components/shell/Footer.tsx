@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { CHAIN } from '@/lib/chain';
 import { BRAND } from '@/lib/site';
 import { Mark } from './Logo';
@@ -10,6 +11,7 @@ export function Footer() {
         {BRAND} · {CHAIN.name} · chain {CHAIN.id}
       </div>
       <div className="foot-r">
+        <Link href="/brand">Brand</Link>
         <a href="#">Contracts</a>
         {/* No "Audit" link until there is an audit to link to (§8, P5). */}
         <a href="#">Docs</a>

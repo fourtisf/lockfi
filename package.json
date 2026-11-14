@@ -20,7 +20,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "brand": "python3 scripts/build-brand.py && node scripts/build-brand-png.mjs",
+    "brand": "python3 scripts/build-brand.py && node scripts/build-brand-png.mjs && python3 scripts/build-brand-kit.py",
     "postinstall": "prisma generate"
   },
   "dependencies": {
