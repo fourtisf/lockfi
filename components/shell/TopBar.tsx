@@ -1,9 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
-import { count, usdExact } from '@/lib/format';
+import { DATA_SOURCE } from '@/lib/data';
+import { usd, usdExact } from '@/lib/format';
+import { Mark } from './Logo';
 
 /** Above this the indexer is behind and the top bar has to say so (§7). */
 const LAG_THRESHOLD_SECONDS = 30;
@@ -12,12 +16,14 @@ const LAG_THRESHOLD_SECONDS = 30;
 const SEARCHABLE = ['/pools', '/stakes', '/portfolio'];
 
 export function TopBar() {
-  const { global, indexerLagSeconds } = useMarket();
+  const { global, featured, indexerLagSeconds } = useMarket();
   const { query, setQuery, wallet, connect } = useUi();
   const pathname = usePathname();
   const router = useRouter();
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const behind = indexerLagSeconds > LAG_THRESHOLD_SECONDS;
   const filtersHere = SEARCHABLE.includes(pathname);
+  const simulated = DATA_SOURCE !== 'live';
 
   const onSearch = (value: string) => {
     setQuery(value);
@@ -25,9 +31,35 @@ export function TopBar() {
     if (value !== '' && !filtersHere) router.push('/pools');
   };
 
+  // "/" focuses search from anywhere that is not already a text field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest('input, textarea, select, [contenteditable="true"]') || t.isContentEditable)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const lagSeconds = Math.round(indexerLagSeconds);
+  const statusTitle = simulated
+    ? behind
+      ? 'Simulated data. The simulator is also rehearsing an indexer that has fallen behind head: numbers on screen are as of this lag.'
+      : 'Simulated data: the P0 simulator generates every number on this page. No transaction is ever sent.'
+    : behind
+      ? 'The indexer is behind head. Numbers on screen are as of this lag, not live.'
+      : 'Indexer is at head.';
+
   return (
     <header className="top">
       <div className="top-in">
+        <Link href="/pools" className="brand-m" aria-label="Balast, pools">
+          <Mark size={28} />
+        </Link>
+
         <div className="search">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="11" cy="11" r="7" />
@@ -38,56 +70,50 @@ export function TopBar() {
           </label>
           <input
             id="q"
+            ref={searchRef}
             value={query}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder={filtersHere ? 'Search tokens & stakes' : 'Search pools & stakes'}
+            placeholder={filtersHere ? 'Search tokens' : 'Search pools'}
             autoComplete="off"
           />
+          <kbd aria-hidden="true">/</kbd>
         </div>
 
+        {/* Every figure here is summed from the pools below it (§12). */}
         <div className="tstats">
-          <Stat label="Total positions" value={count(global.totalPositions)}>
-            <path d="M12 3l9 5-9 5-9-5 9-5z" />
-            <path d="M3 13l9 5 9-5" />
-          </Stat>
-          <Stat label="Total fees" value={usdExact(global.totalFeesUsd)}>
-            <path d="M9 15l6-6M8 8h.01M16 16h.01" />
-            <circle cx="12" cy="12" r="9" />
-          </Stat>
-          <Stat label="TVL" value={usdExact(global.tvlUsd)}>
-            <path d="M12 3s6 6.5 6 10a6 6 0 11-12 0c0-3.5 6-10 6-10z" />
-          </Stat>
-          <Stat label="ETH price" value={usdExact(global.ethPriceUsd, 2)}>
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7v10M9.5 9.5h5M9.5 14.5h5" />
-          </Stat>
+          <Stat label="TVL" value={usdExact(global.tvlUsd)} />
+          <Stat label="Fees 24h" value={usdExact(featured.fees24hUsd)} />
+          <Stat label="Volume 24h" value={usd(featured.volume24hUsd)} />
+          <Stat label="ETH" value={usdExact(global.ethPriceUsd, 2)} />
         </div>
 
         <div className="top-r">
           <span
-            className={`lag${behind ? ' behind' : ''}`}
-            title={
-              behind
-                ? 'The indexer is behind head. Numbers on screen are as of this lag, not live.'
-                : 'Indexer is at head.'
-            }
+            className={`lag${simulated ? ' sim' : ''}${behind ? ' behind' : ''}`}
+            title={statusTitle}
           >
             <i />
+            {simulated && (
+              <>
+                <span className="lag-long">Simulated</span>
+                <span className="lag-short">Sim</span>
+                {behind && <span className="lag-word"> ·</span>}
+              </>
+            )}
             {behind ? (
               <>
-                <span className="lag-word">Indexer</span> {Math.round(indexerLagSeconds)}s behind
+                {!simulated && <span className="lag-word">Indexer</span>} {lagSeconds}s behind
               </>
             ) : (
-              <span className="lag-live">Live</span>
+              !simulated && <span className="lag-live">Live</span>
             )}
           </span>
-          <button className="btn btn-ghost" onClick={connect}>
-            {wallet ?? (
-              <>
-                <span className="wallet-long">Connect wallet</span>
-                <span className="wallet-short">Connect</span>
-              </>
-            )}
+          <button className="btn btn-ghost" onClick={connect} aria-label={wallet ?? 'Connect wallet'}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="6" width="18" height="13" rx="2" />
+              <path d="M3 10h18M16 14.5h2" />
+            </svg>
+            <span className="wallet-long">{wallet ?? 'Connect wallet'}</span>
           </button>
         </div>
       </div>
@@ -95,24 +121,11 @@ export function TopBar() {
   );
 }
 
-function Stat({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value: string;
-  children: React.ReactNode;
-}) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="ts">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        {children}
-      </svg>
-      <div>
-        <div className="k">{label}</div>
-        <div className="v num">{value}</div>
-      </div>
+      <div className="k">{label}</div>
+      <div className="v num">{value}</div>
     </div>
   );
 }

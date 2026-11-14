@@ -9,7 +9,20 @@ export const metadata: Metadata = { title: 'Pools — Balast' };
 export default function PoolsPage() {
   return (
     <section>
-      <h1 className="sr-only">Pools</h1>
+      <div className="head">
+        <div>
+          <h1>Pools</h1>
+          <p className="lede">Earn a share of real swap fees, paid in WETH. No emissions, no lockups.</p>
+        </div>
+        <div className="acts">
+          <Link className="btn btn-quiet" href="/positions">
+            Build a position
+          </Link>
+          <Link className="btn btn-brand" href="/stakes">
+            Start earning
+          </Link>
+        </div>
+      </div>
 
       <div className="hero">
         <Featured />
@@ -21,29 +34,33 @@ export default function PoolsPage() {
         <PoolBoard variant="established" title="Established" boardId="B" />
       </div>
 
-      <div className="grid g2" style={{ marginTop: 12 }}>
+      <div className="grid g2" style={{ marginTop: 20 }}>
         <LivePayouts />
-        <div
-          className="card panel"
-          style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 14 }}
-        >
-          <div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-.01em', margin: '0 0 8px' }}>
-              Own a share of the <em style={{ fontStyle: 'normal', color: 'var(--ac)' }}>depth</em>.
-            </h2>
-            <p className="lede">
-              Deposit into any token on Robinhood Chain and collect swap fees in WETH, streamed to
-              your wallet. No lockups, no emissions, nothing to trust but the contract.
-            </p>
-          </div>
-          <div className="row">
-            <Link className="btn btn-brand" href="/stakes">
-              Start earning
-            </Link>
-            <Link className="btn btn-ghost" href="/positions">
-              Build a position
-            </Link>
-          </div>
+        {/* §7's rules, on the page where the numbers are, not in a docs page. */}
+        <div className="card rules">
+          <h2 className="sect-h">How these numbers are made</h2>
+          <ul>
+            <li>
+              <b>7d</b>
+              <span>Fee yield is trailing seven days of real swap fees. It is never annualised from a single day.</span>
+            </li>
+            <li>
+              <b>est.</b>
+              <span>A pool younger than seven days is an estimate, and shows its age next to the figure.</span>
+            </li>
+            <li>
+              <b>—</b>
+              <span>Under 24 hours of data there is no figure at all, only a dash.</span>
+            </li>
+            <li>
+              <b>10%</b>
+              <span>Balast&rsquo;s fee, taken from fees earned at harvest. Never from your deposit.</span>
+            </li>
+            <li>
+              <b>0</b>
+              <span>Token emissions. If volume slows, the yield slows with it.</span>
+            </li>
+          </ul>
         </div>
       </div>
     </section>

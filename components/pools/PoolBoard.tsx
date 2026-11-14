@@ -5,7 +5,7 @@ import { usePools } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { Change } from '@/components/ui/Change';
 import { FlashTd } from '@/components/ui/FlashTd';
-import { AreaSpark } from '@/components/ui/Sparkline';
+import { Spark } from '@/components/ui/Sparkline';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { useFlip } from '@/hooks/useFlip';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
@@ -71,34 +71,30 @@ export function PoolBoard({
   return (
     <div className="card">
       <div className="board-h">
-        <span className="sect-h">
-          <i />
-          {title} <span className="muted">live</span>
-          {variant === 'established' && (
-            <span className="faint" title="A pool needs a full 7 days of fees before its yield is worth ranking.">
-              7d+
+        <h2 className="sect-h">
+          {title}
+          {variant === 'trending' ? (
+            <span className="muted">by volume</span>
+          ) : (
+            <span
+              className="muted"
+              title="A pool needs a full 7 days of fees before its yield is worth ranking."
+            >
+              7d+ · by fee yield
             </span>
           )}
-        </span>
-        <div className="row">
-          <div className="seg" role="group" aria-label={`${title} quote filter`}>
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                className={filter === f.id ? 'on' : undefined}
-                aria-pressed={filter === f.id}
-                onClick={() => setFilter(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          <span className="filt">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 5h18l-7 8v6l-4 2v-8z" />
-            </svg>
-            24h
-          </span>
+        </h2>
+        <div className="seg" role="group" aria-label={`${title} quote filter`}>
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              className={filter === f.id ? 'on' : undefined}
+              aria-pressed={filter === f.id}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -112,14 +108,14 @@ export function PoolBoard({
           <thead>
             <tr>
               <th scope="col">Token</th>
-              <th scope="col" className="r hide-s">
+              <th scope="col" className="r hide-mc">
                 MC
               </th>
               <th scope="col" className="r">
                 24h
               </th>
               <th scope="col" className="r">
-                {variant === 'trending' ? 'Fees 24h' : 'Fee yield'}
+                {variant === 'trending' ? 'Fees 24h' : 'Fee yield 7d'}
               </th>
               <th scope="col" className="r hide-l">
                 {variant === 'trending' ? 'Vol 24h' : 'Depth'}
@@ -128,14 +124,17 @@ export function PoolBoard({
                 Age
               </th>
               <th scope="col" className="r hide-m">
-                Last 24h
+                7d fees
+              </th>
+              <th scope="col" className="hide-m">
+                <span className="sr-only">Action</span>
               </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr className="static">
-                <td colSpan={7}>
+                <td colSpan={8}>
                   <div className="empty">
                     <b>No match</b>Try a ticker, or clear the search.
                   </div>
@@ -196,7 +195,7 @@ function Row({
         </button>
       </td>
       <td
-        className="r num hide-s"
+        className="r num hide-mc"
         title={
           pool.marketCapUsd <= 0
             ? 'No token supply read yet, so there is no figure to show.'
@@ -223,8 +222,8 @@ function Row({
           text={yieldText}
           title={feeYieldTitle(pool.feeYield)}
         >
-          <span style={{ fontWeight: 700 }}>{yieldText}</span>
-          {qualifier && <span className="est">{qualifier}</span>}
+          <span style={{ fontWeight: 600 }}>{yieldText}</span>
+          {qualifier && <span className="est" style={{ display: 'block', margin: 0 }}>{qualifier}</span>}
         </FlashTd>
       )}
 
@@ -235,7 +234,7 @@ function Row({
           <span className="depth-bar" aria-hidden="true">
             <i style={{ width: `${Math.min(100, (pool.tvlUsd / DEPTH_BAR_MAX) * 100)}%` }} />
           </span>
-          <span className="num muted" style={{ fontSize: 11.5 }}>
+          <span className="num muted" style={{ fontSize: 12.5 }}>
             {usd(pool.tvlUsd)}
           </span>
         </td>
@@ -243,19 +242,19 @@ function Row({
 
       <td className="r num hide-a muted">{age}</td>
       <td className="r hide-m">
-        <div style={{ position: 'relative' }}>
-          <AreaSpark values={pool.feeHistory} negative={pool.change24hPct < 0} />
-          <button
-            className="stake-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen();
-            }}
-          >
-            {pool.stakeable ? 'Stake' : 'View'}
-            <span className="sr-only"> {pool.token.symbol}</span>
-          </button>
-        </div>
+        <Spark values={pool.feeHistory} />
+      </td>
+      <td className="act hide-m">
+        <button
+          className="stake-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+        >
+          {pool.stakeable ? 'Stake' : 'View'}
+          <span className="sr-only"> {pool.token.symbol}</span>
+        </button>
       </td>
     </tr>
   );

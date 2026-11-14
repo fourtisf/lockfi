@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 
 /**
  * End-to-end checks for the behaviour §6 and §11 ask for: the flash, the FLIP
@@ -15,7 +15,9 @@ const PORT = Number(process.env.E2E_PORT ?? 3200);
 const PREINSTALLED = [
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   '/opt/pw-browsers/chromium/chrome-linux/chrome',
-].find((p) => existsSync(p));
+  // Newer images link the binary itself at this path.
+  '/opt/pw-browsers/chromium',
+].find((p) => existsSync(p) && statSync(p).isFile());
 
 export default defineConfig({
   testDir: './e2e',

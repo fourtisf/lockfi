@@ -72,12 +72,25 @@ test.describe('live boards', () => {
     await expect(page.locator('#main tbody tr.lead')).toHaveCount(2);
   });
 
-  test('Stake appears on row hover and opens the drawer without navigating', async ({ page }) => {
+  // §18 changed §6's hover-reveal: a phone has no hover, and the revealed
+  // button used to sit on top of the sparkline. Stake now has its own column,
+  // always visible, quiet until its row is hovered.
+  test('Stake is on every row, lights up on hover, and opens the drawer without navigating', async ({ page }) => {
     await page.goto('/pools', { waitUntil: 'networkidle' });
-    const button = page.locator('#main tbody tr .stake-btn').first();
-    await expect(button).toHaveCSS('opacity', '0');
-    await page.locator('#main tbody tr').first().hover();
-    await expect(button).toHaveCSS('opacity', '1');
+    const row = page.locator('#main tbody tr').nth(1);
+    const button = row.locator('.stake-btn');
+    await expect(button).toBeVisible();
+    const quiet = await button.evaluate((el) => getComputedStyle(el).color);
+    await row.hover();
+    await expect
+      .poll(() => button.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(quiet);
+    // Its own cell: the sparkline beside it is never covered.
+    const [b, s] = await Promise.all([
+      button.boundingBox(),
+      row.locator('svg.mini').boundingBox(),
+    ]);
+    expect(b && s && b.x >= s.x + s.width).toBe(true);
     await button.click();
     await expect(page.locator('.drawer')).toHaveClass(/on/);
     await expect(page).toHaveURL(/\/pools$/);

@@ -4,7 +4,13 @@ import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { ageLabel, count, inHours, usd } from '@/lib/format';
-import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldTitle, feeYieldValue } from '@/lib/yield';
+import {
+  FEE_YIELD_LABEL,
+  YIELD_WINDOW_HOURS,
+  feeYieldQualifier,
+  feeYieldTitle,
+  feeYieldValue,
+} from '@/lib/yield';
 
 export function VaultGrid() {
   const { vaults, pools } = useMarket();
@@ -51,10 +57,12 @@ export function VaultGrid() {
                   </div>
                 </div>
               </div>
+              {/* "New" means the same thing Established's 7d+ does: under a full
+                  week of fees. Grey, because it is a label, not a number. */}
               {pool.quote === 'USDG' ? (
                 <span className="pill grey">Stock</span>
-              ) : pool.ageHours < 10 * 24 ? (
-                <span className="pill brand">New</span>
+              ) : pool.ageHours < YIELD_WINDOW_HOURS ? (
+                <span className="pill grey">New</span>
               ) : null}
             </div>
 
@@ -83,11 +91,7 @@ export function VaultGrid() {
               </span>
             </div>
 
-            <button
-              className="btn btn-ghost"
-              style={{ justifyContent: 'center' }}
-              onClick={() => openStake(pool.id)}
-            >
+            <button className="btn btn-quiet" onClick={() => openStake(pool.id)}>
               Stake {pool.token.symbol}
             </button>
           </div>

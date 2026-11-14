@@ -1088,3 +1088,95 @@ The indexer also logs every pass while backfilling now, with percentage and
 blocks remaining. It previously logged only passes that found something, and
 on a chain that is mostly empty an hour of silence is indistinguishable from a
 hang.
+
+---
+
+## 18. Visual refresh: direction A ("Terminal+")
+
+ALFA reviewed three redesign directions as rendered mockups and chose **A**:
+the same dark ground and single green accent, with the hierarchy, legibility
+and phone layout rebuilt. This section supersedes the parts of §5 and §6 it
+names. Where it is silent, §5 and §6 still hold, and §1 and §7 are untouched:
+they are product rules, not styling.
+
+### What changed in the design system (§5)
+
+- **Type.** Inter carries words: labels, headings, buttons, prose. JetBrains
+  Mono carries numbers and tickers, always tabular. Labels are sentence case.
+  §5's `10px / 600 / .16em / uppercase` label style is gone: at that size it
+  cost legibility on every surface it touched.
+- **Contrast.** Every text token is at least 4.5:1 on `--panel`. `--fg-3` is
+  `#7F9489` (5.9:1) and `--fg-4` is `#71857A` (4.9:1); the old `#3D4D45` is
+  now `--fg-5`, decoration only, never text. It had been used for footer links,
+  ranks, hashes and placeholders at 2.2:1.
+- **Borders are neutral by default.** `--bd` was green-tinted, which put the
+  accent on every input and pill. The colour rule is unchanged; it is now also
+  easier to keep.
+- **Neutral marks where the colour rule said so all along.** Sparklines encode
+  shape, not gain or loss, so they wear neutral ink rather than going red when
+  the 24h price move was negative. The bin chart's current-price marker was red,
+  which §5 reserves for negative numbers; it is a neutral dashed line. Toasts
+  are neutral: green read as success, and in P0 nothing ever succeeds.
+- **Layout.** 232px labelled rail; 64px icon rail at 1180px and below; at 640px
+  and below the rail is replaced by a bottom tab bar. The top bar is 64px and
+  holds search, TVL, Fees 24h, Volume 24h and ETH. The boards sit side by side
+  only where each gets about 560px, so they stack below 1400px. Columns drop
+  by priority: MC at 1640px, Age at 1740px, Vol 24h / Depth at 1900px.
+
+### What changed on the pages (§6)
+
+- **Stake is a column, not a hover reveal.** §6 had the button fade in on row
+  hover. A phone has no hover, and the revealed button was drawn on top of the
+  sparkline. It is always present, quiet until its row is hovered.
+- **The featured card's chart has its own band.** The prototype ran it
+  full-bleed behind the six metrics, through the numbers. The headline is fees
+  paid to LPs (§1: fee yield is the headline, not volume). Chain share is gone:
+  §14 already established it is meaningless against our own index.
+- **`featured.history` has a defined unit**: fees per 12h bucket over the
+  trailing 7 days, 14 points, in both providers. The live API already sent
+  that; the simulator sent a full day's fees per point.
+- **The pools page explains its numbers.** The "Own a share of the depth" card
+  is replaced by the rules that make the numbers honest — trailing 7d, `est.`,
+  `—`, the 10% fee from fees only, zero emissions. Start earning moved to the
+  page header.
+- **Page headers are the page name plus one sentence.** The marketing
+  headlines survive as that sentence.
+- **Phones get their own order**: your stakes come before the vault catalogue,
+  and the bin chart before the controls that drive it.
+
+### Honesty fixes that shipped with it
+
+Each was a §7 problem found while reviewing the UI, not a style choice.
+
+- **The simulator said "Live".** The top bar showed a pulsing green *Live*
+  over generated numbers. It says **Simulated** now, the rail says so in a
+  sentence, and the simulated indexer lag still shows (`Simulated · 42s behind`)
+  so §7's lag state stays visible in P0.
+- **Actions reported successes that never happened.** Mint, Stake, Claim,
+  Compound and Enable router each toasted a confirmation ("Position minted to
+  your wallet · 1 tx") with no wallet and no contract. They all go through
+  `act()` now: "… is a preview — no transaction was sent." Connect wallet no
+  longer puts a made-up address in the top bar.
+- **The portfolio contradicted itself**, the same failure §12 fixed for the top
+  bar. Net value, fees earned and claimable were constants that disagreed with
+  the rows beneath them, and the heatmap summed to a third figure. All are
+  derived from the rows, the heatmap sums to fees earned, and a test holds that
+  true across ticks. "Best week so far" was a fixed string; it is computed
+  (`lib/portfolio.ts`) and says "−24.8% vs the week before" when that is the
+  truth. Net change takes its sign and colour from the number.
+- **Out-of-range rows lost their warning on phones.** A rule hiding token
+  subtitles in the boards also hid "out of range — earning nothing" in the
+  portfolio below 520px. §7 requires it in the row.
+- **The drawer's fee disclosure and its estimate both hardcoded 10%.** Both
+  read `PROTOCOL_FEE_BPS` now, so the disclosure cannot drift from the maths.
+- **"New" meant under 10 days**, while Established admits pools at 7, so one
+  pool could be both. It means under 7 days, in grey.
+- **The footer linked an audit that does not exist.** Removed until P5.
+- **Router copy said it "takes custody" of the fee stream**, in a product whose
+  first rule is that Balast never takes custody. The contract *holds* it.
+
+### Still open
+
+The §12 questions are unchanged: the six-hours-per-tick simulator clock needs
+sign-off, and `/positions`' forward-looking *Est. fee yield* still needs a keep,
+cap or drop.

@@ -155,7 +155,7 @@ export interface FeaturedStats {
   liquidityUsd: number;
   stakers: number;
   chainSharePct: number;
-  /** 14 points, for the full-bleed area chart. */
+  /** Fees paid per 12h bucket over the trailing 7 days, oldest first: 14 points. */
   history: number[];
 }
 

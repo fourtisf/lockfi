@@ -7,7 +7,7 @@ import { countdown, usd, usdExact, weth } from '@/lib/format';
 
 export function MyStakes() {
   const { portfolio, pools, global } = useMarket();
-  const { showToast, query } = useUi();
+  const { act, query } = useUi();
 
   const q = query.trim().toLowerCase();
   const stakes = portfolio.stakes.filter((stake) => {
@@ -20,17 +20,8 @@ export function MyStakes() {
   });
 
   return (
-    <div className="card mine" style={{ marginTop: 22 }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 6,
-          flexWrap: 'wrap',
-        }}
-      >
+    <div className="card mine">
+      <div className="mine-h">
         <h2 className="sect-h">Your stakes</h2>
         <span className="pill weth">
           Claimable {portfolio.claimableWeth.toFixed(3)} WETH ·{' '}
@@ -47,7 +38,7 @@ export function MyStakes() {
                 Staked
               </th>
               <th scope="col" className="r">
-                Earned
+                Claimable
               </th>
               <th scope="col">Stream</th>
               <th scope="col" className="r">
@@ -70,7 +61,7 @@ export function MyStakes() {
                   <td className="r num" data-label="Staked">
                     {usd(stake.stakedUsd)}
                   </td>
-                  <td className="r num up" data-label="Earned">
+                  <td className="r num up" data-label="Claimable">
                     {weth(stake.earnedWeth, 2)}
                   </td>
                   <td style={{ minWidth: 180 }} data-label="Stream">
@@ -92,13 +83,13 @@ export function MyStakes() {
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
                       <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => showToast('Claimed to wallet')}
+                        onClick={() => act('Claiming')}
                       >
                         Claim
                       </button>
                       <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => showToast('Compounded into stake')}
+                        className="btn btn-quiet btn-sm"
+                        onClick={() => act('Compounding')}
                       >
                         Compound
                       </button>

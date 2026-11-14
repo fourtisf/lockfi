@@ -10,7 +10,7 @@ export function Footer() {
       </div>
       <div className="foot-r">
         <a href="#">Contracts</a>
-        <a href="#">Audit</a>
+        {/* No "Audit" link until there is an audit to link to (§8, P5). */}
         <a href="#">Docs</a>
         <a href="#">Status</a>
         <a href="#">X</a>

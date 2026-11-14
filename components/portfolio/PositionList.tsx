@@ -28,8 +28,8 @@ export function PositionList() {
 
   return (
     <div className="card panel">
-      <h2 style={{ fontWeight: 600, fontSize: 17, letterSpacing: '-.02em', marginBottom: 6 }}>
-        Positions
+      <h2 className="sect-h" style={{ marginBottom: 4 }}>
+        Positions and stakes
       </h2>
 
       {positions.map((position) => {

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
+import { PROTOCOL_FEE_BPS } from '@/lib/chain';
 import { ageLabel, usd, weth } from '@/lib/format';
 import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldTitle, feeYieldValue } from '@/lib/yield';
 
@@ -13,7 +14,7 @@ const FOCUSABLE =
 
 export function StakeDrawer() {
   const { pools, global } = useMarket();
-  const { stakePoolId, closeStake, showToast } = useUi();
+  const { stakePoolId, closeStake, act } = useUi();
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const returnFocusTo = useRef<HTMLElement | null>(null);
@@ -63,9 +64,11 @@ export function StakeDrawer() {
   const depositUsd = eth * global.ethPriceUsd;
   const share = pool ? depositUsd / (pool.tvlUsd + depositUsd) : 0;
   const enoughData = pool?.feeYield.basis !== 'insufficient';
-  // Weekly fees, after the protocol's 10% cut, from the trailing window only.
+  // Weekly fees, after the protocol's cut, from the trailing window only. The
+  // cut and its disclosure below read the same constant, so they cannot drift.
+  const lpShare = 1 - PROTOCOL_FEE_BPS / 10_000;
   const weeklyWeth = pool
-    ? ((pool.feesWindowUsd * (168 / pool.feeWindowHours)) * share * 0.9) / global.ethPriceUsd
+    ? ((pool.feesWindowUsd * (168 / pool.feeWindowHours)) * share * lpShare) / global.ethPriceUsd
     : 0;
 
   return (
@@ -101,7 +104,10 @@ export function StakeDrawer() {
             <div className="dr-b">
               <div className="kv">
                 <div>
-                  <div className="k">Fee yield</div>
+                  {/* §1's label, once — it used to sit above and below the figure. */}
+                  <div className="k">
+                    {FEE_YIELD_LABEL.charAt(0).toUpperCase() + FEE_YIELD_LABEL.slice(1)}
+                  </div>
                   <div
                     className={`v num${enoughData ? ' up' : ' muted'}`}
                     title={feeYieldTitle(pool.feeYield)}
@@ -112,9 +118,6 @@ export function StakeDrawer() {
                         {feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours))}
                       </span>
                     )}
-                  </div>
-                  <div className="k" style={{ marginTop: 6 }}>
-                    {FEE_YIELD_LABEL}
                   </div>
                 </div>
                 <div>
@@ -166,7 +169,7 @@ export function StakeDrawer() {
                     {/* §7: the protocol fee is disclosed here, before signing. */}
                     <div className="disclose">
                       <span className="muted">Balast fee</span>
-                      <b className="num">10% of fees earned</b>
+                      <b className="num">{PROTOCOL_FEE_BPS / 100}% of fees earned</b>
                     </div>
                     <div className="disclose">
                       <span className="muted">Lockup</span>
@@ -206,7 +209,7 @@ export function StakeDrawer() {
                 className="btn btn-brand"
                 disabled={!pool.stakeable}
                 onClick={() => {
-                  showToast('Staked · fees start streaming next harvest');
+                  act('Staking');
                   closeStake();
                 }}
               >

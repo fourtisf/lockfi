@@ -2,8 +2,8 @@
 
 import { weth } from '@/lib/format';
 
-/** The grid is 14 columns wide, matching the prototype. */
-const DAYS_PER_ROW = 14;
+/** Rows of the screen-reader table; the visual grid is a week per column. */
+const DAYS_PER_ROW = 7;
 
 /**
  * Eight weeks of daily WETH fees. Brighter green = more fees.
@@ -41,6 +41,11 @@ export function FeeHeatmap({ values }: { values: number[] }) {
             />
           );
         })}
+      </div>
+
+      <div className="cal-axis" aria-hidden="true">
+        <span>8 weeks ago</span>
+        <span>this week</span>
       </div>
 
       <p className="hint">

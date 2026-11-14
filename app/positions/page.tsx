@@ -8,15 +8,10 @@ export default function PositionsPage() {
     <section>
       <div className="head">
         <div>
-          <div className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>
-            Positions
-          </div>
-          <h1>
-            Shape your liquidity <em>by hand</em>.
-          </h1>
+          <h1>Positions</h1>
           <p className="lede">
-            Choose a range, pick a shape, deposit one token. Balast splits it across bins and mints a
-            single Uniswap v4 position straight to your wallet.
+            Shape your liquidity by hand. Choose a range, pick a shape, deposit one token: Balast
+            splits it across bins and mints one Uniswap v4 position straight to your wallet.
           </p>
         </div>
       </div>

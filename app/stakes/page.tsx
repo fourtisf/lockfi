@@ -6,18 +6,14 @@ export const metadata: Metadata = { title: 'Stakes — Balast' };
 
 export default function StakesPage() {
   return (
-    <section>
+    <section className="stakes-page">
       <div className="head">
         <div>
-          <div className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>
-            Stakes
-          </div>
-          <h1>
-            Stake once. Fees stream for <em>7 days</em>.
-          </h1>
+          <h1>Stakes</h1>
           <p className="lede">
-            Drop in one token and Balast pairs it, places it, and harvests the fees. Your share
-            arrives as WETH over a rolling week. Claim, compound, or leave whenever you like.
+            Stake once and your share of fees streams to you as WETH over a rolling 7 days. Drop in
+            one token; Balast pairs it, places it and harvests. Claim, compound or leave whenever
+            you like.
           </p>
         </div>
       </div>

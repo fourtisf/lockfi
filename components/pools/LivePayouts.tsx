@@ -11,10 +11,10 @@ export function LivePayouts() {
   return (
     <div className="card live">
       <div className="live-h">
-        <span>
+        <h2 className="sect-h">
           <i className="dot" aria-hidden="true" />
           Fees paid out just now
-        </span>
+        </h2>
         <span className="num">{usdExact(payoutTotalUsd)}</span>
       </div>
       <div aria-live="off">

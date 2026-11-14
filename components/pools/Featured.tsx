@@ -2,42 +2,57 @@
 
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
-import { Mark } from '@/components/shell/Logo';
-import { AreaChart, AreaSpark } from '@/components/ui/Sparkline';
+import { AreaChart, Spark } from '@/components/ui/Sparkline';
 import { TokenBadge } from '@/components/ui/TokenBadge';
-import { count, signedPct, usd, usdExact } from '@/lib/format';
+import { count, usd, usdExact } from '@/lib/format';
 import { yieldPct } from '@/lib/yield';
 
-export function Featured() {
-  const { featured } = useMarket();
+/** The history is 14 buckets of 12 hours: the trailing week. */
+const BUCKET_HOURS = 12;
 
-  const metrics = [
-    { k: 'Fees paid · 24h', v: usdExact(featured.fees24hUsd) },
-    { k: '24h', v: signedPct(featured.change24hPct), up: featured.change24hPct >= 0 },
-    { k: 'Vol 24h', v: usd(featured.volume24hUsd) },
-    { k: 'Liquidity', v: usd(featured.liquidityUsd) },
-    { k: 'Stakers', v: count(featured.stakers) },
-    { k: 'Chain share', v: `${featured.chainSharePct.toFixed(1)}%` },
-  ];
+/**
+ * The protocol at a glance: the headline is fees paid to LPs, because fee
+ * yield — not volume — is what §1 makes the headline metric.
+ */
+export function Featured() {
+  const { featured, pools } = useMarket();
+  const n = featured.history.length;
 
   return (
     <div className="card feat">
       <div className="fh">
-        {/* Balast's own pool, so it carries the mark rather than a monogram. */}
-        <div className="fl" style={{ background: 'var(--ac)' }}>
-          <Mark size={30} color="var(--on-ac)" title="Balast" />
-        </div>
-        <div className="fn">BALAST</div>
-      </div>
-      <div className="fg">
-        {metrics.map((m) => (
-          <div key={m.k}>
-            <div className="k">{m.k}</div>
-            <div className={`v num${m.up === undefined ? '' : m.up ? ' up' : ' down'}`}>{m.v}</div>
+        <div>
+          <div className="k">Fees paid to LPs · 24h</div>
+          <div className="big num">{usdExact(featured.fees24hUsd)}</div>
+          <div className="fsub">
+            across {pools.length} pools · paid in WETH, never in emissions
           </div>
-        ))}
+        </div>
+        <div className="fg">
+          <div>
+            <div className="k">Liquidity</div>
+            <div className="v num">{usd(featured.liquidityUsd)}</div>
+          </div>
+          <div>
+            <div className="k">Volume 24h</div>
+            <div className="v num">{usd(featured.volume24hUsd)}</div>
+          </div>
+          <div>
+            <div className="k">Stakers</div>
+            <div className="v num">{count(featured.stakers)}</div>
+          </div>
+        </div>
       </div>
-      <AreaChart values={featured.history} className="spark" />
+      <AreaChart
+        values={featured.history}
+        caption="Fees paid per 12 hours, last 7 days"
+        axis={['7 days ago', '5d', '3d', '1d', 'now']}
+        formatValue={(v) => `${usd(v)} / 12h`}
+        pointLabel={(i) => {
+          const ago = (n - 1 - i) * BUCKET_HOURS;
+          return ago === 0 ? 'latest' : `${ago}h ago`;
+        }}
+      />
     </div>
   );
 }
@@ -48,44 +63,39 @@ export function MiniCards() {
   const { openStake } = useUi();
 
   const mostTraded = pools.reduce((a, b) => (b.volume24hUsd > a.volume24hUsd ? b : a));
-  const bestYield = pools
-    .filter((p) => p.feeYield.basis === 'trailing7d')
-    .reduce((a, b) => (yieldPct(b.feeYield) > yieldPct(a.feeYield) ? b : a));
+  const ranked = pools.filter((p) => p.feeYield.basis === 'trailing7d');
+  const bestYield = ranked.length
+    ? ranked.reduce((a, b) => (yieldPct(b.feeYield) > yieldPct(a.feeYield) ? b : a))
+    : null;
 
   return (
     <div className="mini-cards">
       <button className="card mc" onClick={() => openStake(mostTraded.id)}>
         <div className="lab">Most traded · 24h</div>
-        <div className="r">
-          <TokenBadge token={mostTraded.token} className="l" />
-          <div>
-            <div className="n">{mostTraded.token.symbol}</div>
-            <div className="sub">
-              <b>{count(mostTraded.trades24h)} trades</b> ·{' '}
-              {usd(mostTraded.marketCapUsd)} {mostTraded.marketCapIsFdv ? 'FDV' : 'MC'}
-            </div>
+        <TokenBadge token={mostTraded.token} className="logo l" />
+        <div>
+          <div className="n">{mostTraded.token.symbol}</div>
+          <div className="sub">
+            <b>{count(mostTraded.trades24h)}</b> trades
           </div>
         </div>
-        <div className="spark">
-          <AreaSpark values={mostTraded.feeHistory} negative={false} />
-        </div>
+        <Spark values={mostTraded.feeHistory} w={84} h={30} />
       </button>
 
-      <button className="card mc" onClick={() => openStake(bestYield.id)}>
-        <div className="lab">Highest fee yield · trailing 7d</div>
-        <div className="r">
-          <TokenBadge token={bestYield.token} className="l" />
+      {bestYield && (
+        <button className="card mc" onClick={() => openStake(bestYield.id)}>
+          <div className="lab">Highest fee yield · trailing 7d</div>
+          <TokenBadge token={bestYield.token} className="logo l" />
           <div>
             <div className="n">{bestYield.token.symbol}</div>
             <div className="sub">
-              <b>{usd(bestYield.fees24hUsd)} fees</b> · {usd(bestYield.volume24hUsd)} vol
+              <b className="up">{yieldPct(bestYield.feeYield).toFixed(0)}%</b> ·{' '}
+              {usd(bestYield.fees24hUsd)} fees 24h
             </div>
           </div>
-        </div>
-        <div className="spark">
-          <AreaSpark values={bestYield.feeHistory} negative={false} />
-        </div>
-      </button>
+          <Spark values={bestYield.feeHistory} w={84} h={30} />
+        </button>
+      )}
     </div>
   );
 }

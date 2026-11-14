@@ -16,7 +16,7 @@ let nextId = 3;
 
 export function RouterPanel() {
   const { router } = useMarket();
-  const { showToast } = useUi();
+  const { act } = useUi();
   const [trigger, setTrigger] = useState<Trigger>('cadence');
   const [destination, setDestination] = useState<'full' | 'narrow'>('full');
   const [milestones, setMilestones] = useState<Milestone[]>([
@@ -51,14 +51,17 @@ export function RouterPanel() {
           <div className="inp" style={{ height: 44 }}>
             <input
               id="r-source"
-              value={`${router.feeSourceAddress} · creator fee share`}
+              value={router.feeSourceAddress}
               readOnly
               style={{ fontSize: 14, fontWeight: 500 }}
             />
             <span className="max">Change</span>
           </div>
           <p className="hint">
-            Accrued so far: {router.accruedWeth.toFixed(2)} WETH · {usdExact(router.accruedUsd)}
+            Creator fee share · accrued so far{' '}
+            <span className="num">
+              {router.accruedWeth.toFixed(2)} WETH · {usdExact(router.accruedUsd)}
+            </span>
           </p>
         </div>
 
@@ -178,7 +181,7 @@ export function RouterPanel() {
           className="btn btn-brand"
           style={{ width: '100%', justifyContent: 'center', height: 46 }}
           disabled={blocked}
-          onClick={() => showToast(`Router enabled for ${router.tokenSymbol}`)}
+          onClick={() => act('Enabling the router')}
         >
           Enable router
         </button>
@@ -192,7 +195,7 @@ export function RouterPanel() {
               Today<small>on enable</small>
             </div>
             <div>
-              Router takes custody of the fee stream. Nothing moves yet.
+              The router contract holds the fee stream. Nothing moves yet.
               <div className="st">You can pause or withdraw unrouted fees at any time.</div>
             </div>
           </div>
@@ -242,9 +245,13 @@ export function RouterPanel() {
           <div className="muted" style={{ fontSize: 12.5 }}>
             Projected depth · 90 days
           </div>
+          {/* Geometry only; the two figures sit under it in HTML, so neither is
+              drawn over the curve or squashed to nothing on a phone. */}
           <svg
+            className="proj"
             viewBox="0 0 400 110"
-            style={{ width: '100%', height: 110, marginTop: 6 }}
+            preserveAspectRatio="none"
+            style={{ width: '100%', display: 'block' }}
             role="img"
             aria-label={`Projected pool depth rising from ${usd(
               router.currentDepthUsd,
@@ -265,14 +272,17 @@ export function RouterPanel() {
               fill="none"
               stroke="var(--ac)"
               strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
             />
-            <text x="4" y="90" fontSize="10" fill="var(--fg-3)">
-              {usd(router.currentDepthUsd)} now
-            </text>
-            <text x="330" y="20" fontSize="10" fill="var(--ac)" fontWeight="600">
-              ≈ {usd(router.projectedDepthUsd)}
-            </text>
           </svg>
+          <div className="proj-axis">
+            <span>
+              Now <b className="num">{usd(router.currentDepthUsd)}</b>
+            </span>
+            <span>
+              Day 90 <b className="num">≈ {usd(router.projectedDepthUsd)}</b>
+            </span>
+          </div>
           <p className="hint">
             Projection at the current fee rate. If volume slows, depth grows slower.
           </p>

@@ -20,7 +20,7 @@ const SHAPE_ICONS: Record<ShapeId, number[]> = {
 
 export function ShapeBuilder() {
   const { pools, global } = useMarket();
-  const { showToast } = useUi();
+  const { act } = useUi();
 
   const stakeablePools = pools.filter((p) => p.stakeable);
   const [poolId, setPoolId] = useState(stakeablePools[0]?.id ?? pools[0].id);
@@ -204,7 +204,7 @@ export function ShapeBuilder() {
           className="btn btn-brand"
           style={{ width: '100%', justifyContent: 'center', height: 46 }}
           disabled={!valid}
-          onClick={() => showToast('Position minted to your wallet · 1 tx')}
+          onClick={() => act('Minting')}
         >
           Mint position
         </button>
@@ -227,7 +227,7 @@ export function ShapeBuilder() {
               · current price <span className="num">{fmtPrice(pool.priceUsd)}</span>
             </span>
           </div>
-          <span className="pill brand">{shapeMeta.label}</span>
+          <span className="pill grey">{shapeMeta.label}</span>
         </div>
 
         <BinChart
@@ -249,7 +249,7 @@ export function ShapeBuilder() {
             WETH side
           </span>
           <span>
-            <i style={{ background: 'var(--red)' }} />
+            <i className="line" />
             Current price
           </span>
         </div>
@@ -270,12 +270,15 @@ export function ShapeBuilder() {
           </div>
           <div>
             <div className="k">Split at mint</div>
+            {/* One amount per line: side by side they ran into the next column. */}
             <div className="v num">
-              {(eth * (1 - tokenShare)).toFixed(2)} ETH ·{' '}
-              {((eth * tokenShare * global.ethPriceUsd) / pool.priceUsd).toLocaleString('en-US', {
-                maximumFractionDigits: 1,
-              })}{' '}
-              {pool.token.symbol}
+              <span className="ln">{(eth * (1 - tokenShare)).toFixed(2)} ETH</span>
+              <span className="ln">
+                {((eth * tokenShare * global.ethPriceUsd) / pool.priceUsd).toLocaleString('en-US', {
+                  maximumFractionDigits: 1,
+                })}{' '}
+                {pool.token.symbol}
+              </span>
             </div>
           </div>
           <div>

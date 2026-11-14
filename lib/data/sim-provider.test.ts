@@ -101,6 +101,29 @@ describe('honest numbers, as the provider hands them over', () => {
     expect(snap.portfolio.priceImpactUsd).toBeLessThan(0);
   });
 
+  it('sums the portfolio from its rows, before and after the market ticks', () => {
+    const provider = new SimProvider(4663);
+    const check = () => {
+      const pf = provider.getSnapshot()!.portfolio;
+      const rowsUsd =
+        pf.positions.reduce((a, p) => a + p.valueUsd, 0) +
+        pf.stakes.reduce((a, s) => a + s.stakedUsd, 0);
+      const rowsWeth =
+        pf.positions.reduce((a, p) => a + p.feesWeth, 0) +
+        pf.stakes.reduce((a, s) => a + s.earnedWeth, 0);
+      expect(pf.netValueUsd).toBeCloseTo(rowsUsd, 6);
+      expect(pf.feesEarnedWeth).toBeCloseTo(rowsWeth, 9);
+      // The heatmap is every fee earned, so it sums to the same figure.
+      expect(pf.dailyFeesWeth.reduce((a, v) => a + v, 0)).toBeCloseTo(rowsWeth, 9);
+      // Synthetix: streamed to a staker is claimable by that staker.
+      expect(pf.claimableWeth).toBeCloseTo(pf.stakes.reduce((a, s) => a + s.earnedWeth, 0), 9);
+    };
+    check();
+    const tick = provider as unknown as { tickMarket(): void };
+    for (let i = 0; i < 40; i++) tick.tickMarket();
+    check();
+  });
+
   it('has an out-of-range position to tell the truth about', () => {
     const out = snap.portfolio.positions.filter((p) => !p.inRange);
     expect(out.length).toBeGreaterThan(0);

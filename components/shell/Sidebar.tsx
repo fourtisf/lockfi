@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { DATA_SOURCE } from '@/lib/data';
 import { Mark } from './Logo';
 
 const NAV = [
@@ -48,55 +49,54 @@ const NAV = [
   },
 ];
 
+/**
+ * Primary navigation: a labelled rail on desktop, an icon rail below 1180px,
+ * and a bottom tab bar on a phone. Only one of the two navs is ever displayed,
+ * so assistive tech never meets both.
+ */
 export function Sidebar() {
   const pathname = usePathname();
 
+  const links = (cls?: string) =>
+    NAV.map((item) => {
+      const active = pathname === item.href;
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          className={[cls, active ? 'on' : undefined].filter(Boolean).join(' ') || undefined}
+          aria-current={active ? 'page' : undefined}
+          title={item.label}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            {item.icon}
+          </svg>
+          <span>{item.label}</span>
+        </Link>
+      );
+    });
+
   return (
-    <nav className="rail" aria-label="Primary">
-      <div className="logo-m">
-        <Mark size={26} title="Balast" />
-        <span>BALAST</span>
-      </div>
-      {NAV.map((item) => {
-        const active = pathname === item.href;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={active ? 'on' : undefined}
-            aria-current={active ? 'page' : undefined}
-            title={item.label}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              {item.icon}
-            </svg>
-            <span>{item.label}</span>
-          </Link>
-        );
-      })}
-      <div className="sp" />
-      <div className="div" />
-      <a className="soc" href="#" title="X">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 4l16 16M20 4L4 20" />
-        </svg>
-        <span>X</span>
-      </a>
-      <a className="soc" href="#" title="Discord">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 11h.01M16 11h.01" />
-          <path d="M8.5 18l-1 2.5C5 19.5 3.5 17 3.5 14c0-4 2-7.5 5-8.5L9.5 8" />
-          <path d="M15.5 18l1 2.5c2.5-1 4-3.5 4-6.5 0-4-2-7.5-5-8.5L14.5 8" />
-        </svg>
-        <span>Discord</span>
-      </a>
-      <a className="soc" href="#" title="Docs">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 3h9l4 4v14H6z" />
-          <path d="M9 12h7M9 16h7" />
-        </svg>
-        <span>Docs</span>
-      </a>
-    </nav>
+    <>
+      <nav className="rail" aria-label="Primary">
+        <div className="logo-m">
+          <Mark size={26} title="Balast" />
+          <span>Balast</span>
+        </div>
+        {links()}
+        <div className="sp" />
+        {DATA_SOURCE !== 'live' && (
+          // The simulator's numbers are generated. The page says so in words,
+          // where it cannot be mistaken for a live feed (§7).
+          <div className="sys">
+            <b>Simulated data</b>
+            P0 preview. Numbers are generated and no transaction is ever sent.
+          </div>
+        )}
+      </nav>
+      <nav className="tabbar" aria-label="Primary">
+        {links()}
+      </nav>
+    </>
   );
 }

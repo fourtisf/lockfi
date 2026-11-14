@@ -8,16 +8,11 @@ export default function RouterPage() {
     <section>
       <div className="head">
         <div>
-          <div className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>
-            Router · for token teams
-          </div>
-          <h1>
-            Turn creator fees into <em>permanent depth</em>.
-          </h1>
+          <h1>Router</h1>
           <p className="lede">
-            For token teams. Point your fee wallet at the router and it buys back liquidity on a
-            schedule or when you hit a market-cap milestone. TWAP priced, keeper triggered, funds
-            never leave the contract.
+            For token teams: turn creator fees into permanent pool depth. Point your fee wallet at
+            the router and it adds liquidity on a schedule or at market-cap milestones. TWAP
+            priced, keeper triggered, and funds never leave the contract.
           </p>
         </div>
       </div>

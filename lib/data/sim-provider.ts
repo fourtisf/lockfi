@@ -73,8 +73,10 @@ export class SimProvider implements DataProvider {
     this.pools = SEED_POOLS.map((s) => this.buildPool(s));
     this.vaults = this.buildVaults();
     const fees24h = this.pools.reduce((a, p) => a + p.fees24hUsd, 0);
+    // 14 buckets of 12h, the same shape the live API sends: half a day's fees
+    // each, rising into the present.
     this.featuredHistory = Array.from({ length: 14 }, (_, i) =>
-      fees24h * (0.55 + (i / 13) * 0.5) * (0.9 + this.rng() * 0.2),
+      (fees24h / 2) * (0.55 + (i / 13) * 0.5) * (0.9 + this.rng() * 0.2),
     );
     this.portfolio = this.buildPortfolio();
     // Seed the payout feed so the first paint is not an empty box.
@@ -159,19 +161,25 @@ export class SimProvider implements DataProvider {
     });
   }
 
+  /**
+   * The rows are the seed; every total is derived from them in
+   * derivePortfolio(). The prototype carried its totals as constants, and they
+   * disagreed with the rows beneath them: net value by $350, fees earned by
+   * 0.25 WETH, and the heatmap by a third figure again.
+   */
   private buildPortfolio(): Portfolio {
     const rng = this.rng;
-    const dailyFeesWeth = Array.from({ length: 56 }, () => Math.pow(rng(), 1.6) * 0.12);
-    return {
-      netValueUsd: 18_940,
-      netChangeUsd: 1204,
-      netChangePct: 6.8,
-      feesEarnedWeth: 2.183,
-      feesEarnedUsd: 5503,
+    const rawDaily = Array.from({ length: 56 }, () => Math.pow(rng(), 1.6) * 0.12);
+    const portfolio: Portfolio = {
+      netValueUsd: 0,
+      netChangeUsd: 0,
+      netChangePct: 0,
+      feesEarnedWeth: 0,
+      feesEarnedUsd: 0,
       priceImpactUsd: -1101,
-      fees7dUsd: 412,
-      dailyFeesWeth,
-      claimableWeth: 0.412,
+      fees7dUsd: 0,
+      dailyFeesWeth: rawDaily,
+      claimableWeth: 0,
       stakes: [
         {
           vaultId: 'vault-HOODR',
@@ -195,6 +203,40 @@ export class SimProvider implements DataProvider {
         { tokenId: '1902', poolId: 'SPY-WETH', shape: 'spot', rangePct: 3, inRange: true, valueUsd: 4880, feesWeth: 0.19 },
         { tokenId: '2044', poolId: 'MOONCAT-WETH', shape: 'bidask', rangePct: 40, inRange: false, outOfRangeSinceHours: 9, valueUsd: 2130, feesWeth: 0.71 },
       ],
+    };
+    // Every fee the rows earned landed on some day in the last eight weeks, so
+    // the heatmap is scaled to sum to exactly what the rows say was earned.
+    const earned = rowFeesWeth(portfolio);
+    const rawTotal = rawDaily.reduce((a, v) => a + v, 0) || 1;
+    portfolio.dailyFeesWeth = rawDaily.map((v) => (v / rawTotal) * earned);
+    return portfolio;
+  }
+
+  /** Totals summed from the rows, at the current ETH price. */
+  private derivePortfolio(): Portfolio {
+    const pf = this.portfolio;
+    const eth = this.global.ethPriceUsd;
+    const netValueUsd =
+      pf.positions.reduce((a, p) => a + p.valueUsd, 0) +
+      pf.stakes.reduce((a, s) => a + s.stakedUsd, 0);
+    const feesEarnedWeth = rowFeesWeth(pf);
+    const feesEarnedUsd = feesEarnedWeth * eth;
+    // All-time change: what the fees added, less what price impact took.
+    const netChangeUsd = feesEarnedUsd + pf.priceImpactUsd;
+    const costBasis = netValueUsd - netChangeUsd;
+    return {
+      ...pf,
+      stakes: pf.stakes.map((s) => ({ ...s })),
+      positions: pf.positions.map((p) => ({ ...p })),
+      dailyFeesWeth: pf.dailyFeesWeth.slice(),
+      netValueUsd,
+      netChangeUsd,
+      netChangePct: costBasis > 0 ? (netChangeUsd / costBasis) * 100 : 0,
+      feesEarnedWeth,
+      feesEarnedUsd,
+      fees7dUsd: pf.dailyFeesWeth.slice(-7).reduce((a, v) => a + v, 0) * eth,
+      // Synthetix accounting: what has streamed to a staker is what they can claim.
+      claimableWeth: pf.stakes.reduce((a, s) => a + s.earnedWeth, 0),
     };
   }
 
@@ -269,9 +311,14 @@ export class SimProvider implements DataProvider {
       const pool = this.pools.find((p) => p.id === stake.poolId);
       if (pool) {
         // Fees accrue to the staker continuously, net of the protocol's cut.
-        const annualUsd = stake.stakedUsd * (Math.max(0, yieldPct(pool.feeYield)) / 100) * 0.9;
-        stake.earnedWeth +=
-          (annualUsd * (SIM_HOURS_PER_TICK / (365 * 24))) / this.global.ethPriceUsd;
+        const annualUsd =
+          stake.stakedUsd *
+          (Math.max(0, yieldPct(pool.feeYield)) / 100) *
+          (1 - PROTOCOL_FEE_BPS / 10_000);
+        const accrued = (annualUsd * (SIM_HOURS_PER_TICK / (365 * 24))) / this.global.ethPriceUsd;
+        stake.earnedWeth += accrued;
+        // ...and they land on today, so the heatmap keeps summing to the rows.
+        this.portfolio.dailyFeesWeth[this.portfolio.dailyFeesWeth.length - 1] += accrued;
       }
       stake.streamRemainingSeconds -= SIM_SECONDS_PER_TICK;
       // A stream that runs out is replaced by the next harvest's window.
@@ -281,7 +328,6 @@ export class SimProvider implements DataProvider {
         Math.max(0, 100 - (stake.streamRemainingSeconds / REWARD_WINDOW_SECONDS) * 100),
       );
     }
-    this.portfolio.claimableWeth = this.portfolio.stakes.reduce((a, s) => a + s.earnedWeth, 0);
 
     // The indexer is not always at head. It falls behind often enough that the
     // top bar's lag state is something a reviewer actually sees (§7), rather
@@ -335,11 +381,7 @@ export class SimProvider implements DataProvider {
     return {
       pools: this.pools.map((p) => ({ ...p })),
       vaults: this.vaults.map((v) => ({ ...v })),
-      portfolio: {
-        ...this.portfolio,
-        stakes: this.portfolio.stakes.map((s) => ({ ...s })),
-        positions: this.portfolio.positions.map((p) => ({ ...p })),
-      },
+      portfolio: this.derivePortfolio(),
       global: {
         totalPositions: this.global.totalPositions,
         totalFeesUsd: this.global.totalFeesUsd,
@@ -368,4 +410,11 @@ export class SimProvider implements DataProvider {
     this.snapshot = this.compose();
     this.listeners.forEach((l) => l(this.snapshot));
   }
+}
+
+/** WETH fees the portfolio's rows say they earned. */
+function rowFeesWeth(pf: Portfolio): number {
+  return (
+    pf.positions.reduce((a, p) => a + p.feesWeth, 0) + pf.stakes.reduce((a, s) => a + s.earnedWeth, 0)
+  );
 }

@@ -64,7 +64,7 @@ export function BinChart({
           x2={priceX}
           y1={14}
           y2={H - 40}
-          stroke="var(--red)"
+          stroke="var(--fg-2)"
           strokeWidth={1.5}
           strokeDasharray="4 4"
           vectorEffect="non-scaling-stroke"
