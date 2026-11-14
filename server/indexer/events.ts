@@ -8,7 +8,37 @@
  */
 
 import { decodeEventLog, type Log } from 'viem';
+import { CONTRACTS } from '../../lib/chain';
 import { POOL_MANAGER_ABI, V3_FACTORY_ABI, V3_POOL_ABI } from '../chain/abi';
+
+/**
+ * How Uniswap v4 names native ETH as a pool currency: the zero address.
+ *
+ * v4 pools can hold ETH itself rather than WETH, and on most v4 chains the
+ * ETH pairs do. The indexer only ever recognised WETH, so such a pool was
+ * read as a token at 0x0000… with a placeholder symbol, priced against
+ * nothing, and dropped from the site — and if the WETH/USDG anchor was in
+ * fact an ETH/USDG pool, the anchor could never be found however long the
+ * indexer ran, and every dollar figure on the site waited for it forever.
+ */
+export const NATIVE_CURRENCY = '0x0000000000000000000000000000000000000000';
+
+/**
+ * A pool's two currencies as the pricing sees them: native ETH recorded as
+ * WETH. They are the same asset, 1:1, both 18 decimals, so every price and
+ * amount is unchanged; only the address the quote rules key off is.
+ *
+ * Positions are kept — currency0 stays token0 — because sqrtPriceX96 is
+ * token1 per token0. The one pool left alone is ETH against WETH itself,
+ * which would otherwise become WETH against WETH.
+ */
+export function pricedCurrencies(currency0: string, currency1: string): [string, string] {
+  const weth = CONTRACTS.weth.toLowerCase();
+  const c0 = currency0.toLowerCase();
+  const c1 = currency1.toLowerCase();
+  if (c0 === weth || c1 === weth) return [c0, c1];
+  return [c0 === NATIVE_CURRENCY ? weth : c0, c1 === NATIVE_CURRENCY ? weth : c1];
+}
 
 export type Protocol = 'v4' | 'v3';
 
@@ -129,21 +159,28 @@ export function decodePoolManagerLog(log: RawLog, blockTime: Date): ChainEvent |
   const poolId = poolKey('v4', args.id as string);
 
   switch (decoded.eventName) {
-    case 'Initialize':
+    case 'Initialize': {
+      // A pure function of the log, so §9's block-zero and incremental runs
+      // still agree byte for byte.
+      const [currency0, currency1] = pricedCurrencies(
+        args.currency0 as string,
+        args.currency1 as string,
+      );
       return {
         kind: 'initialize',
         ...at,
         poolId,
         protocol: 'v4',
         contract: log.address.toLowerCase(),
-        currency0: (args.currency0 as string).toLowerCase(),
-        currency1: (args.currency1 as string).toLowerCase(),
+        currency0,
+        currency1,
         feePips: Number(args.fee),
         tickSpacing: Number(args.tickSpacing),
         hooks: (args.hooks as string).toLowerCase(),
         sqrtPriceX96: args.sqrtPriceX96 as bigint,
         tick: Number(args.tick),
       };
+    }
     case 'Swap':
       return {
         kind: 'swap',

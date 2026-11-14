@@ -1401,6 +1401,32 @@ every deploy reported a dead API that was up. The third diagnostic in this
 file to invent a failure. It waits for the port and prints the status report
 instead.
 
+### Native ETH: why the live site waited on the anchor
+
+Switched to live, the site sat on "Looking for the USD anchor". One cause the
+code could not rule out, and could fix: **the indexer only recognised WETH.**
+Uniswap v4 names native ETH as the zero address, and most v4 ETH pairs hold
+ETH itself. Such a pool was read as a token at `0x0000…` with a placeholder
+symbol, matched no quote rule, and was dropped from the site — and if the
+chain's ETH/USDG pool is one of them, the anchor could never be found however
+long the indexer ran.
+
+`events.ts` records a v4 pool's native side as WETH as it decodes the
+Initialize (`pricedCurrencies`): same asset, 1:1, 18 decimals, so no price or
+amount changes; positions are kept because sqrtPriceX96 is token1 per token0;
+and an ETH/WETH pool is left alone rather than becoming WETH/WETH. It is a
+pure function of the log, so §9 holds. Pools stored before the fix are
+rewritten once per indexer run (`adoptNativeEthPools`), with no re-sync —
+aggregates are rebuilt from raw rows, so the next pass prices them.
+`find:tokens` counts native ETH the same way. `native.test.ts` proves a chain
+of native-ETH pools finds its anchor and prices ETH at $2,500 and PONS at
+$0.5937, and fails five of seven assertions with the mapping switched off.
+
+Whether the real ETH/USDG pool is native was not verifiable from here — the
+chain's RPC is not reachable from the build sandbox. If the anchor is still
+missing once the indexer has caught up, the next suspect is that USDG trades
+only on v3 here, which needs `V3_FACTORY`.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

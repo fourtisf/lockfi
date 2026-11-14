@@ -542,6 +542,84 @@ export function buildAbsurdPoolChain(): FixtureChain {
 /** The absurd pool's id, for asserting what happened to it. */
 export const ABSURD_POOL_ID = `v4:${bytes32(0xff)}`;
 
+// ------------------------------------------------------------------ native --
+
+/** How v4 names native ETH as a pool currency. */
+const NATIVE = address(0);
+
+/**
+ * The main fixture's anchor and PONS markets, but holding ETH itself — the
+ * zero address as currency0 — the way most v4 ETH pairs do.
+ *
+ * The indexer once recognised only WETH, so on a chain like this it never
+ * found the anchor and priced nothing. The ticks are the main fixture's
+ * negated: native sorts first, so each pair is the other way round and
+ * token1-per-token0 inverts. Same markets, same prices, same depth.
+ */
+export const NATIVE_POOLS: FixturePool[] = [
+  // ETH / USDG: 2500e6 / 1e18 USDG units per wei -> -198080.
+  { id: bytes32(0xb0), currency0: NATIVE, currency1: USDG, feePips: 500, tickSpacing: 10, hooks: address(0), tick: -198_080, liquidity: 8n * 10n ** 18n, initBlock: 1 },
+  // ETH / PONS: 2500 / 0.5937 PONS per ETH -> +83460.
+  { id: bytes32(0xb2), currency0: NATIVE, currency1: address(0x02), feePips: 3000, tickSpacing: 60, hooks: address(0), tick: 83_460, liquidity: 25n * 10n ** 21n, initBlock: 2 },
+];
+
+export function buildNativeEthChain(): FixtureChain {
+  const logs: RawLog[] = [];
+  // Native ETH is priced and sized as WETH: same asset, same decimals.
+  const units = (usd: number, token: `0x${string}`) => toUnits(usd, token === NATIVE ? WETH : token);
+
+  for (const pool of NATIVE_POOLS) {
+    logs.push(initializeLog(pool, pool.initBlock, logs.length));
+    logs.push(
+      modifyLiquidityLog({
+        poolId: pool.id,
+        sender: address(0xbeef),
+        tickLower: pool.tick - 20 * pool.tickSpacing,
+        tickUpper: pool.tick + 20 * pool.tickSpacing,
+        liquidityDelta: pool.liquidity,
+        block: pool.initBlock,
+        logIndex: logs.length,
+      }),
+    );
+  }
+
+  let block = 10;
+  for (const pool of NATIVE_POOLS) {
+    for (let i = 0; i < 6; i++, block += 3) {
+      const inToken = i % 2 === 0 ? pool.currency0 : pool.currency1;
+      const outToken = i % 2 === 0 ? pool.currency1 : pool.currency0;
+      logs.push(
+        swapLog({
+          poolId: pool.id,
+          sender: address(0x1234),
+          amount0: i % 2 === 0 ? units(500, inToken) : -((units(500, outToken) * 997n) / 1000n),
+          amount1: i % 2 === 0 ? -((units(500, outToken) * 997n) / 1000n) : units(500, inToken),
+          tick: pool.tick,
+          liquidity: pool.liquidity,
+          feePips: pool.feePips,
+          block,
+          logIndex: 0,
+        }),
+      );
+    }
+  }
+
+  logs.sort((a, b) =>
+    a.blockNumber === b.blockNumber
+      ? a.logIndex - b.logIndex
+      : a.blockNumber < b.blockNumber
+        ? -1
+        : 1,
+  );
+
+  return {
+    logs,
+    headBlock: block + 10,
+    blockTime: (b: number) =>
+      new Date(FIXTURE_GENESIS.getTime() + (b - 1) * FIXTURE_BLOCK_SECONDS * 1000),
+  };
+}
+
 // ---------------------------------------------------------------------- v3 --
 
 /** A stand-in v3 factory address for the fixture. */

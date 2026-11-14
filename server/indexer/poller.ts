@@ -23,6 +23,7 @@ import {
   findAnchorPool,
   refreshSupplies,
   type TokenReader,
+  adoptNativeEthPools,
 } from './discovery';
 import {
   decodePoolManagerLog,
@@ -166,6 +167,8 @@ export class Poller {
   private v3Pools: string[];
   /** Set once the known v3 pools have been loaded from the database. */
   private v3Loaded = false;
+  /** Pools stored before native ETH was understood get corrected once a run. */
+  private nativeAdopted = false;
 
   constructor(options: PollerOptions) {
     this.source = options.source;
@@ -225,6 +228,12 @@ export class Poller {
 
     const head = await this.source.getHeadBlock();
     const cursor = await readCursor(POOL_MANAGER_CURSOR);
+
+    if (!this.nativeAdopted) {
+      const adopted = await adoptNativeEthPools(head.timestamp, this.tokenReader);
+      if (adopted > 0) this.log(`  ${adopted} native-ETH pool(s) recorded as WETH pools, so they can be priced`);
+      this.nativeAdopted = true;
+    }
 
     // Re-scan the last 32 blocks (§4.1). On the very first pass there is
     // nothing to re-scan, so start where configured.

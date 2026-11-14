@@ -118,7 +118,7 @@ export async function resolveUsdg(configured?: string | null): Promise<AnchorRes
       source: 'none',
       candidates: [],
       note:
-        `No token with symbol ${STABLE_SYMBOLS.join(' or ')} paired with WETH has been ` +
+        `No token with symbol ${STABLE_SYMBOLS.join(' or ')} paired with ETH or WETH has been ` +
         'indexed yet. Dollar figures appear once one is — or set USDG_ADDRESS to pin it.',
     };
   }

@@ -26,6 +26,7 @@ import { decodeEventLog, getAddress } from 'viem';
 import { CHAIN, CONTRACTS } from '../../lib/chain';
 import { ERC20_ABI, POOL_MANAGER_ABI } from '../chain/abi';
 import { rpc } from '../chain/client';
+import { pricedCurrencies } from '../indexer/events';
 import { RPC_URLS } from '../chain/endpoints';
 
 /** Blocks per getLogs call; public endpoints cap this well below 10k. */
@@ -90,8 +91,10 @@ async function main(): Promise<void> {
         earliestInitialize = log.blockNumber;
       }
       const args = decoded.args as Record<string, unknown>;
-      for (const key of ['currency0', 'currency1'] as const) {
-        const address = (args[key] as string).toLowerCase();
+      // Native ETH (the zero address in v4) counts as WETH, as the indexer
+      // records it — otherwise an ETH/USDG pool reads as USDG paired with an
+      // unknown token, and the anchor looks absent when it is not.
+      for (const address of pricedCurrencies(args.currency0 as string, args.currency1 as string)) {
         const entry = seen.get(address);
         if (entry) {
           entry.pools++;

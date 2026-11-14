@@ -14,6 +14,7 @@ import { tokenMark } from '../../lib/token-mark';
 import { ERC20_ABI } from '../chain/abi';
 import { rpc } from '../chain/client';
 import { prisma } from '../db';
+import { NATIVE_CURRENCY, pricedCurrencies } from './events';
 
 /**
  * Hook addresses belonging to launchpads (§4: Pons, Bags, Bottom.fun).
@@ -174,6 +175,48 @@ export async function ensureTokens(
     });
   }
   return missing.length;
+}
+
+/**
+ * Correct pools recorded before native ETH was understood.
+ *
+ * `events.ts` now records a v4 pool's native-ETH side as WETH as it decodes
+ * the Initialize. Pools already in the database from before that carry the
+ * zero address and are invisible to every price and to the anchor search.
+ * Re-reading the chain to fix them would be a full re-sync; their Initialize
+ * is in the row already, so this rewrites the one column instead, and the
+ * next rebuild prices them retroactively — aggregates are rebuilt from raw
+ * rows (§14), so nothing else needs touching.
+ *
+ * Idempotent: on a database with no such pool it is one query and returns 0.
+ */
+export async function adoptNativeEthPools(
+  seenAt: Date,
+  read: TokenReader = readToken,
+): Promise<number> {
+  const native = await prisma.pool.findMany({
+    where: { OR: [{ token0: NATIVE_CURRENCY }, { token1: NATIVE_CURRENCY }] },
+    select: { id: true, token0: true, token1: true },
+  });
+  if (native.length === 0) return 0;
+
+  // The WETH row must exist before a pool can point at it.
+  await ensureTokens([CONTRACTS.weth], seenAt, read);
+  let changed = 0;
+  for (const pool of native) {
+    const [token0, token1] = pricedCurrencies(pool.token0, pool.token1);
+    if (token0 === pool.token0 && token1 === pool.token1) continue;
+    await prisma.pool.update({ where: { id: pool.id }, data: { token0, token1 } });
+    changed++;
+  }
+
+  // The placeholder read off address(0) — symbol "0000…0000" — once nothing
+  // points at it. An ETH/WETH pool still does, and keeps it.
+  const stillNative = await prisma.pool.count({
+    where: { OR: [{ token0: NATIVE_CURRENCY }, { token1: NATIVE_CURRENCY }] },
+  });
+  if (stillNative === 0) await prisma.token.deleteMany({ where: { address: NATIVE_CURRENCY } });
+  return changed;
 }
 
 /**
