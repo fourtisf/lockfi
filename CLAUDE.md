@@ -1466,6 +1466,42 @@ people to deposit into them. "Every token has a logo" therefore means every
 token with a real one; the rest have a mark unique to their address, and that
 difference is information.
 
+### Stock tokens wore Robinhood's feather
+
+With logos live, ALFA pointed at AAPL: the Robinhood feather, not Apple's
+logo. Every source agreed with the feather because they all copy one file —
+Robinhood's own CDN serves byte-identical art (md5 `7458db13…`) for AAPL, NVDA
+and SPCX. No source keyed by address will ever say Apple.
+
+So the company logos are built, reviewed and served by us:
+
+- **The official list is on chain.** Robinhood's stock-token factory
+  `0x4783C67b…C046` emits `Deployed(bytes32 indexed uid, address stock, string
+  name, string symbol)` — 212 of them. That event is the registry: the
+  "SPCX … Robinhood Token" at `0x9507…` that sits on the boards is not in it,
+  and is not Robinhood's. `scripts/build-stock-logos.py` reads it through the
+  public RPC in 10M-block chunks (the RPC's limit).
+- **Logos by ticker, from Financial Modeling Prep**, chosen over Parqet after
+  rendering both side by side: Parqet maps SPCX to the AXS ETF issuer, FMP to
+  SpaceX. Each is trimmed, fitted inside the circle whatever its aspect, put
+  on white (dark ink for a white logo), and written to
+  `public/tokens/<SYMBOL>.png` — about 1 MB for 207, served from our origin, so
+  no third-party host at runtime and no visitor's address sent to one.
+- **Every logo was looked at against the token's own name.** Four failed and
+  are excluded in the script with the reason — FLY (Fly Leasing, an earlier
+  holder of the ticker, not Firefly Aerospace), OKLO (its SPAC's logo), RVI (an
+  unrelated image for Robinhood Ventures Fund I), TSEM (a photo of a building).
+  Those keep the feather, which is at least the issuer's real mark.
+- `config/tokens.json` carries the 207 by **address**, so `logos.ts` applies
+  them as curated logos, which always win over GeckoTerminal's feather on the
+  indexer's next pass. `isSafeLogoUrl` accepts exactly `/tokens/<flat-name>`
+  besides http(s). `token-list.test.ts` fails on a missing file, a duplicate or
+  malformed address, an orphaned logo, or AAPL not being Apple.
+
+Memecoins with no logo anywhere — ROJAK, WHITE, DegenHood on the boards — are
+not fixable from here: no source has one, and inventing one is the copycat
+problem again. They keep their address-derived mark and are re-checked daily.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

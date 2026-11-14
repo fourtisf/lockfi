@@ -28,6 +28,14 @@ describe('isSafeLogoUrl', () => {
     }
   });
 
+  it('accepts our own stock logos, and nothing else that is relative', () => {
+    expect(isSafeLogoUrl('/tokens/AAPL.png')).toBe(true);
+    expect(isSafeLogoUrl('/tokens/PEACH_DEFI_1.png')).toBe(true);
+    for (const url of ['/tokens/../.env', '/tokens/a/b.png', '//evil.test/tokens/a.png', '/tokens/a.exe', '/etc/passwd']) {
+      expect(isSafeLogoUrl(url)).toBe(false);
+    }
+  });
+
   it('rejects anything that is not a parseable absolute URL', () => {
     for (const url of ['', '/relative.png', 'example.com/a.png', 'not a url']) {
       expect(isSafeLogoUrl(url)).toBe(false);

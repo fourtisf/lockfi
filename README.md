@@ -236,6 +236,23 @@ Matching by address is the point, not a detail: this chain has three tokens
 called CASHCAT and four called SPCX, and a copycat must never wear the real
 token's logo.
 
+**Robinhood's stock tokens** get their company's logo, because every source —
+Robinhood's own CDN included — serves the same feather for all of them:
+
+```bash
+python3 scripts/build-stock-logos.py --sheet /tmp/review.png
+```
+
+It reads the official list from the chain — the `Deployed(uid, stock, name,
+symbol)` events of Robinhood's factory `0x4783…C046`, which a copycat cannot
+emit — fetches each company's logo by ticker, fits it to a round badge, writes
+`public/tokens/<SYMBOL>.png` (served from our origin) and the matching
+`config/tokens.json` entries by address. Look at the sheet before committing:
+a ticker can belong to a different company on an exchange, and four logos
+that failed that review are excluded in the script, with the reason. Rerun it
+when Robinhood lists new stocks; `token-list.test.ts` fails on a missing file,
+a duplicate address or an orphaned logo.
+
 ## Deploy
 
 ```bash

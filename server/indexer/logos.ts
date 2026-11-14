@@ -45,6 +45,8 @@ interface TokenList {
 }
 
 const FETCH_TIMEOUT_MS = 10_000;
+/** A logo served from our own origin, out of public/tokens/. */
+const SELF_HOSTED = /^\/tokens\/[A-Za-z0-9_.-]+\.(png|webp|svg)$/;
 /** The curated list in the repository, read when TOKEN_LIST_URL is unset. */
 const DEFAULT_LIST = 'config/tokens.json';
 /** Data URIs and oversized strings do not belong in a database column. */
@@ -57,6 +59,10 @@ const MAX_URL_LENGTH = 512;
  */
 export function isSafeLogoUrl(url: unknown): url is string {
   if (typeof url !== 'string' || url.length === 0 || url.length > MAX_URL_LENGTH) return false;
+  // Our own files: the company logos for Robinhood's stock tokens, which
+  // scripts/build-stock-logos.py writes to public/tokens/. One directory, one
+  // flat file name — no slash, so no way out of it.
+  if (SELF_HOSTED.test(url)) return true;
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'https:' || parsed.protocol === 'http:';
