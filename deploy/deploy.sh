@@ -128,6 +128,16 @@ fi
 as_app pm2 status
 
 echo
-# The lag is the honest health check (§7): "ok" only means the API answered.
-echo "indexer lag:"
-curl -fsS localhost:3001/api/health | head -20 || echo "  API not answering yet"
+# The lag is the honest health check (§7).
+#
+# Not `curl -f`. /api/health answers 503 ON PURPOSE whenever the indexer is
+# behind, has not written a block, or has no USD anchor yet (§15), and -f
+# turned every one of those into "API not answering yet" — on a box still on
+# its first sync, that was every deploy, in red, about an API that was up.
+# Wait for the port after the reload (any HTTP answer counts, 503 included),
+# then let the status script read the body and say which state it is.
+for _ in $(seq 1 15); do
+  curl -s -o /dev/null --max-time 2 localhost:3001/api/health && break
+  sleep 1
+done
+node "$APP_DIR/deploy/indexer-status.mjs" || true

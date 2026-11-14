@@ -1393,6 +1393,14 @@ catch-up estimate is arithmetic on what happened, and a pace that is not
 gaining says so instead of promising an ETA. `data-source.sh status` prints it
 on its own.
 
+The first deploy after that printed `curl: (22) … error: 503 — API not
+answering yet` in red, under three processes all `online`. `deploy.sh` checked
+health with `curl -f`, and `/api/health` answers 503 on purpose whenever the
+indexer is behind or has no USD anchor — so on a box still on its first sync,
+every deploy reported a dead API that was up. The third diagnostic in this
+file to invent a failure. It waits for the port and prints the status report
+instead.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

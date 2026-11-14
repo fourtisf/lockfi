@@ -53,5 +53,5 @@ if [[ "$want" == sim ]]; then
 else
   echo "done — the site shows the indexer's numbers"
   echo "it says \"waiting for the indexer\" until the first sync has data:"
-  echo "  curl -s localhost:3001/api/health"
+  echo "  bash $APP_DIR/deploy/data-source.sh status"
 fi

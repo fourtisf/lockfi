@@ -363,6 +363,6 @@ echo
 echo "the processes run as $APP_USER, so ask pm2 as $APP_USER:"
 echo "  runuser -u $APP_USER -- pm2 status"
 echo "  runuser -u $APP_USER -- pm2 logs balast-indexer"
-echo "indexer progress:          curl -s localhost:3001/api/health"
+echo "indexer progress:          bash $APP_DIR/deploy/data-source.sh status"
 echo "prove renewal works:       certbot renew --dry-run"
 echo "one answer if not right:   bash $APP_DIR/deploy/doctor.sh"
