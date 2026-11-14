@@ -85,7 +85,9 @@ case "$status" in
       "the indexer is ${lag%.*}s behind head; the site is showing numbers that old"
     exit 1
     ;;
-  ok) ;;
+  # A first sync is months behind and working as designed: no alert. It
+  # becomes "stalled" — and alerts — only if it stops advancing.
+  ok|catching-up) ;;
   *)
     alert "unknown" "/api/health returned no status field: ${body:0:200}"
     exit 1

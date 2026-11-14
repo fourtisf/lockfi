@@ -7,6 +7,7 @@ import { TabBar } from '@/components/shell/Nav';
 import { StakeDrawer } from '@/components/shell/StakeDrawer';
 import { TopBar } from '@/components/shell/TopBar';
 import { Toast } from '@/components/ui/Toast';
+import { initialSnapshot } from '@/lib/data/initial-snapshot';
 import { BRAND, SITE_URL } from '@/lib/site';
 import './globals.css';
 
@@ -56,12 +57,14 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Live mode: the snapshot comes with the page instead of after it.
+  const initial = await initialSnapshot();
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
         <UiProvider>
-          <MarketProvider>
+          <MarketProvider initial={initial}>
             <a className="skip" href="#main">
               Skip to content
             </a>

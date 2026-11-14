@@ -20,18 +20,33 @@ const MarketContext = createContext<MarketSnapshot | null>(null);
  * indistinguishable from a chain where nothing is happening, and §7 does not
  * allow the site to be ambiguous about whether a number is real.
  */
-export function MarketProvider({ children }: { children: ReactNode }) {
+export function MarketProvider({
+  children,
+  initial = null,
+}: {
+  children: ReactNode;
+  /**
+   * The live snapshot the web server fetched while rendering (see
+   * lib/data/initial-snapshot.ts), so the first paint has the real site
+   * rather than a waiting card. Null for the simulator, which has its own.
+   */
+  initial?: MarketSnapshot | null;
+}) {
   const provider = getProvider();
 
   const subscribe = useCallback(
     (onChange: () => void) => provider.subscribe(() => onChange()),
     [provider],
   );
-  const read = useCallback(() => provider.getSnapshot(), [provider]);
+  // The provider's own snapshot once it has one; until then, what the server
+  // rendered with. The provider is never seeded on the server: it is a module
+  // singleton there, shared by every request, and would serve one visitor's
+  // snapshot to the next.
+  const read = useCallback(() => provider.getSnapshot() ?? initial, [provider, initial]);
 
   // Server and client read the same first snapshot — the simulator's
-  // deterministic one, or null for live — so the tick is the only thing that
-  // ever changes the numbers.
+  // deterministic one, or the server-fetched live one — so hydration matches
+  // and the tick is the only thing that ever changes the numbers.
   const snapshot = useSyncExternalStore(subscribe, read, read);
 
   if (!snapshot) return <AwaitingIndexer />;

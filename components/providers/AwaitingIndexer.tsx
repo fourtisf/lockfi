@@ -17,7 +17,13 @@ import { DATA_SOURCE } from '@/lib/data';
  *
  *   misconfigured   the indexer cannot start — the message says what to set
  *   never-indexed   configured, running, has not written its first block yet
+ *   no-anchor       indexing, but no WETH/USDG pool yet, so no dollar figure
+ *   anything else   data exists and is on its way: a loading state, not an alarm
  *   (no answer)     the API itself is down
+ *
+ * In live mode the server now renders with the snapshot already in hand
+ * (lib/data/initial-snapshot.ts), so this card only appears when the API was
+ * slow or down at that moment, or genuinely has nothing to show.
  */
 
 interface Health {
@@ -64,7 +70,15 @@ export function AwaitingIndexer() {
     };
   }, []);
 
-  // Four states, and only one of them is somebody's mistake.
+  // Only "never-indexed" means there is nothing yet. Everything else that
+  // lands here is a snapshot on its way — and this card used to say "No
+  // indexed blocks yet" for all of it, including while 143 indexed pools
+  // loaded, on every visit.
+  const loading =
+    DATA_SOURCE === 'live' &&
+    !unreachable &&
+    (health === null || ['ok', 'catching-up', 'stalled'].includes(health.status ?? ''));
+
   const eyebrow =
     DATA_SOURCE !== 'live'
       ? 'Loading'
@@ -77,20 +91,24 @@ export function AwaitingIndexer() {
             // the moment that pool is indexed.
             health?.status === 'no-anchor'
             ? 'Looking for the USD anchor'
-            : 'Waiting for the indexer';
+            : loading
+              ? 'Loading live data'
+              : 'Waiting for the indexer';
 
   return (
     <div className="awaiting" role="status">
       <div className="aw-in">
         <span className="eyebrow">{eyebrow}</span>
         <p>
-          {health?.status === 'no-anchor'
-            ? 'Blocks are being indexed, but no WETH/USDG pool has turned up yet, ' +
-              'so nothing has a dollar figure. This resolves itself as soon as one ' +
-              'is indexed — no placeholder numbers in the meantime.'
-            : 'No indexed blocks yet, so there is nothing honest to show. The boards ' +
-              'appear as soon as the first swap is attributed — no placeholder ' +
-              'numbers in the meantime.'}
+          {loading
+            ? 'Fetching the latest figures from the indexer.'
+            : health?.status === 'no-anchor'
+              ? 'Blocks are being indexed, but no WETH/USDG pool has turned up yet, ' +
+                'so nothing has a dollar figure. This resolves itself as soon as one ' +
+                'is indexed — no placeholder numbers in the meantime.'
+              : 'No indexed blocks yet, so there is nothing honest to show. The boards ' +
+                'appear as soon as the first swap is attributed — no placeholder ' +
+                'numbers in the meantime.'}
         </p>
         {health?.message ? <p className="aw-why">{health.message}</p> : null}
         {unreachable ? (

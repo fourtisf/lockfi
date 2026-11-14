@@ -72,10 +72,11 @@ describe('/api/health', () => {
     expect(body.message).toMatch(/USDG_ADDRESS|never written/i);
   });
 
-  it('answers 503 with "stalled" once the lag passes the threshold', async () => {
+  it('reports a moving indexer that is far behind as catching up, not stalled', async () => {
     // The fixture's chain time is months in the past, so a full sync leaves
-    // the indexer legitimately, enormously behind — which is exactly the
-    // state that must not read as healthy.
+    // the indexer enormously behind — while it has just written progress.
+    // That is a first sync working as designed. It used to read "stalled",
+    // on the page every visitor saw first.
     const { Poller } = await import('../indexer/poller');
     const { FixtureLogSource, USDG, fixtureTokenReader } = await import('../test/fixture');
     await new Poller({
@@ -87,11 +88,45 @@ describe('/api/health', () => {
     }).syncToHead();
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
+    // 200: an uptime check must not page anyone for a first sync.
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.status).toBe('catching-up');
+    expect(body.indexed.lagSeconds).toBeGreaterThan(body.stallThresholdSeconds);
+    expect(body.message).toMatch(/catching up: \d+d behind/);
+    expect(body.pools).toBe(4);
+  });
+
+  it('reports stalled once no progress has been written for the threshold', async () => {
+    const cursor = await prisma.indexerCursor.findFirstOrThrow();
+    const old = new Date(Date.now() - 2 * 3600_000);
+    await prisma.indexerCursor.update({ where: { contract: cursor.contract }, data: { updatedAt: old } });
+
+    const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(503);
     const body = response.json();
     expect(body.status).toBe('stalled');
-    expect(body.indexed.lagSeconds).toBeGreaterThan(body.stallThresholdSeconds);
-    expect(body.pools).toBe(4);
+    expect(body.message).toMatch(/stopped advancing/);
+    expect(body.message).not.toMatch(/\d{5,}s/);
+  });
+
+  it('reports stalled when the block number stops moving while behind', async () => {
+    // Progress keeps being written — the poller re-scans every pass — but the
+    // block never advances: an RPC stuck on an old head looks exactly so.
+    const cursor = await prisma.indexerCursor.findFirstOrThrow();
+    const realNow = Date.now();
+    await prisma.indexerCursor.update({ where: { contract: cursor.contract }, data: { updatedAt: new Date(realNow) } });
+    await app.inject({ method: 'GET', url: '/api/health' }); // seen at this block
+
+    const later = realNow + 2 * 3600_000;
+    await prisma.indexerCursor.update({ where: { contract: cursor.contract }, data: { updatedAt: new Date(later) } });
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(later);
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/health' });
+      expect(response.json().status).toBe('stalled');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('answers 200 when the last indexed block is recent', async () => {
@@ -99,7 +134,7 @@ describe('/api/health', () => {
     const cursor = await prisma.indexerCursor.findFirstOrThrow();
     await prisma.indexerCursor.update({
       where: { contract: cursor.contract },
-      data: { lastIndexedAt: new Date() },
+      data: { lastIndexedAt: new Date(), updatedAt: new Date() },
     });
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
@@ -197,7 +232,7 @@ describe('USDG_ADDRESS', () => {
       expect(body.status).not.toBe('misconfigured');
       // On an empty database it is "never-indexed" or "no-anchor" — both
       // transient and self-healing, neither of them somebody's mistake.
-      expect(['never-indexed', 'no-anchor', 'ok', 'stalled']).toContain(body.status);
+      expect(['never-indexed', 'no-anchor', 'ok', 'catching-up', 'stalled']).toContain(body.status);
     } finally {
       await bare.close();
       vi.resetModules();

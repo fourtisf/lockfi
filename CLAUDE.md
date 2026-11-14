@@ -1502,6 +1502,32 @@ Memecoins with no logo anywhere — ROJAK, WHITE, DegenHood on the boards — ar
 not fixable from here: no source has one, and inventing one is the copycat
 problem again. They keep their address-derived mark and are re-checked daily.
 
+### The waiting card on every first visit
+
+Every visit to the live site opened on "Waiting for the indexer — No indexed
+blocks yet" and swapped to the real boards a moment later, with "The indexer
+is 11160833s behind, past the 300s stall threshold" under it. Three faults:
+
+- **The server rendered without data.** `LiveProvider` fetches from the
+  browser, so the server's render always had a null snapshot and painted the
+  card. `lib/data/initial-snapshot.ts` now fetches `/api/snapshot` from the
+  API on the same machine while the root layout renders, bounded at 3s, and
+  `MarketProvider` takes it as `initial` — the page arrives filled (0.12s with
+  the API up, measured; the board is there with JavaScript off). The provider
+  singleton is never seeded on the server, where it is shared by every
+  request. API down or slow, the page renders as before and the browser
+  fetches. Live pages are dynamic now (`ƒ`); the simulator stays static.
+- **The card claimed there was nothing.** "No indexed blocks yet" was its
+  text for every state but two, including a snapshot merely on its way. Only
+  `never-indexed` says that now; the rest read "Loading live data".
+- **Behind was reported as stalled.** A first sync reading months-old blocks
+  as fast as the RPC allows is behind and working. `/api/health` now reports
+  `catching-up` (200) for that, and `stalled` (503) only for an indexer that
+  is not moving — no progress written for the threshold, or a block number
+  unchanged in it while behind, which is what an RPC stuck on an old head
+  looks like. Lags print as `129d`, not seconds. `monitor.sh` does not alert
+  on `catching-up`.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

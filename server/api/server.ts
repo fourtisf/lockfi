@@ -24,6 +24,7 @@ import { POOL_MANAGER_CURSOR } from '../indexer/poller';
 import { resolveUsdg } from '../indexer/anchor';
 import { busKind, subscribeTicks } from './bus';
 import { buildSnapshot } from './snapshot';
+import { lagLabel } from '../../lib/format';
 
 const USDG = process.env.USDG_ADDRESS ?? '';
 
@@ -153,13 +154,35 @@ export async function buildServer(): Promise<FastifyInstance> {
    * that watches a status code catches it with no extra plumbing, and the
    * body says which of the two it is.
    */
+  /**
+   * The indexed block, and when this process last saw it change.
+   *
+   * "Behind" and "stalled" are different things, and the first sync made the
+   * difference matter: an indexer reading months-old blocks as fast as the RPC
+   * allows is months behind and working perfectly. It was reported "stalled",
+   * in red, on the page every visitor saw first. Stalled now means NOT MOVING
+   * — no progress written for the threshold, or a block number that has not
+   * changed in it while behind (an RPC stuck on an old head looks like that).
+   */
+  let progress: { block: bigint; seenAt: number } | null = null;
+
   app.get('/api/health', async (_request, reply) => {
     const cursor = await prisma.indexerCursor.findUnique({
       where: { contract: POOL_MANAGER_CURSOR },
     });
+    const now = Date.now();
     const lagSeconds = cursor
-      ? Math.max(0, (Date.now() - cursor.lastIndexedAt.getTime()) / 1000)
+      ? Math.max(0, (now - cursor.lastIndexedAt.getTime()) / 1000)
       : null;
+    if (cursor && (!progress || progress.block !== cursor.lastIndexedBlock)) {
+      progress = { block: cursor.lastIndexedBlock, seenAt: now };
+    }
+    const writtenAgo = cursor ? (now - cursor.updatedAt.getTime()) / 1000 : null;
+    const movedAgo = progress ? (now - progress.seenAt) / 1000 : 0;
+    const behind = lagSeconds !== null && lagSeconds > env.stallSeconds;
+    const stuck =
+      writtenAgo !== null &&
+      (writtenAgo > env.stallSeconds || (behind && movedAgo > env.stallSeconds));
     const [counts] = await prisma.$queryRaw<{ pools: number; swaps: number }[]>`
       SELECT (SELECT COUNT(*) FROM pools)::int AS pools,
              (SELECT COUNT(*) FROM swap_events)::int AS swaps
@@ -179,9 +202,14 @@ export async function buildServer(): Promise<FastifyInstance> {
         ? 'never-indexed'
         : !anchor.address
           ? 'no-anchor'
-          : lagSeconds !== null && lagSeconds > env.stallSeconds
+          : stuck
             ? 'stalled'
-            : 'ok';
+            : behind
+              ? 'catching-up'
+              : 'ok';
+    // Catching up is the system working as designed — an uptime check must
+    // not page anyone for a first sync — so it answers 200 like ok. Every
+    // state where something is wrong, or nothing is known yet, answers 503.
 
     const body = {
       // Kept for anything already reading it, but `status` is the field to
@@ -207,12 +235,15 @@ export async function buildServer(): Promise<FastifyInstance> {
             : status === 'no-anchor'
               ? anchor.note
               : status === 'stalled'
-              ? `The indexer is ${Math.round(lagSeconds ?? 0)}s behind, past the ${env.stallSeconds}s ` +
-                'stall threshold. The site is showing numbers that old.'
-              : undefined,
+                ? `The indexer has stopped advancing and is ${lagLabel(lagSeconds ?? 0)} behind ` +
+                  'the chain. The site is showing numbers that old.'
+                : status === 'catching-up'
+                  ? `The indexer is catching up: ${lagLabel(lagSeconds ?? 0)} behind the chain ` +
+                    'and advancing. Figures on the site are as of the last block indexed.'
+                  : undefined,
     };
 
-    return reply.code(status === 'ok' ? 200 : 503).send(body);
+    return reply.code(status === 'ok' || status === 'catching-up' ? 200 : 503).send(body);
   });
 
   app.get('/api/snapshot', async (_request, reply) => {
