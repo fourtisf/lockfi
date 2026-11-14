@@ -48,6 +48,18 @@ DOWNLOADS = [
     'x-avatar-teal-1000.png',
     'x-header-1500.png',
     'x-header-3000.png',
+    'tidewell-mark-signature-glass-2048.png',
+    'x-avatar-signature-glass-1000.png',
+    'icon-signature-glass-1024.png',
+    'x-header-signature-glass-1500.png',
+    'x-header-signature-glass-3000.png',
+    'tidewell-signature-glass-showcase.png',
+    'tidewell-mark-signature-gold-2048.png',
+    'x-avatar-signature-gold-1000.png',
+    'icon-signature-gold-1024.png',
+    'x-header-signature-gold-1500.png',
+    'x-header-signature-gold-3000.png',
+    'tidewell-signature-gold-showcase.png',
 ]
 
 
@@ -69,6 +81,10 @@ def main() -> None:
     kit = os.path.join(PUBLIC, 'brand', 'tidewell-brand-kit.zip')
     with zipfile.ZipFile(kit, 'w', zipfile.ZIP_DEFLATED) as z:
         for name in sorted(os.listdir(BRAND)):
+            # The 3000px headers and the showcases are several MB each of fine
+            # grain that does not compress; they are one click away on /brand.
+            if name.endswith('-3000.png') or name.endswith('showcase.png'):
+                continue
             # Fixed timestamps, so rerunning produces the same bytes.
             info = zipfile.ZipInfo(f'tidewell-brand-kit/{name}', date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED

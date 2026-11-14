@@ -127,6 +127,86 @@ def premium_ground(uid: str, w: float, h: float, rx: float = 0) -> str:
     )
 
 
+# The Signature edition: the mark as a polished porthole. A metal ring with a
+# specular sweep and a soft halo, water lit from above and shadowed at depth, a
+# glowing crest, and a crescent reflection across the glass. Two finishes:
+# glass (the brand teal) and gold (an edition, for launches and partners). For
+# avatars, headers and hero images only — the flat and premium cuts remain the
+# logo everywhere else.
+SIGNATURE = {
+    'glass': dict(ring=[(0, '#FFFFFF'), (.16, '#C9F6FC'), (.42, '#3DB9D1'), (.58, '#F2FEFF'),
+                        (.78, '#2AA2BB'), (1, '#0D5E72')],
+                  glow='#2EC4E0', glow_o=.55, crest='#FFFFFF', rim='#FFFFFF',
+                  word=('#FFFFFF', '#D3EEF4'), tag='#BFE6EE'),
+    'gold': dict(ring=[(0, '#FFF6DA'), (.2, '#F1D27E'), (.45, '#B98A2F'), (.6, '#FFEBAE'),
+                       (.8, '#C49536'), (1, '#7E5A1C')],
+                 glow='#E8B85A', glow_o=.38, crest='#FFF3CF', rim='#FFF8E6',
+                 word=('#FFFFFF', '#F4E6C2'), tag='#E6CF96'),
+}
+# The crescent of reflected light: the band between the glass's edge and a
+# larger circle shifted down and right.
+SHINE = 'M5.6 15.2A10.4 10.4 0 0 1 21.6 6.9A11.4 11.4 0 0 0 6.9 15.6Z'
+
+
+def mark_signature(fin: str, u: str, halo: bool = True) -> str:
+    f = SIGNATURE[fin]
+    stops = ''.join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in f['ring'])
+    glow = (
+        f'<circle cx="16" cy="16" r="{RING_R}" fill="none" stroke="{f["glow"]}" '
+        f'stroke-width="{RING_W + 1.2}" opacity="{f["glow_o"]}" filter="url(#{u}g)"/>' if halo else ''
+    )
+    return (
+        f'<defs>'
+        f'<linearGradient id="{u}r" x1="6" y1="3" x2="26" y2="29" gradientUnits="userSpaceOnUse">{stops}</linearGradient>'
+        f'<linearGradient id="{u}w" x1="16" y1="13" x2="16" y2="28" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="0" stop-color="#9BEAF5"/><stop offset=".3" stop-color="#2DB4CD"/>'
+        f'<stop offset=".7" stop-color="#0E7590"/><stop offset="1" stop-color="#07404F"/></linearGradient>'
+        f'<radialGradient id="{u}d" cx="16" cy="16" r="{CLIP_R}" gradientUnits="userSpaceOnUse">'
+        f'<stop offset=".72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".38"/></radialGradient>'
+        f'<linearGradient id="{u}s" x1="7" y1="7" x2="17" y2="12" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="0" stop-color="#FFF" stop-opacity=".62"/><stop offset=".6" stop-color="#FFF" stop-opacity=".12"/>'
+        f'<stop offset="1" stop-color="#FFF" stop-opacity="0"/></linearGradient>'
+        f'<clipPath id="{u}c"><circle cx="16" cy="16" r="{CLIP_R}"/></clipPath>'
+        f'<filter id="{u}g" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="1.3"/></filter>'
+        f'<filter id="{u}cg" x="-20%" y="-200%" width="140%" height="500%"><feGaussianBlur stdDeviation=".45"/></filter>'
+        f'</defs>\n  {glow}'
+        f'<g clip-path="url(#{u}c)">'
+        f'<rect x="3" y="3" width="26" height="26" fill="#0A3A46"/>'
+        f'<path d="{SWELL}" fill="#17606F"/>'
+        f'<path d="{WATER}" fill="url(#{u}w)"/>'
+        f'<path d="{CREST}" fill="none" stroke="{f["crest"]}" stroke-width="1.1" opacity=".7" filter="url(#{u}cg)"/>'
+        f'<path d="{CREST}" fill="none" stroke="{f["crest"]}" stroke-width=".45" stroke-linecap="round"/>'
+        f'<circle cx="16" cy="16" r="{CLIP_R}" fill="url(#{u}d)"/>'
+        f'<path d="{SHINE}" fill="url(#{u}s)"/></g>'
+        f'<circle cx="16" cy="16" r="{RING_R}" fill="none" stroke="url(#{u}r)" stroke-width="{RING_W}"/>'
+        f'<circle cx="16" cy="16" r="{RING_R - RING_W / 2 + .18:g}" fill="none" stroke="{f["rim"]}" stroke-width=".22" opacity=".55"/>'
+        f'<circle cx="16" cy="16" r="{RING_R + RING_W / 2 - .12:g}" fill="none" stroke="#000" stroke-width=".18" opacity=".25"/>'
+    )
+
+
+def signature_ground(u: str, w: float, h: float, cx: float, cy: float, glow: str,
+                     rx: float = 0, grain: float = .05) -> str:
+    """Deep water lit from one point, a bloom of the finish's colour, fine grain."""
+    edge = f' rx="{rx:g}"' if rx else ''
+    noise = (
+        f'<filter id="{u}n" x="0" y="0" width="100%" height="100%">'
+        f'<feTurbulence type="fractalNoise" baseFrequency="{620 / max(w, h):.4f}" numOctaves="2" seed="7"/>'
+        f'<feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 {grain} 0"/>'
+        f'</filter>' if grain else ''
+    )
+    return (
+        f'<defs><radialGradient id="{u}bg" cx="{cx:g}" cy="{cy:g}" r="{max(w, h) * .75:g}" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="0" stop-color="#0F6377"/><stop offset=".38" stop-color="#073845"/>'
+        f'<stop offset="1" stop-color="#021116"/></radialGradient>'
+        f'<radialGradient id="{u}bl" cx="{cx:g}" cy="{cy:g}" r="{min(w, h) * .42:g}" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="0" stop-color="{glow}" stop-opacity=".30"/><stop offset="1" stop-color="{glow}" stop-opacity="0"/></radialGradient>'
+        f'{noise}</defs>\n  '
+        f'<rect width="{w:g}" height="{h:g}"{edge} fill="url(#{u}bg)"/>'
+        f'<rect width="{w:g}" height="{h:g}"{edge} fill="url(#{u}bl)"/>'
+        + (f'<rect width="{w:g}" height="{h:g}"{edge} filter="url(#{u}n)"/>' if grain else '')
+    )
+
+
 def tile(ground: str, art: str, scale: float = 0.72, radius: float = TILE_R) -> str:
     pad = (32 - 32 * scale) / 2
     rect = (
@@ -317,6 +397,35 @@ def main() -> None:
         f'<path d="{h_tag}" fill="#CFE7EC"/>',
         f'0 0 {HW} {HH}', HW, HH))
 
+    # -------------------------------------------------------- signature ---
+    print('signature')
+    for fin in ('glass', 'gold'):
+        f = SIGNATURE[fin]
+        # Transparent mark: no halo, so it crops to the ink like every logo file.
+        write(o(f'tidewell-mark-signature-{fin}.svg'),
+              svg(mark_signature(fin, 'm', halo=False), MARK_VIEW, 512, 512))
+        # Avatar: square, full bleed, the mark inside the circle X cuts.
+        write(o(f'x-avatar-signature-{fin}.svg'), svg(
+            signature_ground('a', 32, 32, 16, 15, f['glow']) +
+            f'\n  <g transform="translate({av_pad:g} {av_pad:g}) scale({av:g})">{mark_signature(fin, "m")}</g>',
+            '0 0 32 32', 1000, 1000))
+        # App icon: the squircle.
+        write(o(f'icon-signature-{fin}.svg'), svg(
+            signature_ground('i', 32, 32, 16, 15, f['glow'], TILE_R) +
+            f'\n  <g transform="translate({pad_p:g} {pad_p:g}) scale({sc:g})">{mark_signature(fin, "m")}</g>',
+            '0 0 32 32', 1024, 1024))
+        # Header, 1500 x 500, laid out like the premium one.
+        grad = (f'<defs><linearGradient id="hw" x1="0" y1="0" x2="0" y2="1">'
+                f'<stop offset="0" stop-color="{f["word"][0]}"/><stop offset="1" stop-color="{f["word"][1]}"/>'
+                f'</linearGradient></defs>')
+        write(o(f'x-header-signature-{fin}.svg'), svg(
+            signature_ground('h', HW, HH, hx + h_mark / 2, h_top + h_mark / 2, f['glow'], grain=.035) +
+            f'\n  {grad}<g transform="translate({hx - INK0 * HS:.2f} {h_top - INK0 * HS:.2f}) scale({HS})">'
+            f'{mark_signature(fin, "hm")}</g>\n  '
+            f'<path d="{h_word}" fill="url(#hw)"/>\n  '
+            f'<path d="{h_tag}" fill="{f["tag"]}"/>',
+            f'0 0 {HW} {HH}', HW, HH))
+
     # The hero: the premium lockup on the deep-sea ground, with the tagline.
     SW, SH = 2400, 1350
     PS = 13.0
@@ -339,6 +448,19 @@ def main() -> None:
         f'<path d="{show_word}" fill="{WHITE}"/>\n  '
         f'<path d="{tag_d}" fill="#CFE7EC"/>',
         f'0 0 {SW} {SH}', SW, SH))
+
+    for fin in ('glass', 'gold'):
+        f = SIGNATURE[fin]
+        grad = (f'<defs><linearGradient id="sw" x1="0" y1="0" x2="0" y2="1">'
+                f'<stop offset="0" stop-color="{f["word"][0]}"/><stop offset="1" stop-color="{f["word"][1]}"/>'
+                f'</linearGradient></defs>')
+        write(o(f'tidewell-signature-{fin}-showcase.svg'), svg(
+            signature_ground('s', SW, SH, x0 + p_mark / 2, p_top + p_mark / 2, f['glow'], grain=.03) +
+            f'\n  {grad}<g transform="translate({x0 - INK0 * PS:.2f} {p_top - INK0 * PS:.2f}) scale({PS})">'
+            f'{mark_signature(fin, "sm")}</g>\n  '
+            f'<path d="{show_word}" fill="url(#sw)"/>\n  '
+            f'<path d="{tag_d}" fill="{f["tag"]}"/>',
+            f'0 0 {SW} {SH}', SW, SH))
 
     # ------------------------------------------------------------- og card --
     # 1200 × 630 is what X, Telegram, Discord and Slack all crop from. No URL

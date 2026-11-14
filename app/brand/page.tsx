@@ -141,9 +141,69 @@ const ASSETS: Asset[] = [
   },
 ];
 
+/** The Signature edition: avatars, headers and hero images, in glass and gold. */
+const SIGNATURE: Asset[] = [
+  {
+    title: 'Signature mark',
+    use: 'The porthole: polished ring, lit water, a crescent of reflected light.',
+    preview: 'tidewell-mark-signature-glass-2048.png',
+    ground: 'light',
+    files: [
+      { label: 'Glass', file: 'tidewell-mark-signature-glass-2048.png' },
+      { label: 'Gold', file: 'tidewell-mark-signature-gold-2048.png' },
+    ],
+  },
+  {
+    title: 'Signature profile picture',
+    use: 'For X, Telegram and Discord. Under X\u2019s 2 MB limit.',
+    preview: 'x-avatar-signature-glass-1000.png',
+    ground: 'light',
+    files: [
+      { label: 'Glass', file: 'x-avatar-signature-glass-1000.png' },
+      { label: 'Gold', file: 'x-avatar-signature-gold-1000.png' },
+    ],
+  },
+  {
+    title: 'Signature app icon',
+    use: 'The squircle, for surfaces that do not mask the corners.',
+    preview: 'icon-signature-gold-1024.png',
+    ground: 'light',
+    files: [
+      { label: 'Glass', file: 'icon-signature-glass-1024.png' },
+      { label: 'Gold', file: 'icon-signature-gold-1024.png' },
+    ],
+  },
+  {
+    title: 'Signature X header',
+    use: '1500 \u00d7 500, and 3000 \u00d7 1000 for sharp screens. Under X\u2019s 5 MB limit.',
+    preview: 'x-header-signature-glass-1500.png',
+    ground: 'light',
+    wide: true,
+    files: [
+      { label: 'Glass 1500', file: 'x-header-signature-glass-1500.png' },
+      { label: 'Glass 3000', file: 'x-header-signature-glass-3000.png' },
+      { label: 'Gold 1500', file: 'x-header-signature-gold-1500.png' },
+      { label: 'Gold 3000', file: 'x-header-signature-gold-3000.png' },
+    ],
+  },
+  {
+    title: 'Signature showcase',
+    use: 'A hero image for launches and partner announcements.',
+    preview: 'tidewell-signature-gold-showcase.png',
+    ground: 'light',
+    wide: true,
+    files: [
+      { label: 'Glass', file: 'tidewell-signature-glass-showcase.png' },
+      { label: 'Gold', file: 'tidewell-signature-gold-showcase.png' },
+    ],
+  },
+];
+
 /** Preview sizes: SVGs carry a tiny intrinsic size, so each kind gets its own. */
 function previewStyle(a: Asset): React.CSSProperties {
   if (a.preview.startsWith('tidewell-mark')) return { width: 128, height: 128 };
+  if (a.preview.endsWith('showcase.png') && a.preview.includes('signature'))
+    return { width: 'auto', height: 152, maxWidth: '100%' };
   if (a.preview.startsWith('icon-')) return { width: 132, height: 132 };
   // Shown the way it will be seen: cut to a circle.
   if (a.preview.startsWith('x-avatar')) return { width: 132, height: 132, borderRadius: '50%' };
@@ -172,6 +232,36 @@ function kitSize(): string {
   }
 }
 
+function card(a: Asset) {
+  return (
+    <article key={a.title} className={`card bk${a.wide ? ' wide' : ''}`}>
+      <div className={`bk-art g-${a.ground}`}>
+        <Image
+          src={`/brand/${a.preview}`}
+          alt={`${BRAND} ${a.title.toLowerCase()}`}
+          width={a.wide ? 480 : 160}
+          height={160}
+          unoptimized
+          style={previewStyle(a)}
+        />
+      </div>
+      <div className="bk-body">
+        <h2 className="sect-h">{a.title}</h2>
+        <p className="hint" style={{ marginTop: 4 }}>
+          {a.use}
+        </p>
+        <div className="bk-files">
+          {a.files.map((f) => (
+            <a key={f.file} className="btn btn-quiet btn-sm" href={`/brand/${f.file}`} download>
+              {f.label}
+            </a>
+          ))}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function BrandPage() {
   return (
     <section>
@@ -191,35 +281,18 @@ export default function BrandPage() {
         </div>
       </div>
 
-      <div className="bk-grid">
-        {ASSETS.map((a) => (
-          <article key={a.title} className={`card bk${a.wide ? ' wide' : ''}`}>
-            <div className={`bk-art g-${a.ground}`}>
-              <Image
-                src={`/brand/${a.preview}`}
-                alt={`${BRAND} ${a.title.toLowerCase()}`}
-                width={a.wide ? 480 : 160}
-                height={160}
-                unoptimized
-                style={previewStyle(a)}
-              />
-            </div>
-            <div className="bk-body">
-              <h2 className="sect-h">{a.title}</h2>
-              <p className="hint" style={{ marginTop: 4 }}>
-                {a.use}
-              </p>
-              <div className="bk-files">
-                {a.files.map((f) => (
-                  <a key={f.file} className="btn btn-quiet btn-sm" href={`/brand/${f.file}`} download>
-                    {f.label}
-                  </a>
-                ))}
-              </div>
-            </div>
-          </article>
-        ))}
+      <div className="bk-grid">{ASSETS.map(card)}</div>
+
+      <div className="head" style={{ marginTop: 36, marginBottom: 16 }}>
+        <div>
+          <h2 style={{ fontSize: 24 }}>Signature edition</h2>
+          <p className="lede">
+            The mark as a polished porthole, in glass and in gold, for profile pictures, headers and
+            launch images. The flat and premium cuts stay the logo everywhere else.
+          </p>
+        </div>
       </div>
+      <div className="bk-grid">{SIGNATURE.map(card)}</div>
 
       <div className="grid g2" style={{ marginTop: 20 }}>
         <div className="card panel">

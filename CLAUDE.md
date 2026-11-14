@@ -1285,6 +1285,18 @@ another.
   `brand/`. The footer links to it. An e2e test fetches every file the page
   offers.
 
+### The Signature edition
+
+For profile pictures, headers and launch images only: the mark as a polished
+porthole — a metal ring with a specular sweep and a soft halo, water lit from
+above and shadowed at depth, a glowing crest and a crescent of reflected light
+on the glass, over a deep-water ground with a bloom and fine grain. Two
+finishes, **glass** (the brand teal) and **gold** (an edition). Generated with
+everything else by `npm run brand`, offered on `/brand`, and sized under X's
+upload limits (avatar about 1 MB of 2 MB, header up to 2.6 MB of 5 MB). The
+grain does not compress, so the 3000px headers and the showcases are left out
+of the ZIP and downloaded one by one.
+
 ### Deploying it
 
 `deploy/deploy.sh` hardcoded `BRANCH=claude/new-session-c0aptv`, so the box

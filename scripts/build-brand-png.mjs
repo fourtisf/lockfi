@@ -77,6 +77,22 @@ const JOBS = [
   ['x-avatar-teal.svg', 'x-avatar-teal-1000.png', 1000],
   ['x-header.svg', 'x-header-1500.png', 1500],
   ['x-header.svg', 'x-header-3000.png', 3000],
+
+  // Signature edition: glass and gold.
+  ['tidewell-mark-signature-glass.svg', 'tidewell-mark-signature-glass-2048.png', 2048],
+  ['x-avatar-signature-glass.svg', 'x-avatar-signature-glass-400.png', 400],
+  ['x-avatar-signature-glass.svg', 'x-avatar-signature-glass-1000.png', 1000],
+  ['icon-signature-glass.svg', 'icon-signature-glass-1024.png', 1024],
+  ['x-header-signature-glass.svg', 'x-header-signature-glass-1500.png', 1500],
+  ['x-header-signature-glass.svg', 'x-header-signature-glass-3000.png', 3000],
+  ['tidewell-signature-glass-showcase.svg', 'tidewell-signature-glass-showcase.png', 2400],
+  ['tidewell-mark-signature-gold.svg', 'tidewell-mark-signature-gold-2048.png', 2048],
+  ['x-avatar-signature-gold.svg', 'x-avatar-signature-gold-400.png', 400],
+  ['x-avatar-signature-gold.svg', 'x-avatar-signature-gold-1000.png', 1000],
+  ['icon-signature-gold.svg', 'icon-signature-gold-1024.png', 1024],
+  ['x-header-signature-gold.svg', 'x-header-signature-gold-1500.png', 1500],
+  ['x-header-signature-gold.svg', 'x-header-signature-gold-3000.png', 3000],
+  ['tidewell-signature-gold-showcase.svg', 'tidewell-signature-gold-showcase.png', 2400],
 ];
 
 const browser = await chromium.launch(
