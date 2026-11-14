@@ -8,14 +8,14 @@ import { TokenBadge } from '@/components/ui/TokenBadge';
 import { PROTOCOL_FEE_BPS } from '@/lib/chain';
 import { ageLabel, usd, weth } from '@/lib/format';
 import { BRAND } from '@/lib/site';
-import { PREVIEW_BALANCE_ETH, stakeQuote } from '@/lib/stake';
+import { stakeQuote } from '@/lib/stake';
 import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldTitle, feeYieldValue } from '@/lib/yield';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function StakeDrawer() {
-  const { pools, global } = useMarket();
+  const { pools, vaults, global, portfolio } = useMarket();
   const { stakePoolId, closeStake, act } = useUi();
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
@@ -24,6 +24,12 @@ export function StakeDrawer() {
 
   const pool = pools.find((p) => p.id === stakePoolId) ?? null;
   const open = pool !== null;
+  // Staking needs a vault to stake into. The live site has none until the
+  // contracts ship, and the simulator has them for six pools of ten — the
+  // drawer used to offer a stake form for every pool regardless.
+  const hasVault = pool !== null && vaults.some((v) => v.poolId === pool.id);
+  const canStake = pool !== null && pool.stakeable && hasVault;
+  const balance = portfolio.walletBalanceEth;
 
   // Escape closes, Tab cycles inside, focus returns where it came from.
   useEffect(() => {
@@ -134,7 +140,7 @@ export function StakeDrawer() {
                 </div>
               </div>
 
-              {pool.stakeable ? (
+              {canStake ? (
                 <>
                   <div className="sect-h" style={{ display: 'block', marginBottom: 12 }}>
                     Stake with one token
@@ -153,7 +159,7 @@ export function StakeDrawer() {
                         onChange={(e) => setAmount(e.target.value)}
                       />
                       <span className="unit">ETH</span>
-                      <span className="max">Max {PREVIEW_BALANCE_ETH}</span>
+                      {balance !== null && <span className="max">Max {balance}</span>}
                     </div>
                   </div>
 
@@ -183,6 +189,14 @@ export function StakeDrawer() {
                     it.
                   </p>
                 </>
+              ) : pool.stakeable ? (
+                <div className="note">
+                  <b>No vault for this pool yet</b>
+                  <p className="hint">
+                    Staking into {pool.token.symbol} opens when its {BRAND} vault is deployed.
+                    The figures above are the pool&rsquo;s own; nothing can be staked here yet.
+                  </p>
+                </div>
               ) : (
                 <div className="note">
                   <b>Not stakeable yet</b>
@@ -207,7 +221,10 @@ export function StakeDrawer() {
               </button>
               <button
                 className="btn btn-brand"
-                disabled={!pool.stakeable}
+                disabled={!canStake || balance === null}
+                title={
+                  !canStake ? undefined : balance === null ? 'Connect a wallet to stake' : undefined
+                }
                 onClick={() => {
                   act('Staking');
                   closeStake();

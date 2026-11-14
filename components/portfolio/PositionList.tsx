@@ -4,8 +4,9 @@ import { useRouter } from 'next/navigation';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
-import { countdown, usdExact } from '@/lib/format';
+import { countdown, signOf, tone, usdExact } from '@/lib/format';
 import { SHAPES } from '@/lib/shapes';
+import { BRAND } from '@/lib/site';
 
 export function PositionList() {
   const { portfolio, pools } = useMarket();
@@ -57,8 +58,9 @@ export function PositionList() {
               <div className="num" style={{ fontWeight: 600 }}>
                 {usdExact(position.valueUsd)}
               </div>
-              <div className="up num" style={{ fontSize: 12 }}>
-                +{position.feesWeth.toFixed(2)} WETH fees
+              <div className={`num ${tone(position.feesWeth, 2)}`} style={{ fontSize: 12 }}>
+                {signOf(position.feesWeth, 2) > 0 ? '+' : ''}
+                {position.feesWeth.toFixed(2)} WETH fees
               </div>
             </div>
           </div>
@@ -83,18 +85,30 @@ export function PositionList() {
               <div className="num" style={{ fontWeight: 600 }}>
                 {usdExact(stake.stakedUsd)}
               </div>
-              <div className="up num" style={{ fontSize: 12 }}>
-                +{stake.earnedWeth.toFixed(2)} WETH fees
+              <div className={`num ${tone(stake.earnedWeth, 2)}`} style={{ fontSize: 12 }}>
+                {signOf(stake.earnedWeth, 2) > 0 ? '+' : ''}
+                {stake.earnedWeth.toFixed(2)} WETH fees
               </div>
             </div>
           </div>
         );
       })}
 
-      {positions.length === 0 && stakes.length === 0 && (
+      {portfolio.positions.length === 0 && portfolio.stakes.length === 0 ? (
+        // An empty portfolio, not a search that hid it. The live site has no
+        // wallet and no vault until P2, so this is what is true there.
         <div className="empty">
-          <b>No match</b>Nothing in your portfolio matches that search.
+          <b>Nothing here yet</b>
+          Positions and stakes appear once a wallet is connected. Wallet connection arrives with
+          {' '}{BRAND}&rsquo;s contracts, which are not deployed yet.
         </div>
+      ) : (
+        positions.length === 0 &&
+        stakes.length === 0 && (
+          <div className="empty">
+            <b>No match</b>Nothing in your portfolio matches that search.
+          </div>
+        )
       )}
 
       {stranded && strandedPool && matches(stranded.poolId) && (

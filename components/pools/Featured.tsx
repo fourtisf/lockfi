@@ -62,11 +62,30 @@ export function MiniCards() {
   const { pools } = useMarket();
   const { openStake } = useUi();
 
-  const mostTraded = pools.reduce((a, b) => (b.volume24hUsd > a.volume24hUsd ? b : a));
+  // No pools is a real state, not an error: an indexer still reading the
+  // blocks before the PoolManager existed has found none yet. reduce() with no
+  // seed threw on it and took the whole page down.
+  const mostTraded = pools.length
+    ? pools.reduce((a, b) => (b.volume24hUsd > a.volume24hUsd ? b : a))
+    : null;
   const ranked = pools.filter((p) => p.feeYield.basis === 'trailing7d');
   const bestYield = ranked.length
     ? ranked.reduce((a, b) => (yieldPct(b.feeYield) > yieldPct(a.feeYield) ? b : a))
     : null;
+
+  if (!mostTraded) {
+    return (
+      <div className="mini-cards">
+        <div className="card mc" style={{ cursor: 'default' }}>
+          <div className="lab">No pools indexed yet</div>
+          <p className="hint" style={{ gridColumn: '1 / -1', margin: 0 }}>
+            The indexer is still reading the chain. Pools appear here as it finds them, with their
+            real fees.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mini-cards">

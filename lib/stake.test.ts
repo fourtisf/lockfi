@@ -38,10 +38,17 @@ describe('stakeQuote', () => {
 
 describe('depositProblem', () => {
   it('refuses empty and over-balance amounts', () => {
-    expect(depositProblem(0)).toMatch(/Enter/);
-    expect(depositProblem(Number.NaN)).toMatch(/Enter/);
-    expect(depositProblem(PREVIEW_BALANCE_ETH + 0.01)).toMatch(/balance/);
-    expect(depositProblem(PREVIEW_BALANCE_ETH)).toBeNull();
+    expect(depositProblem(0, PREVIEW_BALANCE_ETH)).toMatch(/Enter/);
+    expect(depositProblem(Number.NaN, PREVIEW_BALANCE_ETH)).toMatch(/Enter/);
+    expect(depositProblem(PREVIEW_BALANCE_ETH + 0.01, PREVIEW_BALANCE_ETH)).toMatch(/balance/);
+    expect(depositProblem(PREVIEW_BALANCE_ETH, PREVIEW_BALANCE_ETH)).toBeNull();
+  });
+
+  // The live site has no wallet until P2: no balance to compare against, and
+  // no invented one either.
+  it('asks for a wallet when there is none, whatever the amount', () => {
+    expect(depositProblem(1, null)).toMatch(/Connect a wallet/);
+    expect(depositProblem(0, null)).toMatch(/Connect a wallet/);
   });
 });
 

@@ -30,6 +30,11 @@ export function RouterPanel() {
   // config time, not at route time (§3.5).
   const ascending = numeric.every((v, i) => i === 0 || v > numeric[i - 1]);
   const blocked = trigger === 'milestone' && !ascending;
+  // Estimates need a fee stream to estimate from. Before one accrues — which
+  // on the live site is until the router ships — they were "0.00 WETH → +$0"
+  // and "slippage drops from 0.0% to 0.0%", and a curve that rose anyway.
+  const flowing = router.accruedWeth > 0;
+  const grows = flowing && router.projectedDepthUsd > router.currentDepthUsd;
 
   return (
     <div className="router">
@@ -43,7 +48,7 @@ export function RouterPanel() {
               placeholder="0x… or ticker"
               style={{ fontSize: 15 }}
             />
-            <span className="pill up">Verified deployer</span>
+            {router.deployerVerified && <span className="pill up">Verified deployer</span>}
           </div>
         </div>
 
@@ -209,17 +214,29 @@ export function RouterPanel() {
               Accrued WETH is split, half swapped to {router.tokenSymbol} at{' '}
               {router.twapMinutes}-min TWAP, both sides added to the pool.
               <div className="st">
-                Est. first route: {router.firstRouteWeth.toFixed(2)} WETH → +
-                {usd(router.firstRouteDepthUsd)} depth
+                {flowing ? (
+                  <>
+                    Est. first route: {router.firstRouteWeth.toFixed(2)} WETH → +
+                    {usd(router.firstRouteDepthUsd)} depth
+                  </>
+                ) : (
+                  'Nothing has accrued yet, so there is no first route to estimate.'
+                )}
               </div>
             </div>
           </div>
           <div className="tl">
             <div className="w">Ongoing</div>
             <div>
-              Pool depth compounds. Slippage on a $5K buy drops from{' '}
-              {router.slippageNowPct.toFixed(1)}% to an estimated{' '}
-              {router.slippageLaterPct.toFixed(1)}% after 30 days at current fee rate.
+              {flowing ? (
+                <>
+                  Pool depth compounds. Slippage on a $5K buy drops from{' '}
+                  {router.slippageNowPct.toFixed(1)}% to an estimated{' '}
+                  {router.slippageLaterPct.toFixed(1)}% after 30 days at current fee rate.
+                </>
+              ) : (
+                'Pool depth compounds with every route.'
+              )}
             </div>
           </div>
           <div className="tl">
@@ -246,6 +263,17 @@ export function RouterPanel() {
           <div className="muted" style={{ fontSize: 12.5 }}>
             Projected depth · 90 days
           </div>
+          {!grows ? (
+            // The curve is a fixed shape, so it may only be drawn when depth
+            // actually grows. With no fee stream it rose while its own labels
+            // said the start and the end were the same.
+            <p className="hint" style={{ marginTop: 8 }}>
+              No fee stream is routed yet, so there is nothing to project. Pool depth is{' '}
+              <b className="num">{usd(router.currentDepthUsd)}</b> today and stays there until fees
+              accrue.
+            </p>
+          ) : (
+          <>
           {/* Geometry only; the two figures sit under it in HTML, so neither is
               drawn over the curve or squashed to nothing on a phone. */}
           <svg
@@ -287,6 +315,8 @@ export function RouterPanel() {
           <p className="hint">
             Projection at the current fee rate. If volume slows, depth grows slower.
           </p>
+          </>
+          )}
         </div>
       </div>
     </div>

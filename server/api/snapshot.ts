@@ -393,6 +393,8 @@ async function queryPortfolio(wallet: string | null): Promise<Portfolio> {
     stakes: [],
     positions: [],
     claimableWeth: 0,
+    // No wallet connector until P2, so no balance to read.
+    walletBalanceEth: null,
   };
   if (!wallet) return empty;
 
@@ -453,6 +455,8 @@ async function queryRouter(pools: Pool[]): Promise<RouterPlan> {
     firstRouteWeth: 0,
     firstRouteDepthUsd: 0,
     twapMinutes: 30,
+    // Nothing verifies a deployer until the router ships.
+    deployerVerified: false,
   };
 }
 

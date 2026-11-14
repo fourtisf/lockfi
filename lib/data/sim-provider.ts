@@ -1,5 +1,6 @@
 import { PROTOCOL_FEE_BPS, REWARD_WINDOW_SECONDS } from '../chain';
 import { mulberry32, SIM_SEED, type Rng } from '../rng';
+import { PREVIEW_BALANCE_ETH } from '../stake';
 import { computeFeeYield, yieldPct } from '../yield';
 import {
   SEED_FEATURED,
@@ -180,6 +181,9 @@ export class SimProvider implements DataProvider {
       fees7dUsd: 0,
       dailyFeesWeth: rawDaily,
       claimableWeth: 0,
+      // The simulator's pretend wallet. The live site sends null (no wallet
+      // until P2), and the forms read whichever arrives.
+      walletBalanceEth: PREVIEW_BALANCE_ETH,
       stakes: [
         {
           vaultId: 'vault-HOODR',

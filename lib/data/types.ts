@@ -132,6 +132,13 @@ export interface Portfolio {
   stakes: UserStake[];
   positions: UserPosition[];
   claimableWeth: number;
+  /**
+   * Spendable ETH in the connected wallet, or null with no wallet connected —
+   * which, until P2 brings a connector, is always the case on the live site.
+   * The forms read it from here rather than a constant, so a live page never
+   * offers "Max 4.18" out of a wallet nobody connected.
+   */
+  walletBalanceEth: number | null;
 }
 
 export interface GlobalStats {
@@ -172,6 +179,12 @@ export interface RouterPlan {
   firstRouteWeth: number;
   firstRouteDepthUsd: number;
   twapMinutes: number;
+  /**
+   * Whether the token's deployer has been verified as the one configuring the
+   * route. Nothing verifies a deployer until P4, so the live API sends false
+   * and the badge does not render — it used to be printed unconditionally.
+   */
+  deployerVerified: boolean;
 }
 
 export interface MarketSnapshot {

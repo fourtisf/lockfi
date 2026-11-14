@@ -21,9 +21,49 @@ export function usdExact(n: number, fractionDigits = 0): string {
   })}`;
 }
 
-/** A signed percentage, e.g. +11.2% / −4.0%. */
+/**
+ * The sign a figure carries AT THE PRECISION IT IS SHOWN: 1 above zero, -1
+ * below, 0 for anything that renders as zero. Zero is neither a gain nor a
+ * loss, so it gets no sign and no colour — "+$0" in green and "−$0" in red
+ * both claimed a direction that did not exist, and a live site with nothing
+ * staked yet showed them on every card.
+ */
+export function signOf(n: number, digits = 0): 1 | 0 | -1 {
+  if (!Number.isFinite(n)) return 0;
+  const shown = Number(Math.abs(n).toFixed(digits));
+  return shown === 0 ? 0 : n > 0 ? 1 : -1;
+}
+
+/** The class a number's colour comes from (§19): green up, red down, none at zero. */
+export function tone(n: number, digits = 0): '' | 'up' | 'down' {
+  const s = signOf(n, digits);
+  return s > 0 ? 'up' : s < 0 ? 'down' : '';
+}
+
+/** A signed percentage, e.g. +11.2% / −4.0% / 0.0%. */
 export function signedPct(n: number, digits = 1): string {
-  return `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(digits)}%`;
+  const s = signOf(n, digits);
+  return `${s > 0 ? '+' : s < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}%`;
+}
+
+/** Signed exact dollars, e.g. +$1,204 / −$812 / $0. */
+export function signedUsd(n: number): string {
+  const s = signOf(n, 0);
+  return `${s > 0 ? '+' : s < 0 ? '−' : ''}${usdExact(Math.abs(n))}`;
+}
+
+/**
+ * How far behind head the indexer is, in the largest unit that reads at a
+ * glance: 42s, 15m, 3h, 41d. A first sync is days behind for hours, and the
+ * top bar printed that as "3542400s behind" — unreadable, and wide enough to
+ * push a phone's page sideways.
+ */
+export function lagLabel(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 90) return `${s}s`;
+  if (s < 90 * 60) return `${Math.round(s / 60)}m`;
+  if (s < 48 * 3600) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
 }
 
 export function count(n: number): string {

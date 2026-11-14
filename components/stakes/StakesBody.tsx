@@ -6,10 +6,10 @@ import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { PROTOCOL_FEE_BPS } from '@/lib/chain';
 import type { Pool, Quote, Vault } from '@/lib/data/types';
-import { ageLabel, count, inHours, signedPct, usd, usdExact, weth } from '@/lib/format';
+import { ageLabel, count, inHours, signedPct, tone, usd, usdExact, weth } from '@/lib/format';
 import { weekOverWeek } from '@/lib/portfolio';
 import { BRAND } from '@/lib/site';
-import { PREVIEW_BALANCE_ETH, dailyFromHalfDays, depositProblem, stakeQuote } from '@/lib/stake';
+import { dailyFromHalfDays, depositProblem, stakeQuote } from '@/lib/stake';
 import {
   FEE_YIELD_LABEL,
   YIELD_WINDOW_HOURS,
@@ -66,7 +66,8 @@ export function StakesBody() {
   return (
     <>
       <Earnings />
-      <div className="st-cols">
+      {/* With no vault to choose there is no stake panel, and the list takes the row. */}
+      <div className={`st-cols${selected ? '' : ' solo'}`}>
         <section className="card">
           <div className="lh">
             <h2 className="sect-h">Vaults</h2>
@@ -84,9 +85,26 @@ export function StakesBody() {
               ))}
             </div>
           </div>
-          {rows.length === 0 ? (
+          {vaults.length === 0 ? (
+            // Not "no match": there is nothing to match. The live site has no
+            // vault until the contracts ship, and saying "try a ticker" sent
+            // people looking for a search they never made.
             <div className="empty">
-              <b>No vault matches</b>Try a ticker, or clear the search.
+              <b>No vaults yet</b>
+              {BRAND}&rsquo;s vault contracts are not deployed, so there is nothing to stake into
+              yet. The pools are live: their real fee yield is on the Pools page.
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="empty">
+              {query.trim() !== '' ? (
+                <>
+                  <b>No vault matches</b>Try a ticker, or clear the search.
+                </>
+              ) : (
+                <>
+                  <b>No {filter} vaults</b>None of the vaults trade against it yet.
+                </>
+              )}
             </div>
           ) : (
             <div className="vlist">
@@ -210,9 +228,11 @@ function Earnings() {
       </div>
       <div>
         <div className="k">Your fees · last 7d</div>
-        <div className="v num up">{usdExact(portfolio.fees7dUsd)}</div>
-        {wow.changePct !== null ? (
-          <div className={`s num ${wow.changePct >= 0 ? 'up' : 'down'}`}>
+        <div className={`v num ${tone(portfolio.fees7dUsd)}`}>{usdExact(portfolio.fees7dUsd)}</div>
+        {stakes.length === 0 ? (
+          <div className="s">nothing staked yet</div>
+        ) : wow.changePct !== null ? (
+          <div className={`s num ${tone(wow.changePct, 1)}`}>
             {signedPct(wow.changePct)} vs the week before
           </div>
         ) : (
@@ -234,12 +254,17 @@ function Earnings() {
 }
 
 function StakePanel({ pool }: { pool: Pool }) {
-  const { global } = useMarket();
+  const { global, portfolio } = useMarket();
   const { act } = useUi();
   const [amount, setAmount] = useState('1');
   const eth = Number.parseFloat(amount);
-  const problem = depositProblem(eth);
-  const quote = stakeQuote(pool, problem ? 0 : eth, global.ethPriceUsd);
+  const balance = portfolio.walletBalanceEth;
+  const problem = depositProblem(eth, balance);
+  // The quote is arithmetic on the typed amount, so it does not wait on a
+  // wallet; only an unusable amount (empty, negative, above a known balance)
+  // zeroes it.
+  const usable = Number.isFinite(eth) && eth > 0 && (balance === null || eth <= balance);
+  const quote = stakeQuote(pool, usable ? eth : 0, global.ethPriceUsd);
   const shares = [0.25, 0.5, 0.75, 1];
 
   return (
@@ -267,25 +292,29 @@ function StakePanel({ pool }: { pool: Pool }) {
           onChange={(e) => setAmount(e.target.value)}
         />
         <span className="unit">ETH</span>
-        <span className="max">Max {PREVIEW_BALANCE_ETH}</span>
+        {balance !== null && <span className="max">Max {balance}</span>}
       </div>
-      <div className="quick" role="group" aria-label="Share of balance">
-        {shares.map((f) => {
-          const value = (PREVIEW_BALANCE_ETH * f).toFixed(2);
-          return (
-            <button
-              key={f}
-              className={Number(amount) === Number(value) ? 'on' : undefined}
-              onClick={() => setAmount(value)}
-            >
-              {f === 1 ? 'Max' : `${f * 100}%`}
-            </button>
-          );
-        })}
-      </div>
+      {/* Shares of a balance need a balance: no wallet, no chips. */}
+      {balance !== null && (
+        <div className="quick" role="group" aria-label="Share of balance">
+          {shares.map((f) => {
+            const value = (balance * f).toFixed(2);
+            return (
+              <button
+                key={f}
+                className={Number(amount) === Number(value) ? 'on' : undefined}
+                onClick={() => setAmount(value)}
+              >
+                {f === 1 ? 'Max' : `${f * 100}%`}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="out">
         <div>
+          {/* Arithmetic on the amount typed, which needs no wallet. */}
           <span>Your share of pool</span>
           <b>{(quote.share * 100).toFixed(2)}%</b>
         </div>

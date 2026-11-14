@@ -1347,6 +1347,52 @@ path were wrong for a first run and are fixed:
   `balast`. Every instruction printed or documented now says
   `runuser -u balast -- pm2 …`.
 
+### Live mode, looked at before anyone switched to it
+
+ALFA asked for real data instead of the simulator. Before handing over the
+switch, every page was rendered in live mode against snapshots shaped exactly
+like `server/api/snapshot.ts` returns them today — real pools, and no vault,
+stake, position, payout or wallet, because none of those exist before P2 —
+in four states: caught up, days behind, blocks indexed but no pool found yet,
+and nothing indexed. Live mode had never been looked at with nothing in it,
+and it was not honest:
+
+- **The boards and Stakes said "No match — try a ticker"** to people who had
+  not searched. Every empty list now names its real cause: nothing indexed
+  yet, no vault deployed yet, no wallet connected, a filter, or a search.
+  Established's empty state says pools join at 7 days.
+- **The Pools and Positions pages crashed** with no pools indexed —
+  `reduce()` with no seed, and `pools[0].token`. That is the first state a
+  box syncing from genesis reaches. Both render an explanation now.
+- **Zero had a direction.** `$0` in green, `+$0 · +0.0%`, `−$0` in red,
+  `▲ +0.0%`. Zero is neither a gain nor a loss, judged at the precision it is
+  shown: `signOf`, `tone`, `signedUsd` in `lib/format.ts`, with tests.
+- **A wallet balance nobody had.** Every form offered `Max 4.18` from a
+  constant. `Portfolio.walletBalanceEth` carries it now — the simulator's
+  preview balance, `null` from the live API — and with no wallet there is no
+  Max, no balance check against an invented number, and Mint says it needs a
+  wallet instead of quoting gas.
+- **A stake form for pools with no vault**, live and simulated alike (the
+  simulator has vaults for six of ten pools). The drawer says the vault is
+  not deployed yet and the Stake button stays disabled.
+- **Router claims with nothing behind them.** "Verified deployer" was printed
+  unconditionally; it is `RouterPlan.deployerVerified`, false from the live
+  API. The projected-depth curve is a fixed shape and rose while its own
+  labels said start and end were equal; with no fee stream it is replaced by
+  a sentence, and so are "0.00 WETH → +$0" and "0.0% to 0.0%".
+- **"3542400s behind"** in the top bar — a first sync is days behind for
+  hours, and raw seconds pushed a phone's page sideways. `lagLabel` reads
+  `41d`. The market strip's ETH shows an em dash before the USD anchor is
+  found, not `$0.00`.
+
+`deploy/data-source.sh live` now prints `deploy/indexer-status.mjs` before it
+switches: how much of the chain is read, how far behind, pools and swaps
+found, whether the USD anchor is known, and the pace measured from the
+indexer's own progress lines — gain over head, since head moves too — so the
+catch-up estimate is arithmetic on what happened, and a pace that is not
+gaining says so instead of promising an ETA. `data-source.sh status` prints it
+on its own.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

@@ -2,9 +2,9 @@ import { PROTOCOL_FEE_BPS } from './chain';
 import type { Pool } from './data/types';
 
 /**
- * The spendable balance every deposit form checks against, until P2 has a
- * wallet to read one from. One constant, because three forms printed it and a
- * fourth would have drifted.
+ * The simulator's wallet balance. Forms read `portfolio.walletBalanceEth`,
+ * never this: the simulator sets it from here, and the live site has no
+ * wallet until P2, so it sends null and the forms say so.
  */
 export const PREVIEW_BALANCE_ETH = 4.18;
 
@@ -37,10 +37,15 @@ export function stakeQuote(pool: Pool, eth: number, ethPriceUsd: number): StakeQ
   return { depositUsd, share, weeklyWeth: (weeklyFeesUsd * share * LP_FEE_SHARE) / ethPriceUsd };
 }
 
-/** Why a deposit amount cannot be staked, or null when it can. */
-export function depositProblem(eth: number): string | null {
+/**
+ * Why a deposit amount cannot be staked, or null when it can. With no wallet
+ * there is no balance to check against and nothing to sign with, so the
+ * answer is that, not a comparison with an invented number.
+ */
+export function depositProblem(eth: number, balanceEth: number | null): string | null {
+  if (balanceEth === null) return 'Connect a wallet to stake.';
   if (!Number.isFinite(eth) || eth <= 0) return 'Enter an amount to stake.';
-  if (eth > PREVIEW_BALANCE_ETH) return `That is above your balance of ${PREVIEW_BALANCE_ETH} ETH.`;
+  if (eth > balanceEth) return `That is above your balance of ${balanceEth} ETH.`;
   return null;
 }
 

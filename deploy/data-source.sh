@@ -2,8 +2,9 @@
 #
 # Choose what the site shows, and rebuild so it takes effect.
 #
-#   bash /var/www/balast/deploy/data-source.sh live   # the indexer's numbers
-#   bash /var/www/balast/deploy/data-source.sh sim    # the simulator, labelled Simulated
+#   bash /var/www/balast/deploy/data-source.sh live     # the indexer's numbers
+#   bash /var/www/balast/deploy/data-source.sh sim      # the simulator, labelled Simulated
+#   bash /var/www/balast/deploy/data-source.sh status   # how far the indexer has got
 #
 # DATA_SOURCE is inlined when the site is BUILT (next.config.mjs), so editing
 # .env and restarting changes nothing. That is the trap this exists to remove:
@@ -21,8 +22,17 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 want=${1:-}
 case "$want" in
   live|sim) ;;
-  *) echo "usage: $0 live|sim [--no-build]"; exit 1 ;;
+  status) node "$HERE/indexer-status.mjs"; exit $? ;;
+  *) echo "usage: $0 live|sim|status [--no-build]"; exit 1 ;;
 esac
+
+# Before switching to real numbers, say what they will look like. A first sync
+# reads the chain for hours, and "waiting for the indexer" or an empty board is
+# correct then — but only if whoever switched was told to expect it.
+if [[ "$want" == live && "${2:-}" != --no-build ]]; then
+  node "$HERE/indexer-status.mjs" || true
+  echo
+fi
 
 # One way to edit .env: set-env.sh keeps every other line, the database
 # password included, byte-identical.

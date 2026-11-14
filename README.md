@@ -235,6 +235,9 @@ DATA_SOURCE=sim bash deploy/bootstrap.sh    # the site shows the simulator
 # switch what the site shows later; rebuilds, because it is fixed at build time
 bash /var/www/balast/deploy/data-source.sh live
 
+# how far the indexer has got, and what the site shows because of it
+bash /var/www/balast/deploy/data-source.sh status
+
 # every time after: deploys the branch the box is on
 bash /var/www/balast/deploy/deploy.sh
 
@@ -313,7 +316,8 @@ The pieces:
 | `ecosystem.config.js` | PM2: `balast-web`, `balast-api`, `balast-indexer` |
 | `deploy/nginx.conf` | TLS, security headers, `/api/` (never cached), `/api/stream` (websocket, 1h timeout), immutable `/_next/static` |
 | `deploy/nginx-bootstrap.conf` | HTTP-only first pass, so certbot has something to answer with |
-| `deploy/data-source.sh` | switch the site between `live` and `sim`, and rebuild |
+| `deploy/data-source.sh` | switch the site between `live` and `sim`, and rebuild; `status` reports the indexer |
+| `deploy/indexer-status.mjs` | the indexer's progress, pace and catch-up estimate, in words |
 | `deploy/upgrade-map.conf` | the `$connection_upgrade` map — only install it if nothing else on the box defines one |
 | `.nvmrc` | Node version, also used by CI |
 

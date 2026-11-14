@@ -3,7 +3,8 @@
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
-import { countdown, usd, weth } from '@/lib/format';
+import { countdown, tone, usd, weth } from '@/lib/format';
+import { BRAND } from '@/lib/site';
 
 export function MyStakes() {
   const { portfolio, pools } = useMarket();
@@ -26,6 +27,14 @@ export function MyStakes() {
         <span className="muted" style={{ fontSize: 12.5 }}>fees drip over 7 days, so a deposit just before a harvest earns no more than its share</span>
       </div>
 
+      {portfolio.stakes.length === 0 ? (
+        // Nothing staked is not the same as nothing matching a search: the
+        // live site has no vault, and so no stake, until the contracts ship.
+        <div className="empty">
+          <b>No stakes yet</b>
+          Stakes appear here once {BRAND}&rsquo;s vaults are deployed and a wallet is connected.
+        </div>
+      ) : (
       <div className="tbl-wrap" style={{ maxHeight: 'none' }}>
         <table className="tbl">
           <thead>
@@ -58,7 +67,7 @@ export function MyStakes() {
                   <td className="r num" data-label="Staked">
                     {usd(stake.stakedUsd)}
                   </td>
-                  <td className="r num up" data-label="Claimable">
+                  <td className={`r num ${tone(stake.earnedWeth, 2)}`} data-label="Claimable">
                     {weth(stake.earnedWeth, 2)}
                   </td>
                   <td style={{ minWidth: 180 }} data-label="Stream">
@@ -103,6 +112,7 @@ export function MyStakes() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

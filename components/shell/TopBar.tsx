@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { DATA_SOURCE } from '@/lib/data';
-import { usd, usdExact } from '@/lib/format';
+import { lagLabel, usd, usdExact } from '@/lib/format';
 import { BRAND } from '@/lib/site';
 import { Lockup, Mark } from './Logo';
 import { NavLinks } from './Nav';
@@ -103,7 +103,7 @@ export function TopBar() {
             )}
             {behind ? (
               <>
-                {!simulated && <span className="lag-word">Indexer</span>} {lagSeconds}s behind
+                {!simulated && <span className="lag-word">Indexer</span>} {lagLabel(lagSeconds)} behind
               </>
             ) : (
               !simulated && <span className="lag-live">Live</span>
@@ -126,7 +126,9 @@ export function TopBar() {
             <Stat label="TVL" value={usdExact(global.tvlUsd)} />
             <Stat label="Fees 24h" value={usdExact(featured.fees24hUsd)} />
             <Stat label="Volume 24h" value={usd(featured.volume24hUsd)} />
-            <Stat label="ETH" value={usdExact(global.ethPriceUsd, 2)} />
+            {/* Zero means not priced yet — the USD anchor has not been found — not
+                that ETH is worth nothing. */}
+            <Stat label="ETH" value={global.ethPriceUsd > 0 ? usdExact(global.ethPriceUsd, 2) : '—'} />
           </div>
           {simulated && (
             // Said in words, where it cannot be mistaken for a live feed (§7).

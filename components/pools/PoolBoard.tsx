@@ -68,6 +68,18 @@ export function PoolBoard({
       .sort((a, b) => yieldPct(b.feeYield) - yieldPct(a.feeYield));
   }, [pools, filter, query, variant]);
 
+  // An empty board has four different causes, and the live site meets all of
+  // them for real. "Try a ticker" was the answer to every one, including a
+  // board nobody had searched.
+  const empty: [string, string] =
+    pools.length === 0
+      ? ['No pools indexed yet', 'The indexer is still reading the chain.']
+      : query.trim() !== ''
+        ? ['No match', 'Try a ticker, or clear the search.']
+        : filter !== 'all'
+          ? [`No ${filter} pools`, 'None of the indexed pools trade against it yet.']
+          : ['No pool has a full week yet', 'Pools join this board once they have 7 days of fees.'];
+
   return (
     <div className="card">
       <div className="board-h">
@@ -136,7 +148,8 @@ export function PoolBoard({
               <tr className="static">
                 <td colSpan={8}>
                   <div className="empty">
-                    <b>No match</b>Try a ticker, or clear the search.
+                    <b>{empty[0]}</b>
+                    {empty[1]}
                   </div>
                 </td>
               </tr>

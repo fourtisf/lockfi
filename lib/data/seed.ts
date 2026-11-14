@@ -77,4 +77,6 @@ export const SEED_ROUTER = {
   firstRouteWeth: 1.92,
   firstRouteDepthUsd: 4800,
   twapMinutes: 30,
+  // The prototype's badge, kept for the simulator only.
+  deployerVerified: true,
 };

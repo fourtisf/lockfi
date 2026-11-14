@@ -8,7 +8,6 @@ import type { ShapeId } from '@/lib/data/types';
 import { price as fmtPrice } from '@/lib/format';
 import { MAX_BINS, MIN_BINS, SHAPES, shapeWeights } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
-import { PREVIEW_BALANCE_ETH as MAX_DEPOSIT_ETH } from '@/lib/stake';
 import { yieldPct } from '@/lib/yield';
 
 const SHAPE_ICONS: Record<ShapeId, number[]> = {
@@ -18,7 +17,29 @@ const SHAPE_ICONS: Record<ShapeId, number[]> = {
 };
 
 export function ShapeBuilder() {
-  const { pools, global } = useMarket();
+  const { pools } = useMarket();
+  // An indexer still reading the blocks before the PoolManager existed has
+  // found no pools, and a builder needs one to build on. Said plainly, rather
+  // than the page throwing on pools[0].
+  if (pools.length === 0) {
+    return (
+      <div className="card">
+        <div className="empty">
+          <b>No pools indexed yet</b>
+          The indexer is still reading the chain. Once it finds a pool you can shape a position
+          on it here.
+        </div>
+      </div>
+    );
+  }
+  return <Builder />;
+}
+
+function Builder() {
+  const { pools, global, portfolio } = useMarket();
+  // Null with no wallet connected: no balance to cap the deposit at, and
+  // nothing to sign a mint with.
+  const balance = portfolio.walletBalanceEth;
   const { act } = useUi();
 
   const stakeablePools = pools.filter((p) => p.stakeable);
@@ -39,7 +60,7 @@ export function ShapeBuilder() {
   // range is validated before it is drawn rather than after it breaks.
   const problems: string[] = [];
   if (!Number.isFinite(eth) || eth <= 0) problems.push('Enter a deposit amount.');
-  else if (eth > MAX_DEPOSIT_ETH) problems.push(`Deposit is above your balance of ${MAX_DEPOSIT_ETH} ETH.`);
+  else if (balance !== null && eth > balance) problems.push(`Deposit is above your balance of ${balance} ETH.`);
   if (maxPct <= minPct) problems.push('Max must be above Min.');
   if (minPct > 0) problems.push('Min must be at or below the current price.');
   if (maxPct < 0) problems.push('Max must be at or above the current price.');
@@ -101,7 +122,7 @@ export function ShapeBuilder() {
               onChange={(e) => setAmount(e.target.value)}
             />
             <span className="unit">ETH</span>
-            <span className="max">Max {MAX_DEPOSIT_ETH}</span>
+            {balance !== null && <span className="max">Max {balance}</span>}
           </div>
           <p className="hint">
             {BRAND} swaps part of this into {pool.token.symbol} to fill the shape you choose.
@@ -202,18 +223,24 @@ export function ShapeBuilder() {
         <button
           className="btn btn-brand"
           style={{ width: '100%', justifyContent: 'center', height: 46 }}
-          disabled={!valid}
+          disabled={!valid || balance === null}
           onClick={() => act('Minting')}
         >
           Mint position
         </button>
-        {valid ? (
-          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
-            One transaction. Gas ≈ $0.06. You keep the NFT.
-          </p>
-        ) : (
+        {!valid ? (
           <p className="hint down" style={{ textAlign: 'center', marginTop: 8 }} role="alert">
             {problems[0]}
+          </p>
+        ) : balance === null ? (
+          // Not an input error, so not red: the builder works as a calculator,
+          // and minting waits on a wallet and the shaper contract (P2).
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            Minting needs a wallet, which arrives with {BRAND}&rsquo;s contracts.
+          </p>
+        ) : (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            One transaction. Gas ≈ $0.06. You keep the NFT.
           </p>
         )}
       </div>

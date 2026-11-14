@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { ageLabel, countdown, inHours, price, signedPct, usd, usdExact, weth } from './format';
+import {
+  ageLabel,
+  countdown,
+  inHours,
+  lagLabel,
+  price,
+  signOf,
+  signedPct,
+  signedUsd,
+  tone,
+  usd,
+  usdExact,
+  weth,
+} from './format';
 
 describe('usd', () => {
   it('scales to B / M / K / plain', () => {
@@ -23,7 +36,44 @@ describe('signedPct', () => {
   it('uses a real minus sign, not a hyphen', () => {
     expect(signedPct(-4)).toBe('−4.0%');
     expect(signedPct(11.2)).toBe('+11.2%');
-    expect(signedPct(0)).toBe('+0.0%');
+  });
+
+  // Zero is neither a gain nor a loss, judged at the precision it is shown.
+  it('gives zero no sign, including what only rounds to zero', () => {
+    expect(signedPct(0)).toBe('0.0%');
+    expect(signedPct(0.04)).toBe('0.0%');
+    expect(signedPct(-0.04)).toBe('0.0%');
+    expect(signedPct(0.05)).toBe('+0.1%');
+  });
+});
+
+describe('lagLabel', () => {
+  it('reads at a glance in the largest sensible unit', () => {
+    expect(lagLabel(42)).toBe('42s');
+    expect(lagLabel(15 * 60)).toBe('15m');
+    expect(lagLabel(3 * 3600)).toBe('3h');
+    expect(lagLabel(3_542_400)).toBe('41d');
+    expect(lagLabel(-5)).toBe('0s');
+  });
+});
+
+describe('signedUsd', () => {
+  it('signs gains and losses and leaves zero bare', () => {
+    expect(signedUsd(1204)).toBe('+$1,204');
+    expect(signedUsd(-812)).toBe('−$812');
+    expect(signedUsd(0)).toBe('$0');
+    expect(signedUsd(-0.3)).toBe('$0');
+  });
+});
+
+describe('tone', () => {
+  it('is green above zero, red below, and nothing at zero (§19)', () => {
+    expect(tone(3)).toBe('up');
+    expect(tone(-3)).toBe('down');
+    expect(tone(0)).toBe('');
+    expect(tone(0.004, 2)).toBe('');
+    expect(tone(0.006, 2)).toBe('up');
+    expect(signOf(Number.NaN)).toBe(0);
   });
 });
 
