@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# First-time server setup for balast.xyz. Run once, as root, on a fresh
+# First-time server setup for tidewell.live. Run once, as root, on a fresh
 # Ubuntu VPS whose DNS already points here.
 #
 #   bash deploy/bootstrap.sh
@@ -9,11 +9,11 @@
 # not apply system updates — do both yourself first.
 set -euo pipefail
 
-DOMAIN=balast.xyz
+DOMAIN=tidewell.live
 APP_USER=balast
 APP_DIR=/var/www/balast
-REPO=https://github.com/fourtisf/depth.git
-BRANCH=claude/new-session-c0aptv
+REPO=https://github.com/fourtisf/lockfi.git
+BRANCH="${DEPLOY_BRANCH:-claude/happy-johnson-9vztsw}"
 NODE_MAJOR=20
 
 [[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }

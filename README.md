@@ -241,6 +241,16 @@ DEPLOY_BRANCH=<branch> bash /var/www/balast/deploy/deploy.sh
 bash /var/www/balast/deploy/doctor.sh
 ```
 
+**Moving the box to tidewell.live** — the DNS A record must point at it first.
+`switch-domain.sh` checks that, obtains the certificate over HTTP beside the
+running site, and only then installs the TLS config (and puts the old one back
+if nginx rejects it). `deploy.sh` never installs an nginx config whose
+certificate is missing.
+
+```bash
+bash /var/www/balast/deploy/switch-domain.sh
+```
+
 **Moving a box that still has the old `deploy.sh`** (which hardcoded
 `claude/new-session-c0aptv`) onto another branch takes one manual checkout,
 after which the new script takes over:
@@ -363,10 +373,10 @@ Run it. If `poolManager` is wrong the indexer starts cleanly, subscribes to an
 address that emits nothing, and reports a lag that climbs forever — a
 working-looking site with an empty table and no error anywhere.
 
-The site still serves on **balast.xyz**, set in `lib/site.ts` and
-`deploy/nginx.conf`; no Tidewell domain is registered yet. Changing `DOMAIN` in
-`lib/site.ts` and the nginx `server_name` is the whole switch. `www` 301s to
-the apex so there is one canonical host.
+The domain is **tidewell.live**, set in `lib/site.ts` and `deploy/nginx.conf`.
+`www` 301s to the apex so there is one canonical host, and the old
+**balast.xyz** 301s to the same path on the new domain, so links already shared
+keep working.
 
 **Open gap:** `ballast.xyz` — the English spelling on the same TLD — is
 registered and parked for sale by a third party. For a front-end that asks

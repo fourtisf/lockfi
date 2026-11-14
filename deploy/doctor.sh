@@ -19,7 +19,7 @@ APP_USER=${APP_USER:-balast}
 APP_DIR=${APP_DIR:-/var/www/balast}
 ENV_FILE="$APP_DIR/.env"
 API=${API:-http://127.0.0.1:3001}
-DOMAIN=${DOMAIN:-balast.xyz}
+DOMAIN=${DOMAIN:-tidewell.live}
 
 ok()   { printf '  \033[32mok\033[0m    %s\n' "$1"; }
 bad()  { printf '  \033[31mBAD\033[0m   %s\n' "$1"; FAILED=1; }

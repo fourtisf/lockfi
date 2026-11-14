@@ -48,6 +48,9 @@ INK1 = RING_C + RING_R + RING_W / 2
 TRIM = 0.06
 MARK_VIEW = f'{INK0 - TRIM:g} {INK0 - TRIM:g} {INK1 - INK0 + 2 * TRIM:g} {INK1 - INK0 + 2 * TRIM:g}'
 
+# The registered domain (§19), printed on the social card and the X headers.
+URL = 'tidewell.live'
+
 # ------------------------------------------------------------------ colour --
 BRAND = '#0B6E86'       # --ac
 BRAND_DEEP = '#0A5568'  # the lower edge of the brand ground
@@ -389,12 +392,17 @@ def main() -> None:
     _, h_tag_r = outline(h_tag_font, 'Fees rise with the tide.', 34, 0, 0)
     h_tag, _ = outline(h_tag_font, 'Fees rise with the tide.', 34, h_top + h_mark + 78,
                        hx + (h_total - h_tag_r) / 2)
+    # The address, bottom right: the avatar sits over the bottom left.
+    url_font = load('Manrope', 600, 'tidewel.')
+    _, url_r = outline(url_font, URL, 26, 0, 0, 0.02)
+    h_url, _ = outline(url_font, URL, 26, HH - 40, HW - 48 - url_r, 0.02)
     write(o('x-header.svg'), svg(
         premium_ground('xh', HW, HH).split('\n  <rect x=".25"')[0] +
         f'\n  <g transform="translate({hx - INK0 * HS:.2f} {h_top - INK0 * HS:.2f}) scale({HS})">'
         f'{mark_premium("dark", "hm")}</g>\n  '
         f'<path d="{h_word}" fill="{WHITE}"/>\n  '
-        f'<path d="{h_tag}" fill="#CFE7EC"/>',
+        f'<path d="{h_tag}" fill="#CFE7EC"/>\n  '
+        f'<path d="{h_url}" fill="#CFE7EC" opacity=".85"/>',
         f'0 0 {HW} {HH}', HW, HH))
 
     # -------------------------------------------------------- signature ---
@@ -423,7 +431,8 @@ def main() -> None:
             f'\n  {grad}<g transform="translate({hx - INK0 * HS:.2f} {h_top - INK0 * HS:.2f}) scale({HS})">'
             f'{mark_signature(fin, "hm")}</g>\n  '
             f'<path d="{h_word}" fill="url(#hw)"/>\n  '
-            f'<path d="{h_tag}" fill="{f["tag"]}"/>',
+            f'<path d="{h_tag}" fill="{f["tag"]}"/>\n  '
+            f'<path d="{h_url}" fill="{f["tag"]}" opacity=".85"/>',
             f'0 0 {HW} {HH}', HW, HH))
 
     # The hero: the premium lockup on the deep-sea ground, with the tagline.
@@ -463,8 +472,8 @@ def main() -> None:
             f'0 0 {SW} {SH}', SW, SH))
 
     # ------------------------------------------------------------- og card --
-    # 1200 × 630 is what X, Telegram, Discord and Slack all crop from. No URL
-    # on it: no Tidewell domain is registered yet (§19).
+    # 1200 × 630 is what X, Telegram, Discord and Slack all crop from. The
+    # address sits bottom left, where every client leaves the card uncovered.
     print('open graph')
     W, H, M = 1200, 630, 96.0
     S = 4.6                                   # mark grid units -> card px
@@ -478,6 +487,7 @@ def main() -> None:
     tag_d, _ = outline(word, 'Fees rise with the tide.', 44, top + mark_h + 104, M, -0.01)
     sub_d, _ = outline(text, 'Liquidity layer for Robinhood Chain. Fee yield, trailing 7d. '
                              'Paid in WETH. No emissions.', 22, top + mark_h + 160, M)
+    og_url, _ = outline(text, URL, 26, H - 64, M, 0.02)
     write(
         o('og-card.svg'),
         svg(
@@ -489,7 +499,8 @@ def main() -> None:
             f'{mark(WHITE, "og")}</g>\n  '
             f'<path d="{word_d}" fill="{WHITE}"/>\n  '
             f'<path d="{tag_d}" fill="{WHITE}"/>\n  '
-            f'<path d="{sub_d}" fill="{MIST}"/>',
+            f'<path d="{sub_d}" fill="{MIST}"/>\n  '
+            f'<path d="{og_url}" fill="{WHITE}"/>',
             f'0 0 {W} {H}', W, H,
         ),
     )

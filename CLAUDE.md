@@ -1203,10 +1203,13 @@ The tagline is **Fees rise with the tide.**
 - **Known neighbours.** A web search found no DeFi project called Tidewell,
   but two close ones: TideFi (a DEX on its own chain) and Tidal Finance (DeFi
   cover). Neither is a liquidity layer; the confusion risk is real but small.
-- **No domain yet.** The registry lookup could not be run from the build
-  environment. The site still serves on `balast.xyz` (`lib/site.ts`); switching
-  is `DOMAIN` there plus `server_name` in `deploy/nginx.conf`. The social card
-  carries no URL until there is one.
+- **The domain is `tidewell.live`.** ALFA found every mainstream TLD for the
+  name taken and registered `.live`, knowing it scores worse than `.xyz` on
+  phishing reputation (it ranked 12th by phishing score in CyberCrime Info
+  Center's Aug–Oct 2025 data). The mitigations are on ALFA's side of the
+  registrar: buy `tidewall.live` (the wall-for-well misspelling, already made
+  once), DNSSEC, a CAA record, DMARC `p=reject`. `balast.xyz` 301s to the same
+  path. The social card and X headers print the address.
 - **Contracts.** §3's four contracts are `TidewellZap`, `TidewellShaper`,
   `TidewellVault`, `TidewellRouter`. None is deployed, so this is free.
 - **What kept the old name, deliberately.** PM2 process names
@@ -1305,10 +1308,21 @@ otherwise whatever branch the checkout is on. The server still has the old
 script, so the first switch is by hand (see the README's deploy section);
 every deploy after that follows the branch the box is on.
 
+### Moving the box to the new domain
+
+`deploy/switch-domain.sh` is the one-time move, in the only order that works:
+check the new name resolves to this box, answer its ACME challenge over plain
+HTTP beside the running site, get the certificate, and only then install the
+TLS config — restoring the old one if `nginx -t` rejects it. `deploy.sh`
+gained the matching guard: it will not install an nginx config that names a
+certificate the box does not have, because that config passes nothing at the
+time and takes the site down at the next nginx restart. Both configs were run
+under a real nginx with throwaway certificates and every redirect probed.
+
 ### Still open
 
-- **A Tidewell domain**, and the same defensive registrations §13 argued for
-  under the old name.
+- **Defensive registrations**: `tidewall.live` first; the stanza for it is in
+  `deploy/nginx.conf`, commented out.
 - **The token**: unchanged from §13 — the recommendation is still to ship
   without one.
 - **The §12 questions**: the six-hours-per-tick simulator clock needs sign-off,

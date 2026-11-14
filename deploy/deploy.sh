@@ -92,16 +92,36 @@ as_app pm2 save
 # deploy rather than a five-figure number from before the fix.
 as_app pm2 reset all >/dev/null 2>&1 || true
 
-# Only touch nginx if the config in the repo changed.
+# Only touch nginx if the config in the repo changed — and never install one
+# that names a certificate the box does not have. nginx refuses to start with
+# a missing ssl_certificate, so installing it would leave a config on disk that
+# takes the site down at the next restart, whatever the reload said. A new
+# domain gets its certificate from deploy/switch-domain.sh first.
+missing_certs() {
+  grep -oE 'ssl_certificate(_key)?[[:space:]]+[^;]+' "$1" | awk '{print $2}' |
+    while read -r f; do [[ -s "$f" ]] || echo "$f"; done
+}
 if ! diff -q deploy/nginx.conf /etc/nginx/sites-available/balast >/dev/null 2>&1; then
-  # Don't install the map if something else on the box already defines
-  # $connection_upgrade: a duplicate `map` fails `nginx -t`, and on a shared
-  # server that takes every other site down on the next reload.
-  if ! grep -rqs 'connection_upgrade' /etc/nginx/conf.d /etc/nginx/nginx.conf; then
-    install -m 644 deploy/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf
+  missing=$(missing_certs deploy/nginx.conf)
+  if [[ -n "$missing" ]]; then
+    echo "==> nginx config NOT installed: these certificates are not on the box yet:"
+    echo "$missing" | sed 's/^/      /'
+    echo "    run: bash $APP_DIR/deploy/switch-domain.sh"
+  else
+    # Don't install the map if something else on the box already defines
+    # $connection_upgrade: a duplicate `map` fails `nginx -t`, and on a shared
+    # server that takes every other site down on the next reload.
+    if ! grep -rqs 'connection_upgrade' /etc/nginx/conf.d /etc/nginx/nginx.conf; then
+      install -m 644 deploy/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf
+    fi
+    install -m 644 deploy/nginx.conf /etc/nginx/sites-available/balast
+    # The old domain's HTTPS redirect, while its certificate is still here.
+    if [[ -z "$(missing_certs deploy/nginx-legacy.conf)" ]]; then
+      install -m 644 deploy/nginx-legacy.conf /etc/nginx/sites-available/balast-legacy
+      ln -sf /etc/nginx/sites-available/balast-legacy /etc/nginx/sites-enabled/balast-legacy
+    fi
+    nginx -t && systemctl reload nginx
   fi
-  install -m 644 deploy/nginx.conf /etc/nginx/sites-available/balast
-  nginx -t && systemctl reload nginx
 fi
 
 as_app pm2 status
