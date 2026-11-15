@@ -228,6 +228,12 @@ export class ContractIndexer {
       startRange: bigint;
       /** Least time between passes once at head. */
       everyMs: number;
+      /**
+       * With no new vault event, rebuild the vault rows at most this often (the
+       * USD figure follows pool prices). 0, the default, rebuilds every pass;
+       * the indexer's entry point passes a minute.
+       */
+      rebuildEveryMs?: number;
       log: (message: string) => void;
     },
   ) {
@@ -274,7 +280,10 @@ export class ContractIndexer {
     if (from > head.number) {
       // Every contract is deployed past head (a config typo, or a lagging node).
       this.behind = false;
-      if (this.hasVaults) vaultsWritten = await this.rebuild(anchors);
+      if (this.hasVaults && Date.now() - this.lastRebuildAt >= (this.options.rebuildEveryMs ?? 0)) {
+        vaultsWritten = await this.rebuild(anchors);
+        this.lastRebuildAt = Date.now();
+      }
       return { fromBlock: from, toBlock: head.number, events: 0, written: 0, caughtUp: true, vaultsWritten };
     }
     const to = min(head.number, from + this.range - 1n);
@@ -314,9 +323,17 @@ export class ContractIndexer {
 
     this.behind = to < head.number || created.length > 0;
     if (this.behind && logs.length < 1_000) this.range = min(this.ceiling, this.range * 2n);
-    if (this.hasVaults) vaultsWritten = await this.rebuild(anchors);
+    // Rebuilt when an event arrived, and otherwise at most every
+    // rebuildEveryMs (the USD figure follows prices). Rebuilding on every pass
+    // while the pool indexer backfills — every few seconds — was pure cost.
+    if (this.hasVaults && (written > 0 || created.length > 0 || Date.now() - this.lastRebuildAt >= (this.options.rebuildEveryMs ?? 0))) {
+      vaultsWritten = await this.rebuild(anchors);
+      this.lastRebuildAt = Date.now();
+    }
     return { fromBlock: from, toBlock: to, events: rows.length, written, caughtUp: !this.behind, vaultsWritten };
   }
+
+  private lastRebuildAt = 0;
 
   private async rebuild(anchors: PriceAnchors | null): Promise<number> {
     const { written, problems } = await rebuildVaults(this.options.config.vaults, anchors);

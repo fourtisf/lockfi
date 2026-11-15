@@ -92,6 +92,10 @@ async function main(): Promise<void> {
     // Swaps only for the last SWAP_WINDOW_DAYS; older ranges are read for
     // pools and liquidity alone (see poller.ts).
     swapWindowSeconds: env.swapWindowDays > 0 ? env.swapWindowDays * 86_400 : null,
+    // Resolving the anchor scans a million pools; it was done on every pass.
+    anchorRefreshMs: 10 * 60_000,
+    // Vault rows were rebuilt after every pool pass, every few seconds.
+    vaultRebuildEveryMs: 60_000,
     contracts,
     log,
   });
@@ -131,7 +135,11 @@ async function main(): Promise<void> {
             `+${result.tokensFound} tokens, in ${passSeconds}s` +
             (result.timings
               ? ` [logs ${(result.timings.logs / 1000).toFixed(1)}s, times ${(result.timings.times / 1000).toFixed(1)}s, ` +
-                `write ${(result.timings.write / 1000).toFixed(1)}s, aggregate ${(result.timings.aggregate / 1000).toFixed(1)}s]`
+                `write ${(result.timings.write / 1000).toFixed(1)}s, aggregate ${(result.timings.aggregate / 1000).toFixed(1)}s, ` +
+                `contracts ${((result.timings.contracts ?? 0) / 1000).toFixed(1)}s, ` +
+                // Whatever the named phases do not cover. If this is the big
+                // number, the slow part is somewhere nobody has timed yet.
+                `other ${Math.max(0, (Date.now() - passStarted - result.timings.logs - result.timings.times - result.timings.write - result.timings.aggregate - (result.timings.contracts ?? 0)) / 1000).toFixed(1)}s]`
               : '') +
             (result.structureOnly ? ' (older than the swap window: pools and liquidity only)' : ''),
         );

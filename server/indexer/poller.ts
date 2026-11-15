@@ -184,7 +184,7 @@ export interface PassResult {
    * rebuilding aggregates. Printed with each progress line, so a slow pass
    * on the box says which part was slow instead of leaving it to be guessed.
    */
-  timings?: { logs: number; times: number; write: number; aggregate: number };
+  timings?: { logs: number; times: number; write: number; aggregate: number; contracts?: number };
   /** Seconds between the last indexed block's time and head's. Shown in the top bar (§7). */
   lagSeconds: number;
   caughtUp: boolean;
@@ -242,6 +242,14 @@ export interface PollerOptions {
   contracts?: ContractsConfig;
   /** Least milliseconds between contract passes once they reach head. Tests pass 0. */
   contractEveryMs?: number;
+  /**
+   * Reuse a resolved USDG anchor for this long before resolving it again. 0
+   * (the default, and what every test uses) resolves it on every call, as
+   * before; the indexer's entry point passes ten minutes.
+   */
+  anchorRefreshMs?: number;
+  /** With no new vault event, rebuild vault rows at most this often. 0 (default): every contract pass. */
+  vaultRebuildEveryMs?: number;
   log?: (message: string) => void;
 }
 
@@ -250,6 +258,15 @@ export class Poller {
   private readonly usdgAddress: string | null;
   /** Last resolution, so a change of anchor can be logged once rather than every pass. */
   private lastAnchorNote = '';
+  /**
+   * The anchor, resolved at most every ANCHOR_REFRESH_MS. Discovery scans the
+   * pools table — a million rows on this chain, with no index a lower()
+   * comparison can use — and it ran on every contract pass, which follows
+   * every pool pass: on the box that was 8–11 s of a 12 s pass, untimed, and
+   * the reason "anchor: Discovered USDG" printed every twenty seconds.
+   */
+  private anchorCache: { value: PriceAnchors | null; at: number } | null = null;
+  private readonly anchorRefreshMs: number;
   private readonly startBlock: bigint;
   /**
    * Blocks per pass, which ADAPTS as it goes.
@@ -315,6 +332,7 @@ export class Poller {
     this.configuredMax = this.maxRange;
     this.structureMax = this.maxRange * 10n;
     this.swapWindowSeconds = options.swapWindowSeconds ?? null;
+    this.anchorRefreshMs = options.anchorRefreshMs ?? 0;
     this.reorgDepth = BigInt(options.reorgDepth ?? CHAIN.reorgDepth);
     this.v3Pools = (options.v3Pools ?? []).map((a) => a.toLowerCase());
     this.v3Factory = options.v3Factory?.toLowerCase() ?? null;
@@ -330,6 +348,7 @@ export class Poller {
             reorgDepth: this.reorgDepth,
             startRange: this.maxRange,
             everyMs: options.contractEveryMs ?? 5_000,
+            rebuildEveryMs: options.vaultRebuildEveryMs ?? 0,
             log: this.log,
           })
         : null;
@@ -390,19 +409,26 @@ export class Poller {
    * only works because aggregates are rebuilt rather than incremented.
    */
   private async anchors(): Promise<PriceAnchors | null> {
+    const now = Date.now();
+    if (this.anchorCache && now - this.anchorCache.at < this.anchorRefreshMs) return this.anchorCache.value;
     const resolved = await resolveUsdg(this.usdgAddress);
     if (resolved.note !== this.lastAnchorNote) {
       this.log(`  anchor: ${resolved.note}`);
       this.lastAnchorNote = resolved.note;
     }
-    if (!resolved.address) return null;
-    return {
-      weth: CONTRACTS.weth.toLowerCase(),
-      usdg: resolved.address,
-      wethDecimals: 18,
-      usdgDecimals: 6,
-      anchorPoolId: await findAnchorPool(resolved.address),
-    };
+    const value: PriceAnchors | null = resolved.address
+      ? {
+          weth: CONTRACTS.weth.toLowerCase(),
+          usdg: resolved.address,
+          wethDecimals: 18,
+          usdgDecimals: 6,
+          anchorPoolId: await findAnchorPool(resolved.address),
+        }
+      : null;
+    // No anchor yet is never cached: the pass that first finds USDG should
+    // price everything as soon as it can (§17).
+    this.anchorCache = value ? { value, at: now } : null;
+    return value;
   }
 
   /**
@@ -415,15 +441,19 @@ export class Poller {
    */
   async runPass(): Promise<PassResult> {
     const head = await this.source.getHeadBlock();
+    let result: PassResult | undefined;
     try {
-      return await this.poolPass(head);
+      result = await this.poolPass(head);
+      return result;
     } finally {
       // After the pool pass, so a vault is valued at this pass's pool state,
       // and strictly after it: ViemLogSource times the blocks of the logs it
       // was last asked for, so the two reads must not interleave. In a
       // `finally`, so a pool pass that fails — and is retried — does not
       // also freeze every vault's stakes and every router's observations.
+      const tContracts = Date.now();
       await this.indexContracts(head);
+      if (result?.timings) result.timings.contracts = Date.now() - tContracts;
     }
   }
 
@@ -794,7 +824,9 @@ export class Poller {
         // New pools bring new tokens the list may cover; and the list itself
         // is re-read every few minutes regardless, because a token it covers
         // can be discovered on a pass that found no new pool.
-        initializePlan.pools.length > 0 || Date.now() - this.lastListAt >= LIST_EVERY_MS
+        // Not on every new pool in a structure pass: there it is nearly every
+        // pass, and those tokens are recorded lazily and shown nowhere yet.
+        (initializePlan.pools.length > 0 && !structureOnly) || Date.now() - this.lastListAt >= LIST_EVERY_MS
           ? await this.refreshList()
           : 0,
       lagSeconds,

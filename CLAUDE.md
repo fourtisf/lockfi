@@ -2344,3 +2344,38 @@ pass on the box ran at about 1,000 blocks a second over the last two reports
 1,000 blocks measured on the chain there — the RPC is not the limit at that
 density, so the box's own per-pass timings are needed to say what is.
 
+### Eight seconds a pass nobody had timed
+
+ALFA's indexer log: structure passes of 8,000–16,000 blocks in **10.7–15.4 s**,
+while the phases the line names — logs, times, write, aggregate — summed to
+2–4 s; and "anchor: Discovered USDG … (955 pool(s))" printed every twenty
+seconds with the count ticking up. The missing time was the **contract pass**,
+which runs after every pool pass now that vaults exist:
+
+- it resolved the USDG anchor on every call (`resolveUsdg` + `findAnchorPool`),
+  and rebuilt both vault rows on every call (`rebuildVaults`);
+- all three compare `lower(address)` against a million pools and as many
+  tokens with no index that expression can use. Measured on a million-pool
+  database: `rebuildVaults` **2,400 ms**, `resolveUsdg` **900 ms**,
+  `findAnchorPool` 95 ms — every pass, and slower on the box under write load.
+
+Fixed three ways, each measured:
+
+- **Expression indexes** (`20261116000000_lower_address_indexes`):
+  `lower(tokens.address)`, `lower(pools.token0)`, `lower(pools.token1)`. Same
+  database: `rebuildVaults` 20 ms, `resolveUsdg` 50 ms, `findAnchorPool` 3 ms;
+  building them took 1.2 s. They also serve the snapshot's token joins.
+- **The anchor is reused for ten minutes** (`anchorRefreshMs`, set in
+  `main.ts`); a miss is never cached, so a first sync still prices the moment
+  USDG is found (§17). Default 0, so every test resolves it as before.
+- **Vault rows rebuild on a vault event, else at most once a minute**
+  (`vaultRebuildEveryMs`, set in `main.ts`; default 0 — the replay test
+  requires the vault valued at the final pool state, and caught the first
+  version that throttled it unconditionally).
+- The token-list refresh no longer runs on every structure pass that finds a
+  pool — nearly all of them — only every five minutes there.
+
+Progress lines now name **`contracts`** and **`other`** (whatever no phase
+covers), so the next slow pass says where it went instead of hiding in the
+total.
+
