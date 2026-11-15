@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: `${BRAND} — Liquidity layer for Robinhood Chain`,
     short_name: BRAND,
-    description: 'Deposit into any token on Robinhood Chain and collect swap fees in WETH.',
+    description: 'Stake into Robinhood Chain pools and collect a share of their real swap fees.',
     start_url: '/pools',
     display: 'standalone',
     background_color: '#ECF2F2',

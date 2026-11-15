@@ -25,7 +25,7 @@ export function Featured() {
           <div className="k">Fees paid to LPs · 24h</div>
           <div className="big num">{usdExact(featured.fees24hUsd)}</div>
           <div className="fsub">
-            across {pools.length} pools · paid in WETH, never in emissions
+            across {pools.length} pools · paid from real trading, never in emissions
           </div>
         </div>
         <div className="fg">

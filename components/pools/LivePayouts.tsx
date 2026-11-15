@@ -4,6 +4,7 @@ import { useMarket } from '@/components/providers/MarketProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { tone, usdExact } from '@/lib/format';
 import { BRAND } from '@/lib/site';
+import { pairLabel } from '@/lib/pair';
 
 /** Real harvest payouts, newest first. Fees only — there are no emissions. */
 export function LivePayouts() {
@@ -33,7 +34,7 @@ export function LivePayouts() {
           return (
             <div className="lv" key={p.id}>
               <TokenBadge token={pool.token} />
-              <span>{pool.token.symbol} / WETH</span>
+              <span>{pairLabel(pool)}</span>
               <span className="a num">+{p.weth.toFixed(3)} WETH</span>
               <span className="w num">{p.wallet}…</span>
             </div>

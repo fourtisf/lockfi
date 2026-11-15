@@ -24,6 +24,7 @@ import { DATA_SOURCE } from '@/lib/data';
 import type { Pool } from '@/lib/data/types';
 import { shortWallet, usd, usdExact } from '@/lib/format';
 import { BRAND } from '@/lib/site';
+import { feeTierLabel, pairLabel } from '@/lib/pair';
 
 type Trigger = 'cadence' | 'milestone';
 interface Milestone {
@@ -216,7 +217,7 @@ export function RouterPanel() {
                 {eligible.length === 0 && <option value="">No routable pool</option>}
                 {eligible.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.token.symbol} / {p.key!.currency0 === zeroAddress ? 'ETH' : 'WETH'} · {(p.feeTierBps / 100).toFixed(2)}% ·{' '}
+                    {pairLabel(p)} · {feeTierLabel(p)} ·{' '}
                     {usd(p.tvlUsd)} depth
                   </option>
                 ))}

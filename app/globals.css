@@ -740,3 +740,11 @@ a.ca-v:hover{color:var(--ac)}
   .ca-long{display:none}
   .ca-short{display:inline}
 }
+
+/* A 24h move measured from the first trade inside the day says how long ago. */
+.chg-since{font-size:10.5px;color:var(--fg-3);font-weight:500;margin-left:2px}
+
+/* The drawer's open vaults, when the chosen pool has none. */
+.dr-vaults{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.dr-vaults .btn{justify-content:flex-start;gap:8px;width:100%;text-align:left}
+.dr-vaults .btn .muted{margin-left:auto;font-family:var(--mono);font-size:12px}

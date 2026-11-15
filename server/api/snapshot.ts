@@ -42,6 +42,12 @@ import { POOL_MANAGER_CURSOR } from '../indexer/poller';
 
 /** Buckets in a row's fee sparkline, and therefore hours per bucket. */
 const SPARK_BUCKETS = 14;
+/**
+ * A pool's price 24h ago is only taken from a trade at most this long before
+ * the 24h mark; an older one is the price of a pool nobody was trading, not
+ * the market's price then (see change_24h_pct).
+ */
+export const STALE_REFERENCE_HOURS = 6;
 const SPARK_BUCKET_HOURS = YIELD_WINDOW_HOURS / SPARK_BUCKETS; // 12h
 
 export interface SnapshotOptions {
@@ -77,6 +83,7 @@ interface PoolQueryRow {
   price_usd: number;
   mc_usd: number;
   change_24h_pct: number | null;
+  change_ref_hours: number | null;
   fees_24h_usd: number;
   fees_window_usd: number;
   window_hours: number;
@@ -156,23 +163,30 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       SELECT since_24h FROM params
     ),
 
-    -- Last swap in a pool at or before a moment: its price at that moment.
+    -- Last swap in a pool at or before a moment: its price at that moment,
+    -- and when that trade happened — a pool's price only moves when it
+    -- trades, so its "price 24h ago" can be a trade from days before.
     ratio_at AS (
       SELECT
         p.id AS pool_id,
         m.moment,
-        (SELECT (power(sw.sqrt_price_x96::numeric, 2)
-                   * power(10::numeric, GREATEST(t0.decimals - t1.decimals, 0)))
-                / power(2::numeric, 192)
-                / power(10::numeric, GREATEST(t1.decimals - t0.decimals, 0))
-         FROM swap_events sw
-         WHERE sw.pool_id = p.id AND sw.block_time <= m.moment
-         ORDER BY sw.block_num DESC, sw.log_index DESC
-         LIMIT 1) AS ratio
+        last.ratio,
+        last.traded_at
       FROM pools_live p
       JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
       JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
       CROSS JOIN moments m
+      LEFT JOIN LATERAL (
+        SELECT (power(sw.sqrt_price_x96::numeric, 2)
+                   * power(10::numeric, GREATEST(t0.decimals - t1.decimals, 0)))
+                / power(2::numeric, 192)
+                / power(10::numeric, GREATEST(t1.decimals - t0.decimals, 0)) AS ratio,
+               sw.block_time AS traded_at
+        FROM swap_events sw
+        WHERE sw.pool_id = p.id AND sw.block_time <= m.moment
+        ORDER BY sw.block_num DESC, sw.log_index DESC
+        LIMIT 1
+      ) last ON true
     ),
 
     -- WETH in USD at each moment, from the anchor pool and nothing else.
@@ -202,7 +216,8 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
           whenToken0: `r.ratio * (CASE WHEN lower(p.token1) = '${usdgLower}' THEN 1 ELSE au.weth_usd END)`,
           // token1 is traded: invert the ratio first.
           whenToken1: `(CASE WHEN lower(p.token0) = '${usdgLower}' THEN 1 ELSE au.weth_usd END) / NULLIF(r.ratio, 0)`,
-        })} AS price_usd
+        })} AS price_usd,
+        r.traded_at
       FROM pools_live p
       JOIN ratio_at r ON r.pool_id = p.id
       LEFT JOIN anchor_usd au ON au.moment = r.moment
@@ -235,6 +250,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
     first_priced AS (
       SELECT
         p.id AS pool_id,
+        ft.block_time,
         ${tradedSide({
           addr0: 'p.token0',
           addr1: 'p.token1',
@@ -317,14 +333,21 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       COALESCE(ps.mc_usd, 0)::float8    AS mc_usd,
 
       -- 24h move, both prices through the same path so the ratio is honest.
-      -- The reference is the last price before the window, or failing that
-      -- the first trade inside it. Neither: unknown, never 0%.
+      -- The reference is the pool's price at the 24h mark — but only from a
+      -- trade within ${STALE_REFERENCE_HOURS}h before the mark. A pool's price
+      -- moves only when it trades, so a pool quiet for days quoted a price
+      -- from days ago "24h ago", and CASHCAT read +970% off a launch-day
+      -- trade while its busier pools read +50%. Older than that, or no trade
+      -- before the mark at all, the reference is the first trade inside the
+      -- window. Neither: unknown, never 0%.
       CASE
-        WHEN pnow.price_usd IS NULL
-          OR COALESCE(pthen.price_usd, pfirst.price_usd) IS NULL
-          OR COALESCE(pthen.price_usd, pfirst.price_usd) = 0 THEN NULL
-        ELSE ((pnow.price_usd / COALESCE(pthen.price_usd, pfirst.price_usd)) - 1) * 100
+        WHEN pnow.price_usd IS NULL OR ref.price_usd IS NULL OR ref.price_usd = 0 THEN NULL
+        ELSE ((pnow.price_usd / ref.price_usd) - 1) * 100
       END::float8 AS change_24h_pct,
+      -- How long before the snapshot's moment the reference trade was: 24 or
+      -- more for a true 24h figure, fewer when it is the first trade inside
+      -- the window, which the row says.
+      (EXTRACT(EPOCH FROM (pr.as_of - ref.at)) / 3600)::float8 AS change_ref_hours,
 
       f.fees_24h_usd::float8    AS fees_24h_usd,
       f.fees_window_usd::float8 AS fees_window_usd,
@@ -360,6 +383,13 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
     LEFT JOIN priced pnow  ON pnow.pool_id  = p.id AND pnow.moment  = pr.as_of
     LEFT JOIN priced pthen ON pthen.pool_id = p.id AND pthen.moment = pr.since_24h
     LEFT JOIN first_priced pfirst ON pfirst.pool_id = p.id
+    CROSS JOIN LATERAL (
+      SELECT
+        CASE WHEN pthen.traded_at >= pr.since_24h - (${STALE_REFERENCE_HOURS} * interval '1 hour')
+             THEN pthen.price_usd ELSE pfirst.price_usd END AS price_usd,
+        CASE WHEN pthen.traded_at >= pr.since_24h - (${STALE_REFERENCE_HOURS} * interval '1 hour')
+             THEN pthen.traded_at ELSE pfirst.block_time END AS at
+    ) ref
     -- A pool with neither WETH nor USDG on a side cannot be priced through
     -- the one allowed path, so it is not listed rather than listed at zero.
     WHERE lower(p.token0) IN ('${weth}', '${usdgLower}')
@@ -453,6 +483,7 @@ function toPool(row: PoolQueryRow): Pool {
     tvlUsd: row.tvl_usd,
     // Unknown stays unknown: null renders as an em dash, never as 0.0%.
     change24hPct: row.change_24h_pct ?? null,
+    change24hRefHours: row.change_24h_pct === null ? null : (row.change_ref_hours ?? null),
     fees24hUsd: row.fees_24h_usd,
     feesWindowUsd: row.fees_window_usd,
     feeWindowHours: row.window_hours,

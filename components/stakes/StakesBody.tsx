@@ -25,6 +25,7 @@ import {
   yieldPct,
   VAULT_YIELD_NOTE,
 } from '@/lib/yield';
+import { feeTierLabel, feeTokensLabel, pairLabel } from '@/lib/pair';
 
 const FILTERS: { id: 'all' | Quote; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -175,15 +176,11 @@ function VaultRow({
         <TokenBadge token={pool.token} />
         <span style={{ minWidth: 0 }}>
           <b>
-            {pool.token.symbol} / WETH
+            {pairLabel(pool)}
             {/* "New" means what Established's 7d+ means: under a full week. */}
-            {pool.quote === 'USDG' ? (
-              <span className="pill grey">Stock</span>
-            ) : pool.ageHours < YIELD_WINDOW_HOURS ? (
-              <span className="pill grey">New</span>
-            ) : null}
+            {pool.ageHours < YIELD_WINDOW_HOURS ? <span className="pill grey">New</span> : null}
           </b>
-          <small>{pool.token.name}</small>
+          <small>{feeTierLabel(pool)} fee pool</small>
         </span>
       </span>
       <span className={`apr num${none ? ' none' : ''}`} title={feeYieldTitle(pool.feeYield)}>
@@ -226,7 +223,10 @@ function VaultRow({
 function Earnings() {
   const { vaults, global, pools } = useMarket();
   const { act } = useUi();
-  const symbolOf = (poolId: string) => pools.find((p) => p.id === poolId)?.token.symbol ?? 'vault';
+  const symbolOf = (poolId: string) => {
+    const p = pools.find((x) => x.id === poolId);
+    return p ? pairLabel(p) : 'vault';
+  };
   const { portfolio, source, stakes: walletStakes } = usePortfolio();
   const actions = useActions();
   const [busy, setBusy] = useState(false);
@@ -353,14 +353,14 @@ function StakePanel({ pool }: { pool: Pool }) {
   const live = form.mode === 'live';
   const button = (
     <button className="btn btn-brand go" disabled={!form.canSubmit} onClick={() => void form.submit()}>
-      {form.busy ? 'Staking…' : `Stake ${pool.token.symbol}`}
+      {form.busy ? 'Staking…' : `Stake ${pairLabel(pool)}`}
     </button>
   );
 
   return (
-    <aside className="card spanel" aria-label={`Stake ${pool.token.symbol}`}>
+    <aside className="card spanel" aria-label={`Stake ${pairLabel(pool)}`}>
       <h2>
-        <TokenBadge token={pool.token} /> Stake {pool.token.symbol} / WETH
+        <TokenBadge token={pool.token} /> Stake {pairLabel(pool)} · {feeTierLabel(pool)}
       </h2>
       <div className="sub">
         <span className={pool.feeYield.basis === 'insufficient' ? 'num' : 'num up'}>
@@ -443,7 +443,7 @@ function StakePanel({ pool }: { pool: Pool }) {
               <b>Earn</b>Fees are credited to every share the moment they&rsquo;re earned.
             </li>
             <li>
-              <b>Claim</b>Any time, in ETH and {pool.token.symbol}. Leaving never forfeits fees already earned.
+              <b>Claim</b>Any time, in {feeTokensLabel(pool)}. Leaving never forfeits fees already earned.
             </li>
             <li>
               <b>Compound</b>Claim, then stake the ETH side back in: two signatures.

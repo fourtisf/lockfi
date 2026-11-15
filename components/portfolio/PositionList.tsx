@@ -10,6 +10,7 @@ import { countdown, shortWallet, signOf, tone, usdExact } from '@/lib/format';
 import { SHAPES } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
 import { claimableLabel, hasClaimable } from '@/lib/wallet/portfolio';
+import { pairLabel } from '@/lib/pair';
 
 export function PositionList() {
   const { pools } = useMarket();
@@ -47,7 +48,7 @@ export function PositionList() {
             <div className="tok">
               <TokenBadge token={pool.token} />
               <div>
-                <div className="n">{pool.token.symbol} / WETH</div>
+                <div className="n">{pairLabel(pool)}</div>
                 <div className="s">
                   {shape.label} · ±{position.rangePct}% ·{' '}
                   {position.inRange ? (

@@ -21,6 +21,7 @@ import { price as fmtPrice } from '@/lib/format';
 import { MAX_BINS, MIN_BINS, SHAPES, shapeWeights } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
 import { yieldPct } from '@/lib/yield';
+import { feeTierLabel, pairLabel } from '@/lib/pair';
 
 const SHAPE_ICONS: Record<ShapeId, number[]> = {
   spot: [20, 20, 20, 20, 20, 20, 20, 20],
@@ -182,7 +183,7 @@ function Builder() {
             <select id="b-token" value={poolId} onChange={(e) => setPoolId(e.target.value)}>
               {stakeablePools.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.token.symbol} / WETH
+                  {pairLabel(p)} · {feeTierLabel(p)}
                 </option>
               ))}
             </select>
@@ -373,7 +374,7 @@ function Builder() {
       <div className="card viz">
         <div className="viz-h">
           <div>
-            <span className="t">{pool.token.symbol} / WETH</span>{' '}
+            <span className="t">{pairLabel(pool)}</span>{' '}
             <span className="sub">
               · current price <span className="num">{fmtPrice(pool.priceUsd)}</span>
             </span>
@@ -434,7 +435,7 @@ function Builder() {
           </div>
           <div>
             <div className="k">Fee tier</div>
-            <div className="v num">{(pool.feeTierBps / 100).toFixed(2)}%</div>
+            <div className="v num">{feeTierLabel(pool)}</div>
           </div>
         </div>
 

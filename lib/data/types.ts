@@ -96,6 +96,13 @@ export interface Pool {
    * claimed no movement for a figure nobody had.
    */
   change24hPct: number | null;
+  /**
+   * Hours before the snapshot's moment of the trade the 24h move is measured
+   * from: 24 or more for a true 24h figure, fewer when it is the first trade
+   * inside the window (a pool younger than a day, or one nobody traded in the
+   * hours before the mark). Absent from the simulator, which has no trades.
+   */
+  change24hRefHours?: number | null;
   fees24hUsd: number;
   /** Fees over the trailing 7d, or over the pool's whole life if younger. */
   feesWindowUsd: number;

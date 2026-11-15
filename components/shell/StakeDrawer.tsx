@@ -20,6 +20,7 @@ import {
   feeYieldTitle,
   feeYieldValue,
 } from '@/lib/yield';
+import { feeTierLabel, feeTokensLabel, pairLabel } from '@/lib/pair';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -46,6 +47,21 @@ export function StakeDrawer() {
   // The token's pools, deepest first. The board shows one row per token, so
   // this is where its other pools are found (lib/pools.ts).
   const siblings = pool ? poolsOfToken(pools, pool) : [];
+  // The pools that do have a vault, deepest first: where a stake can go
+  // when this pool has none.
+  const openVaults = vaults
+    .map((v) => pools.find((p) => p.id === v.poolId))
+    .filter((p): p is NonNullable<typeof p> => p !== undefined && p.id !== pool?.id)
+    .sort((a, b) => b.tvlUsd - a.tvlUsd);
+  // Exactly the note's "no vault for this pool" case — not a pool still on its
+  // launchpad curve, nor one with no ETH side — while other vaults are open.
+  const noVaultHere =
+    pool !== null &&
+    !canStake &&
+    stakingLaunched &&
+    pool.stakeable &&
+    form.closedReason !== 'no-eth-side' &&
+    openVaults.length > 0;
 
   // Escape closes, Tab cycles inside, focus returns where it came from.
   useEffect(() => {
@@ -102,7 +118,7 @@ export function StakeDrawer() {
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
-        aria-label={pool ? `Stake ${pool.token.symbol}` : 'Stake'}
+        aria-label={pool ? `Stake ${pairLabel(pool)}` : 'Stake'}
         aria-hidden={!open}
       >
         {pool && (
@@ -111,7 +127,7 @@ export function StakeDrawer() {
               <TokenBadge token={pool.token} />
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  {pool.token.symbol} / {pool.quote === 'USDG' ? 'USDG' : 'WETH'}
+                  {pairLabel(pool)}
                 </div>
                 <div style={{ fontSize: 12 }} className="muted">
                   {pool.token.name}
@@ -188,11 +204,20 @@ export function StakeDrawer() {
                     </>
                   ) : (
                     <>
-                      <b>No vault for this pool yet</b>
+                      <b>No vault for this pool yet — staking is open on {openVaults.length === 1 ? 'this pool' : 'these'}:</b>
                       <p className="hint">
-                        Staking into {pool.token.symbol} opens when its {BRAND} vault is deployed.
-                        The figures above are the pool&rsquo;s own; nothing can be staked here yet.
+                        A stake goes into a {BRAND} vault, and a vault is deployed per pool.{' '}
+                        {pairLabel(pool)} has none yet, so nothing can be staked here — the figures
+                        above are the pool&rsquo;s own.
                       </p>
+                      <div className="dr-vaults">
+                        {openVaults.map((p) => (
+                          <button key={p.id} className="btn btn-ghost" onClick={() => openStake(p.id)}>
+                            <TokenBadge token={p.token} /> {pairLabel(p)} · {feeTierLabel(p)}
+                            <span className="muted"> {feeYieldValue(p.feeYield)}</span>
+                          </button>
+                        ))}
+                      </div>
                     </>
                   )}
                 </div>
@@ -205,7 +230,7 @@ export function StakeDrawer() {
                   </div>
                   <p className="hint dr-pools-why">
                     Anyone can open a pool for a token, with its own trading fee and its own pair
-                    (WETH or USDG). Each pool is a separate market with its own liquidity — so its
+                    (ETH or USDG). Each pool is a separate market with its own liquidity — so its
                     own trading, fees and yield. A higher fee earns more on each trade but usually
                     draws less trading. Tap one to see it.
                   </p>
@@ -221,8 +246,7 @@ export function StakeDrawer() {
                       onClick={() => openStake(p.id)}
                     >
                       <span className="muted">
-                        {(p.feeTierBps / 100).toFixed(2)}% fee · {p.protocol}
-                        {p.quote === 'USDG' ? ' · USDG' : ''}
+                        {feeTierLabel(p)} · {pairLabel(p)}
                       </span>
                       <span className="num">{usd(p.tvlUsd)}</span>
                       <span className="num" title={feeYieldTitle(p.feeYield)}>
@@ -300,8 +324,8 @@ export function StakeDrawer() {
                   <p className="hint" style={{ marginTop: 12 }}>
                     {form.mode === 'live' && (
                       <>
-                        Fees are credited the moment they&rsquo;re earned — claim any time in ETH and{' '}
-                        {pool.token.symbol}. Leaving never forfeits fees already earned.{' '}
+                        Fees are credited the moment they&rsquo;re earned — claim any time in{' '}
+                        {feeTokensLabel(pool)}. Leaving never forfeits fees already earned.{' '}
                       </>
                     )}
                     Your position stays withdrawable by your wallet only. If the token drops, the
@@ -318,7 +342,9 @@ export function StakeDrawer() {
                   ? `Staking opens when ${BRAND} vaults launch.`
                   : form.closedReason === 'no-eth-side'
                     ? 'This pool has no ETH side to stake with.'
-                    : 'No vault to stake into for this pool yet.'}
+                    : noVaultHere
+                      ? `No vault for ${pairLabel(pool)} — stake in an open vault instead.`
+                      : 'No vault to stake into for this pool yet.'}
               </p>
             ) : form.problem && (form.mode === 'preview' || form.walletStatus === 'ready') ? (
               <p className={`dr-f-why${form.quiet ? '' : ' down'}`} role={form.quiet ? undefined : 'alert'}>
@@ -343,6 +369,19 @@ export function StakeDrawer() {
                   </button>
                 </SignGate>
               ) : (
+                // A pool with no vault while others have one: the main button
+                // takes you to the vaults that exist, rather than sitting grey.
+                noVaultHere ? (
+                  <button
+                    className="btn btn-brand"
+                    onClick={() => {
+                      closeStake();
+                      router.push('/stakes');
+                    }}
+                  >
+                    Go to open vaults
+                  </button>
+                ) : (
                 <button
                   className="btn btn-brand"
                   disabled={!canStake || !form.canSubmit}
@@ -354,6 +393,7 @@ export function StakeDrawer() {
                 >
                   Stake
                 </button>
+                )
               )}
             </div>
           </>

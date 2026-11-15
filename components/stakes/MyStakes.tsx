@@ -15,6 +15,7 @@ import { countdown, shortWallet, tone, usd, usdExact, weth } from '@/lib/format'
 import { BRAND } from '@/lib/site';
 import { MIN_DEPOSIT_USD, minDepositEth } from '@/lib/stake';
 import { claimableLabel, hasClaimable, holdingLabel, type WalletStake } from '@/lib/wallet/portfolio';
+import { feeTierLabel, pairLabel } from '@/lib/pair';
 
 export function MyStakes() {
   const { pools, global } = useMarket();
@@ -110,7 +111,7 @@ function PreviewRow({ stake, pool }: { stake: UserStake; pool: Pool }) {
       <td data-label="Pool">
         <div className="tok">
           <TokenBadge token={pool.token} />
-          <div className="n">{pool.token.symbol} / WETH</div>
+          <div className="n">{pairLabel(pool)} · {feeTierLabel(pool)}</div>
         </div>
       </td>
       <td className="r num" data-label="Staked">

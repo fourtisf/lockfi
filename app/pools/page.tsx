@@ -13,7 +13,7 @@ export default function PoolsPage() {
       <div className="head">
         <div>
           <h1>Pools</h1>
-          <p className="lede">Earn a share of real swap fees, paid in WETH. No emissions, no lockups.</p>
+          <p className="lede">Earn a share of real swap fees, paid in the pool&rsquo;s own tokens. No emissions, no lockups.</p>
         </div>
         <div className="acts">
           <Link className="btn btn-quiet" href="/positions">

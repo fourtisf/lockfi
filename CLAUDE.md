@@ -2227,3 +2227,44 @@ Two things the deploy taught:
 machine, and committing it would make the box's `git checkout` refuse to
 overwrite its own untracked copy. `config/deployments.json` is the record.
 
+
+### "Stake still doesn't work", and CASHCAT +970%
+
+ALFA's first look after the deploy: the Stake button on CASHCAT was grey, and
+CASHCAT read +970% in 24h. Checked against the live API (`tidewell.live` was
+added to the sandbox's allowed hosts for it): both vaults were in the
+snapshot with their pools and keys, and the Stakes page rendered the form —
+staking worked; the page the person was on led nowhere.
+
+- **A pool with no vault pointed nowhere.** Every row on the boards has a
+  Stake button, vaults exist for two pools, and CASHCAT's drawer said only
+  "No vault to stake into for this pool yet" above a disabled button. It now
+  lists the pools that do have a vault (deepest first, each opens its own
+  form) and the main button reads **Go to open vaults** and goes to
+  `/stakes` — only in that case, not for a pool still on its launchpad curve
+  or with no ETH side.
+- **The vaults were named "WETH / WETH · Stock" and could not be told
+  apart.** Every page printed pairs as `<token> / WETH`, from the simulator's
+  shape, and tagged any USDG pool "Stock"; the native side of a v4 pool is
+  recorded as WETH, so ETH/USDG became WETH / WETH, and `feeTierBps` (whole
+  bips) rounds 0.046% and 0.05% to the same 5. `lib/pair.ts` names the pool's
+  own pair (`pairLabel`: ETH / USDG, CASHCAT / ETH, AAPL / USDG), its exact fee
+  from the key (`feeTierLabel`: 0.046%, 0.05%, 2%) and the two tokens a vault
+  pays in (`feeTokensLabel`: "ETH and USDG", where the copy said "ETH and
+  WETH"). Used on Stakes, the drawer, My stakes, Positions, Router, Portfolio
+  and payouts. "Paid in WETH" is gone from the metadata and the Pools page:
+  vaults pay in the pool's own tokens.
+- **+970% was a launch-day price quoted as "24h ago".** A pool's price moves
+  only when it trades, so the 2% CASHCAT pool — quiet for days before the
+  mark — quoted a trade from days earlier as its price 24h ago, while the
+  token's 3% pool read +50% over the same day. The reference is now taken
+  only from a trade within `STALE_REFERENCE_HOURS` (6) before the mark;
+  otherwise from the first trade inside the day, and the row then says how
+  long ago that was (`+50.1% 9h`, with a title). `Pool.change24hRefHours`
+  carries it. Tested both ways: with the rule disabled the new test fails.
+- **And the whole board was 130 days old.** In the structure phase the
+  snapshot's moment is the last swap read — the full read stopped around
+  block 4.4 million — so every "24h" figure on the site was a day four months
+  ago, under a top-bar chip reading `130d behind` that is easy to miss. That
+  ends when the cursor enters the eight-day swap window and starts reading
+  trades again; nothing in this change touches it.

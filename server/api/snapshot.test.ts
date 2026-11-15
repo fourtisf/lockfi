@@ -230,6 +230,40 @@ describe('buildSnapshot', () => {
     expect(tiers).toEqual([5, 30, 30, 100]);
   });
 
+  it('measures a true 24h move from a trade near the mark, and says so', () => {
+    const measured = snapshot.pools.filter((p) => p.change24hPct !== null);
+    expect(measured.length).toBeGreaterThan(0);
+    // The fixture trades every pool hourly, so each has a trade at the mark.
+    for (const p of measured) expect(p.change24hRefHours!).toBeGreaterThanOrEqual(24);
+  });
+
+  it('does not measure "24h" from a trade days before the mark', async () => {
+    // CASHCAT on the live site: a pool quiet for days before the mark quoted
+    // its launch-day price as its price 24h ago and read +970%, while the
+    // token's busier pools read +50%. Silence a pool for the 30 hours before
+    // the mark, keep its older trades, and the reference must be its first
+    // trade inside the day, said as such — not the trade from days before.
+    const firstEth = snapshot.pools.find((p) => p.quote === 'ETH' && p.change24hPct !== null)!;
+    const target = snapshot.pools.find((p) => p.change24hPct !== null && p.id !== firstEth.id)!;
+    const asOf = (await prisma.$queryRaw<{ t: Date }[]>`SELECT max(block_time) AS t FROM swap_events`)[0].t;
+    const mark = new Date(asOf.getTime() - 24 * 3600_000);
+    const quietFrom = new Date(mark.getTime() - 30 * 3600_000);
+    const older = await prisma.swapEvent.count({ where: { poolId: target.id, blockTime: { lt: quietFrom } } });
+    expect(older).toBeGreaterThan(0);
+    await prisma.$executeRaw`DELETE FROM swap_events WHERE pool_id = ${target.id} AND block_time >= ${quietFrom} AND block_time <= ${mark}`;
+    const first = await prisma.swapEvent.findFirstOrThrow({
+      where: { poolId: target.id, blockTime: { gt: mark } },
+      orderBy: [{ blockNum: 'asc' }, { logIndex: 'asc' }],
+    });
+
+    const rebuilt = await buildSnapshot({ usdgAddress: USDG });
+    const pool = rebuilt!.pools.find((p) => p.id === target.id)!;
+    expect(pool.change24hPct).not.toBeNull();
+    const fromFirst = (asOf.getTime() - first.blockTime.getTime()) / 3600_000;
+    expect(pool.change24hRefHours!).toBeCloseTo(fromFirst, 3);
+    expect(pool.change24hRefHours!).toBeLessThan(24);
+  });
+
   // Last in the file: these two delete swaps.
   it('measures a pool with no trade before the window from its first trade inside it', async () => {
     // The live site's case: most new pools trade only inside the last 24h,
