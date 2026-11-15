@@ -35,3 +35,7 @@ invariant = { runs = 10000, depth = 64, fail_on_revert = false }
 
 [rpc_endpoints]
 robinhood = "https://rpc.mainnet.chain.robinhood.com"
+
+# Style lints are for development; a deploy prints only what matters.
+[lint]
+lint_on_build = false
