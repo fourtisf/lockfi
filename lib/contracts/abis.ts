@@ -10,11 +10,6 @@ export const tidewellVaultAbi = [
         "internalType": "contract IPoolManager"
       },
       {
-        "name": "weth_",
-        "type": "address",
-        "internalType": "contract IWETH9"
-      },
-      {
         "name": "key",
         "type": "tuple",
         "internalType": "struct PoolKey",
@@ -52,11 +47,6 @@ export const tidewellVaultAbi = [
         "internalType": "address"
       },
       {
-        "name": "keeper_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "treasury_",
         "type": "address",
         "internalType": "address"
@@ -87,19 +77,6 @@ export const tidewellVaultAbi = [
         "name": "",
         "type": "uint16",
         "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "REWARDS_DURATION",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -166,12 +143,41 @@ export const tidewellVaultAbi = [
     ],
     "outputs": [
       {
-        "name": "amount",
+        "name": "amount0",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimable",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -268,51 +274,6 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "earned",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "ethIndex",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8",
-        "internalType": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "ethIsNative",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "exit",
     "inputs": [
       {
@@ -348,7 +309,12 @@ export const tidewellVaultAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "reward",
+        "name": "fees0",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fees1",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -370,7 +336,7 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "getRewardForDuration",
+    "name": "feePerShare0X128",
     "inputs": [],
     "outputs": [
       {
@@ -383,79 +349,35 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "harvest",
-    "inputs": [
-      {
-        "name": "minEthFromTokens",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "reward",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "protocolCut",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "keeper",
+    "name": "feePerShare1X128",
     "inputs": [],
     "outputs": [
       {
         "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owed",
+    "inputs": [
+      {
+        "name": "account",
         "type": "address",
         "internalType": "address"
       }
     ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "lastHarvestAt",
-    "inputs": [],
     "outputs": [
       {
-        "name": "",
+        "name": "amount0",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "lastTimeRewardApplicable",
-    "inputs": [],
-    "outputs": [
+      },
       {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "lastUpdateTime",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
+        "name": "amount1",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -477,16 +399,21 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "pendingEthFees",
+    "name": "payProtocolFees",
     "inputs": [],
     "outputs": [
       {
-        "name": "",
+        "name": "amount0",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -503,29 +430,10 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "pendingTokenFees",
+    "name": "poke",
     "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "periodFinish",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -668,7 +576,7 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "queuedRewards",
+    "name": "protocolOwed0",
     "inputs": [],
     "outputs": [
       {
@@ -681,46 +589,7 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "rewardPerToken",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "rewardPerTokenStored",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "rewardRate",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "rewardsReserved",
+    "name": "protocolOwed1",
     "inputs": [],
     "outputs": [
       {
@@ -739,19 +608,6 @@ export const tidewellVaultAbi = [
         "name": "open",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setKeeper",
-    "inputs": [
-      {
-        "name": "keeper_",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -882,38 +738,6 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "function",
-    "name": "userRewardPerTokenPaid",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "weth",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IWETH9"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "withdraw",
     "inputs": [
       {
@@ -955,6 +779,37 @@ export const tidewellVaultAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "Claimed",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1011,66 +866,28 @@ export const tidewellVaultAbi = [
     "name": "FeesCollected",
     "inputs": [
       {
-        "name": "ethFees",
+        "name": "amount0",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "tokenFees",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "Harvested",
-    "inputs": [
-      {
-        "name": "ethFees",
+        "name": "amount1",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "tokenFeesSold",
+        "name": "protocolCut0",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "ethFromTokens",
+        "name": "protocolCut1",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
-      },
-      {
-        "name": "protocolCut",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "reward",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "KeeperSet",
-    "inputs": [
-      {
-        "name": "keeper",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1128,47 +945,22 @@ export const tidewellVaultAbi = [
   },
   {
     "type": "event",
-    "name": "RewardAdded",
+    "name": "ProtocolFeesPaid",
     "inputs": [
       {
-        "name": "reward",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "rewardRate",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "periodFinish",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "RewardPaid",
-    "inputs": [
-      {
-        "name": "account",
+        "name": "treasury",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "recipient",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       },
       {
-        "name": "amount",
+        "name": "amount1",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1254,11 +1046,6 @@ export const tidewellVaultAbi = [
   {
     "type": "error",
     "name": "InsufficientShares",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NotKeeper",
     "inputs": []
   },
   {
@@ -2195,6 +1982,19 @@ export const tidewellRouterAbi = [
   {
     "type": "receive",
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_DEVIATION_CEILING_TICKS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",

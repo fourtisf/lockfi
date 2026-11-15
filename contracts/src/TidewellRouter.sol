@@ -32,7 +32,8 @@ import {Settlement} from "./libraries/Settlement.sol";
 ///     address can be rotated; nothing else that decides where money goes can.
 ///   - The keeper only triggers. No function sends funds to the keeper.
 ///   - Prices come from a 30-minute time-weighted average this contract
-///     records itself (Uniswap v4 pools carry no oracle). A route reverts if
+///     records itself, from the keeper's observations only, each truncated to
+///     a bounded move (Uniswap v4 pools carry no oracle). A route reverts if
 ///     the pool's spot price is further from that average than the guard, or
 ///     if its swap would return less than the average price allows.
 ///   - Milestones (market-cap steps, in WETH) are checked ascending when the
@@ -40,8 +41,9 @@ import {Settlement} from "./libraries/Settlement.sol";
 ///   - `pause` stops routing and lets the owner take back what has NOT been
 ///     routed yet. What has been routed is not recoverable by anyone.
 ///
-/// Fees earned by the routed liquidity are collected whenever more is added
-/// and routed again with the next batch.
+/// Fees earned by the routed liquidity are collected whenever more liquidity
+/// is added, and routed with the next batch (or, while paused, are among what
+/// the owner may withdraw as unrouted).
 contract TidewellRouter is IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -81,6 +83,8 @@ contract TidewellRouter is IUnlockCallback {
     uint16 public constant MIN_TWAP_SAMPLES = 6;
     uint16 public constant OBSERVATIONS = 64;
     uint16 public constant MAX_SLIPPAGE_CEILING_BPS = 1000;
+    /// @notice ~2.5x either way; past that the guard guards nothing.
+    uint24 public constant MAX_DEVIATION_CEILING_TICKS = 10_000;
     uint256 private constant BPS = 10_000;
 
     IPoolManager public immutable poolManager;
@@ -170,11 +174,16 @@ contract TidewellRouter is IUnlockCallback {
         bool eth0 = c0 == address(0) || c0 == address(weth_);
         bool eth1 = c1 == address(weth_);
         if (eth0 == eth1) revert UnsupportedPool();
-        // A hook that can rewrite a liquidity delta could take what is routed.
+        // A hook that can rewrite a liquidity delta could take what is routed;
+        // one that runs on swaps could skim the route's swap or move the price
+        // between that swap and the liquidity it pairs with.
         IHooks h = cfg.key.hooks;
         if (
             Hooks.hasPermission(h, Hooks.AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG)
                 || Hooks.hasPermission(h, Hooks.AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG)
+                || Hooks.hasPermission(h, Hooks.BEFORE_SWAP_FLAG) || Hooks.hasPermission(h, Hooks.AFTER_SWAP_FLAG)
+                || Hooks.hasPermission(h, Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG)
+                || Hooks.hasPermission(h, Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG)
         ) revert UnsupportedPool();
 
         if (
@@ -183,7 +192,7 @@ contract TidewellRouter is IUnlockCallback {
                 || cfg.tickUpper > TickMath.maxUsableTick(cfg.key.tickSpacing)
         ) revert BadRange();
         if (cfg.maxSlippageBps == 0 || cfg.maxSlippageBps > MAX_SLIPPAGE_CEILING_BPS) revert BadConfig();
-        if (cfg.maxTwapDeviationTicks == 0) revert BadConfig();
+        if (cfg.maxTwapDeviationTicks == 0 || cfg.maxTwapDeviationTicks > MAX_DEVIATION_CEILING_TICKS) revert BadConfig();
 
         if (cfg.mode == Mode.Cadence) {
             if (cfg.cadenceSeconds < 1 hours || cfg.milestonesWeth.length != 0) revert BadConfig();
@@ -257,29 +266,38 @@ contract TidewellRouter is IUnlockCallback {
         return weth.balanceOf(address(this)) + address(this).balance;
     }
 
-    /// @notice The time-weighted average tick over the last 30 minutes, from
-    ///         this contract's own observations.
+    /// @notice The time-weighted average tick over exactly the last 30
+    ///         minutes, from this contract's own observations.
+    /// @dev The cumulative at the window's start is interpolated between the
+    ///      observations either side of it, so the average never stretches
+    ///      back over an old gap (pre-audit review, finding 5). Between two
+    ///      observations the tick in force is constant, so the interpolation
+    ///      is exact.
     function twapTick() public view returns (int24) {
         (uint32 tNow, int56 cumNow) = _cumulativeNow();
         if (tNow < TWAP_WINDOW) revert TwapUnavailable();
         uint32 target = tNow - TWAP_WINDOW;
         uint16 n = observationCount;
-        // Walk back to the newest observation at or before the window start,
-        // counting the samples inside the window as we go.
         uint16 idx = observationIndex;
         uint16 samples;
+        uint32 newerT = tNow;
+        int56 newerCum = cumNow;
         for (uint16 i; i < n; i++) {
             Observation memory o = observations[idx];
             if (o.timestamp <= target) {
                 if (samples < MIN_TWAP_SAMPLES) revert TwapUnavailable();
-                int56 span = int56(uint56(tNow - o.timestamp));
-                int56 delta = cumNow - o.tickCumulative;
+                int56 atTarget = o.tickCumulative
+                    + (newerCum - o.tickCumulative) * int56(uint56(target - o.timestamp)) / int56(uint56(newerT - o.timestamp));
+                int56 delta = cumNow - atTarget;
+                int56 span = int56(uint56(TWAP_WINDOW));
                 int56 avg = delta / span;
                 // Round toward negative infinity, as Uniswap's oracle does.
                 if (delta < 0 && delta % span != 0) avg--;
                 return int24(avg);
             }
             samples++;
+            newerT = o.timestamp;
+            newerCum = o.tickCumulative;
             idx = idx == 0 ? OBSERVATIONS - 1 : idx - 1;
         }
         revert TwapUnavailable();
@@ -299,7 +317,7 @@ contract TidewellRouter is IUnlockCallback {
         return FullMath.mulDiv(FullMath.mulDiv(supply, 1 << 96, sqrtP), 1 << 96, sqrtP);
     }
 
-    /// @notice Whether a route may run now, and why not when it may not.
+    /// @notice Whether a route may run now.
     function due() public view returns (bool) {
         if (paused) return false;
         if (unroutedWeth() < minRouteWeth || unroutedWeth() == 0) return false;
@@ -316,9 +334,20 @@ contract TidewellRouter is IUnlockCallback {
     // Observations
     // -----------------------------------------------------------------------
 
-    /// @notice Record the pool's tick. Anyone may call; the keeper does so
-    ///         every few minutes. Calls within a minute of the last are no-ops.
+    /// @notice Record the pool's tick. Only the keeper may: a public poke let
+    ///         anyone swap, poke and swap back in one transaction and write
+    ///         any price into the average (pre-audit review, finding 1). Calls
+    ///         within a minute of the last are no-ops.
+    /// @dev Each new sample may move at most `maxTwapDeviationTicks` from the
+    ///      last (a truncated oracle), so even a compromised keeper can only
+    ///      walk the recorded price, never jump it, and a sudden real move is
+    ///      followed over several minutes — during which routes revert.
     function poke() public {
+        if (msg.sender != keeper) revert NotKeeper();
+        _observe();
+    }
+
+    function _observe() private {
         uint32 t = uint32(block.timestamp);
         Observation memory last = observations[observationIndex];
         if (t < last.timestamp + MIN_OBSERVATION_GAP) return;
@@ -327,21 +356,26 @@ contract TidewellRouter is IUnlockCallback {
         observations[next] = Observation({timestamp: t, tickCumulative: cum});
         observationIndex = next;
         if (observationCount < OBSERVATIONS) observationCount++;
-        (, int24 tick,,) = poolManager.getSlot0(poolId);
-        lastTick = tick;
-        emit Observed(t, tick);
+        (, int24 spot,,) = poolManager.getSlot0(poolId);
+        int256 step = int256(uint256(maxTwapDeviationTicks));
+        int256 moved = int256(spot) - int256(lastTick);
+        if (moved > step) moved = step;
+        if (moved < -step) moved = -step;
+        lastTick = int24(int256(lastTick) + moved);
+        emit Observed(t, lastTick);
     }
 
     // -----------------------------------------------------------------------
     // Route (keeper)
     // -----------------------------------------------------------------------
 
-    /// @notice Route everything unrouted into the destination pool.
+    /// @notice Route what is unrouted into the destination pool, at most
+    ///         `maxRouteWeth` of it when that is set.
     function route(uint256 deadline) external nonReentrant returns (uint128 liquidity) {
         if (msg.sender != keeper) revert NotKeeper();
         if (block.timestamp > deadline) revert Expired();
         if (paused) revert IsPaused();
-        poke();
+        _observe();
 
         uint256 wethIn = unroutedWeth();
         if (wethIn == 0 || wethIn < minRouteWeth) revert NothingToRoute();

@@ -104,7 +104,7 @@ abstract contract Fixture is Test {
     }
 
     function newVault(PoolKey memory key) internal returns (TidewellVault) {
-        return new TidewellVault(manager, IWETH9(address(weth)), key, owner, keeper, treasury, 2000, 1000);
+        return new TidewellVault(manager, key, owner, treasury, 2000, 1000);
     }
 
     /// @notice Give `who` the tokens to stake and approve `spender`.

@@ -6,52 +6,63 @@ import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
-import {Currency} from "v4-core/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
-import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {ModifyLiquidityParams} from "v4-core/types/PoolOperation.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {Position} from "v4-core/libraries/Position.sol";
 import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
-import {IWETH9} from "./interfaces/IWETH9.sol";
 import {Settlement} from "./libraries/Settlement.sol";
 
 /// @title TidewellVault
 /// @notice One vault per Uniswap v4 pool. Stakers' liquidity sits in a single
-///         full-range position the vault owns in the PoolManager; the swap
-///         fees it earns are harvested, converted to WETH, and streamed back
-///         to stakers over seven days (the Synthetix StakingRewards pattern).
+///         full-range position the vault owns in the PoolManager. Every swap
+///         fee that position earns belongs to the shares that earned it: fees
+///         are credited per share at the moment they are collected, and any
+///         staker can claim theirs, in the pool's own two tokens, at any time —
+///         including after they have withdrawn.
+///
+/// Why per share, not a stream (CLAUDE.md §20). The first version pooled fees
+/// and streamed each harvest over seven days to whoever held shares then. A
+/// pre-audit review proved that let a large deposit made just before a harvest
+/// take most of the fees others had earned, and made an early exit forfeit fees
+/// the leaver's own stake had earned — an exit fee in all but name. Crediting
+/// at collection removes both: any change to the position (a deposit, a
+/// withdraw, a claim, a poke) first collects everything the position has
+/// earned and credits it to the shares that existed while it was earned.
 ///
 /// What this contract will never do (CLAUDE.md §1, §3.3):
-///   - No admin withdraw. Nothing but `withdraw` moves a staker's liquidity,
-///     and only the staker can call it for their own shares.
-///   - No pause that traps funds. The owner can close *new* deposits;
-///     withdraw and claim are never gated.
-///   - No upgrade path. There is no proxy and no delegatecall.
-///   - No fee on principal. The protocol fee is a share of harvested fees,
-///     and its ceiling is fixed at construction (at most 20%) and cannot be
-///     raised by anyone.
+///   - No admin withdraw. Only `withdraw` moves liquidity, only for the
+///     caller's own shares, and only `claim` moves a staker's fees.
+///   - No pause that traps funds. The owner can close NEW deposits; withdraw
+///     and claim are never gated.
+///   - No upgrade path. No proxy, no delegatecall.
+///   - No fee on principal. The protocol fee is a share of fees collected, and
+///     its ceiling is fixed at construction (at most 20%) and cannot be raised.
+///   - No swap. Fees are paid in the tokens they were earned in, so there is
+///     no price at which anyone could be made to sell them.
 ///
-/// Shares are liquidity units: depositing L liquidity mints L shares, so
-/// there is no exchange rate to manipulate and no first-depositor attack.
+/// Collected fees are held as the PoolManager's own ERC-6909 claims, never as
+/// tokens at this address, and paid out from the PoolManager straight to the
+/// claimant. A token issuer freezing this vault's address therefore cannot
+/// block any withdraw or claim.
+///
+/// Shares are liquidity units: depositing L liquidity mints L shares. There is
+/// no exchange rate to manipulate and no first-depositor attack.
 contract TidewellVault is IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
+    using CurrencyLibrary for Currency;
 
-    // -----------------------------------------------------------------------
-    // Constants and immutables
-    // -----------------------------------------------------------------------
-
-    /// @notice How long one harvest's rewards stream for (§3.3).
-    uint256 public constant REWARDS_DURATION = 7 days;
     /// @notice The absolute ceiling on any vault's protocol fee: 20% of fees.
     uint16 public constant MAX_PROTOCOL_FEE_CAP_BPS = 2000;
     uint256 private constant BPS = 10_000;
-    uint256 private constant PRECISION = 1e18;
+    uint256 private constant Q128 = 1 << 128;
 
     IPoolManager public immutable poolManager;
-    IWETH9 public immutable weth;
     PoolId public immutable poolId;
     Currency public immutable currency0;
     Currency public immutable currency1;
@@ -59,82 +70,41 @@ contract TidewellVault is IUnlockCallback {
     int24 public immutable tickSpacing;
     int24 public immutable tickLower;
     int24 public immutable tickUpper;
-    /// @notice Which currency is ETH (native or WETH): 0 or 1.
-    uint8 public immutable ethIndex;
-    /// @notice True when the ETH side is native ETH (address(0)), not WETH.
-    bool public immutable ethIsNative;
     /// @notice This vault's protocol fee ceiling, fixed forever at deploy.
     uint16 public immutable protocolFeeCapBps;
     bytes32 private immutable positionKey;
 
-    // -----------------------------------------------------------------------
-    // Roles and settings
-    // -----------------------------------------------------------------------
-
     address public owner;
     address public pendingOwner;
-    /// @notice The only address that can trigger a harvest. It never holds or
-    ///         receives funds; it chooses when, and the minimum swap output.
-    address public keeper;
-    /// @notice Where the protocol's share of harvested fees goes.
+    /// @notice Where the protocol's share of fees is paid.
     address public treasury;
     uint16 public protocolFeeBps;
     bool public depositsOpen = true;
 
-    // -----------------------------------------------------------------------
-    // Shares
-    // -----------------------------------------------------------------------
-
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
 
-    // -----------------------------------------------------------------------
-    // Reward stream (WETH)
-    // -----------------------------------------------------------------------
+    /// @notice Stakers' fees per share since deployment, ×2^128, per token.
+    uint256 public feePerShare0X128;
+    uint256 public feePerShare1X128;
+    mapping(address => uint256) private feePerSharePaid0X128;
+    mapping(address => uint256) private feePerSharePaid1X128;
+    /// @dev Fees owed, ×2^128. Keeping the remainder below one unit is what
+    ///      makes claiming often pay exactly what claiming once pays.
+    mapping(address => uint256) private owed0X128;
+    mapping(address => uint256) private owed1X128;
 
-    uint256 public periodFinish;
-    uint256 public rewardRate;
-    uint256 public lastUpdateTime;
-    uint256 public rewardPerTokenStored;
-    /// @notice WETH waiting for the next stream: the rounding remainder of
-    ///         `reward / duration`, and anything that streamed while nobody
-    ///         was staked. Folded into the next harvest, never lost.
-    uint256 public queuedRewards;
-    /// @notice Every WETH committed to stakers and not yet paid. The vault's
-    ///         WETH balance never falls below this.
-    uint256 public rewardsReserved;
-    mapping(address => uint256) public userRewardPerTokenPaid;
-    /// @dev Earned rewards scaled by 1e18. Keeping the remainder below one wei
-    ///      is what makes a staker who claims every hour receive exactly what
-    ///      one who never claims receives (§3.5).
-    mapping(address => uint256) private rewardsScaled;
-
-    // -----------------------------------------------------------------------
-    // Fees collected but not yet harvested
-    // -----------------------------------------------------------------------
-
-    /// @notice ETH-side fees held (native ETH or WETH, matching the pool).
-    uint256 public pendingEthFees;
-    /// @notice Token-side fees held, converted to ETH at the next harvest.
-    uint256 public pendingTokenFees;
-    /// @notice When the keeper last harvested. The site shows how overdue the
-    ///         next one is: a keeper that dies silently is a vault paying
-    ///         nothing while its page still shows a yield (§8, P3).
-    uint256 public lastHarvestAt;
+    /// @notice The protocol's share, collected and not yet paid to the treasury.
+    uint256 public protocolOwed0;
+    uint256 public protocolOwed1;
 
     uint256 private locked = 1;
 
-    // -----------------------------------------------------------------------
-    // Events and errors
-    // -----------------------------------------------------------------------
-
     event Deposited(address indexed sender, address indexed recipient, uint256 liquidity, uint256 amount0, uint256 amount1);
     event Withdrawn(address indexed account, address indexed recipient, uint256 liquidity, uint256 amount0, uint256 amount1);
-    event RewardPaid(address indexed account, address indexed recipient, uint256 amount);
-    event FeesCollected(uint256 ethFees, uint256 tokenFees);
-    event Harvested(uint256 ethFees, uint256 tokenFeesSold, uint256 ethFromTokens, uint256 protocolCut, uint256 reward);
-    event RewardAdded(uint256 reward, uint256 rewardRate, uint256 periodFinish);
-    event KeeperSet(address keeper);
+    event FeesCollected(uint256 amount0, uint256 amount1, uint256 protocolCut0, uint256 protocolCut1);
+    event Claimed(address indexed account, address indexed recipient, uint256 amount0, uint256 amount1);
+    event ProtocolFeesPaid(address indexed treasury, uint256 amount0, uint256 amount1);
     event TreasurySet(address treasury);
     event ProtocolFeeSet(uint16 bps);
     event DepositsOpenSet(bool open);
@@ -142,7 +112,6 @@ contract TidewellVault is IUnlockCallback {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     error NotOwner();
-    error NotKeeper();
     error NotPoolManager();
     error Reentrancy();
     error Expired();
@@ -177,22 +146,16 @@ contract TidewellVault is IUnlockCallback {
         _;
     }
 
-    // -----------------------------------------------------------------------
-    // Construction
-    // -----------------------------------------------------------------------
-
-    /// @param key            The pool. It must have no hooks, and exactly one
-    ///                       side must be ETH (native) or WETH: rewards are
-    ///                       paid in WETH and fees convert through that side.
+    /// @param key The pool. It must have no hooks: a hook can rewrite
+    ///        liquidity deltas, and a vault holding other people's liquidity
+    ///        does not sit behind code it cannot see.
     /// @param protocolFeeCapBps_ Ceiling on the protocol fee, forever. At most
-    ///                       MAX_PROTOCOL_FEE_CAP_BPS (2000 = 20%).
+    ///        MAX_PROTOCOL_FEE_CAP_BPS (2000 = 20%).
     /// @param protocolFeeBps_ The starting fee, at most the cap (spec: 1000).
     constructor(
         IPoolManager poolManager_,
-        IWETH9 weth_,
         PoolKey memory key,
         address owner_,
-        address keeper_,
         address treasury_,
         uint16 protocolFeeCapBps_,
         uint16 protocolFeeBps_
@@ -200,19 +163,9 @@ contract TidewellVault is IUnlockCallback {
         if (owner_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
         if (protocolFeeCapBps_ > MAX_PROTOCOL_FEE_CAP_BPS) revert CapAboveMaximum();
         if (protocolFeeBps_ > protocolFeeCapBps_) revert FeeAboveCap();
-        // A hook can rewrite liquidity deltas; a vault holding other people's
-        // liquidity does not sit behind code it cannot see.
         if (address(key.hooks) != address(0)) revert UnsupportedPool();
 
-        address wethAddr = address(weth_);
-        address c0 = Currency.unwrap(key.currency0);
-        address c1 = Currency.unwrap(key.currency1);
-        bool eth0 = c0 == address(0) || c0 == wethAddr;
-        bool eth1 = c1 == wethAddr;
-        if (eth0 == eth1) revert UnsupportedPool(); // neither side, or ETH/WETH
-
         poolManager = poolManager_;
-        weth = weth_;
         poolId = key.toId();
         currency0 = key.currency0;
         currency1 = key.currency1;
@@ -220,12 +173,9 @@ contract TidewellVault is IUnlockCallback {
         tickSpacing = key.tickSpacing;
         tickLower = TickMath.minUsableTick(key.tickSpacing);
         tickUpper = TickMath.maxUsableTick(key.tickSpacing);
-        ethIndex = eth0 ? 0 : 1;
-        ethIsNative = c0 == address(0);
         protocolFeeCapBps = protocolFeeCapBps_;
         protocolFeeBps = protocolFeeBps_;
         owner = owner_;
-        keeper = keeper_;
         treasury = treasury_;
         positionKey = Position.calculatePositionKey(address(this), tickLower, tickUpper, bytes32(0));
 
@@ -233,15 +183,14 @@ contract TidewellVault is IUnlockCallback {
         if (sqrtPriceX96 == 0) revert PoolNotInitialized();
 
         emit OwnershipTransferred(address(0), owner_);
-        emit KeeperSet(keeper_);
         emit TreasurySet(treasury_);
         emit ProtocolFeeSet(protocolFeeBps_);
     }
 
-    /// @dev Native ETH arrives from the PoolManager (fees, withdrawals routed
-    ///      through the vault) and from WETH unwraps. Nothing else.
+    /// @dev Native ETH reaches this contract only as msg.value on a deposit;
+    ///      everything it pays out goes from the PoolManager to the recipient.
     receive() external payable {
-        if (msg.sender != address(poolManager) && msg.sender != address(weth)) revert UnexpectedEth();
+        revert UnexpectedEth();
     }
 
     // -----------------------------------------------------------------------
@@ -260,29 +209,25 @@ contract TidewellVault is IUnlockCallback {
 
     /// @notice The liquidity this vault holds in the PoolManager. Always
     ///         equal to totalSupply.
-    function positionLiquidity() external view returns (uint128) {
+    function positionLiquidity() public view returns (uint128) {
         return poolManager.getPositionLiquidity(poolId, positionKey);
     }
 
-    function lastTimeRewardApplicable() public view returns (uint256) {
-        return block.timestamp < periodFinish ? block.timestamp : periodFinish;
+    /// @notice What `account` can claim right now, in each token — including
+    ///         fees the position has earned since they were last collected.
+    function claimable(address account) external view returns (uint256 amount0, uint256 amount1) {
+        (uint256 p0, uint256 p1) = _feePerShareNow();
+        uint256 b = balanceOf[account];
+        amount0 = (owed0X128[account] + b * (p0 - feePerSharePaid0X128[account])) / Q128;
+        amount1 = (owed1X128[account] + b * (p1 - feePerSharePaid1X128[account])) / Q128;
     }
 
-    function rewardPerToken() public view returns (uint256) {
-        if (totalSupply == 0) return rewardPerTokenStored;
-        uint256 applicable = lastTimeRewardApplicable();
-        if (applicable <= lastUpdateTime) return rewardPerTokenStored;
-        return rewardPerTokenStored + (applicable - lastUpdateTime) * rewardRate * PRECISION / totalSupply;
-    }
-
-    /// @notice WETH `account` can claim right now.
-    function earned(address account) public view returns (uint256) {
-        return _scaledEarned(account, rewardPerToken()) / PRECISION;
-    }
-
-    /// @notice WETH the current stream pays over its full seven days.
-    function getRewardForDuration() external view returns (uint256) {
-        return rewardRate * REWARDS_DURATION;
+    /// @notice Fees already collected and credited to `account`, in each
+    ///         token — what `claim` pays without new fees arriving.
+    function owed(address account) external view returns (uint256 amount0, uint256 amount1) {
+        uint256 b = balanceOf[account];
+        amount0 = (owed0X128[account] + b * (feePerShare0X128 - feePerSharePaid0X128[account])) / Q128;
+        amount1 = (owed1X128[account] + b * (feePerShare1X128 - feePerSharePaid1X128[account])) / Q128;
     }
 
     /// @notice What `liquidity` shares are worth in each token at the current
@@ -312,7 +257,6 @@ contract TidewellVault is IUnlockCallback {
     /// @dev ERC20 sides are pulled from msg.sender (approve this vault first).
     ///      A native-ETH side is paid from msg.value, which must equal its
     ///      desired amount; what is not used is refunded to msg.sender.
-    /// @param amount0Min,amount1Min Slippage bounds on what is actually taken.
     function deposit(
         uint256 amount0Desired,
         uint256 amount1Desired,
@@ -323,36 +267,25 @@ contract TidewellVault is IUnlockCallback {
     ) external payable nonReentrant checkDeadline(deadline) returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
         if (!depositsOpen) revert DepositsClosed();
         if (recipient == address(0)) revert ZeroAddress();
-        if (ethIsNative) {
-            if (msg.value != amount0Desired) revert WrongValue();
-        } else if (msg.value != 0) {
-            revert WrongValue();
-        }
+        bool native = currency0.isAddressZero();
+        if (native ? msg.value != amount0Desired : msg.value != 0) revert WrongValue();
 
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
         liquidity = _liquidityFor(sqrtPriceX96, amount0Desired, amount1Desired);
         if (liquidity == 0) revert ZeroLiquidity();
 
-        _updateReward(recipient);
-        // Shares first, then the PoolManager: nothing outside this call ever
-        // sees the position larger than totalSupply. A failed check below
-        // reverts both together.
-        balanceOf[recipient] += liquidity;
-        totalSupply += liquidity;
-
-        bytes memory result = poolManager.unlock(abi.encode(Action.Deposit, msg.sender, liquidity));
+        bytes memory result = poolManager.unlock(abi.encode(Action.Deposit, msg.sender, recipient, liquidity));
         (amount0, amount1) = abi.decode(result, (uint256, uint256));
         if (amount0 > amount0Desired || amount1 > amount1Desired) revert Slippage();
         if (amount0 < amount0Min || amount1 < amount1Min) revert Slippage();
 
-        if (ethIsNative && msg.value > amount0) {
-            Currency.wrap(address(0)).transfer(msg.sender, msg.value - amount0);
-        }
+        if (native && msg.value > amount0) currency0.transfer(msg.sender, msg.value - amount0);
         emit Deposited(msg.sender, recipient, liquidity, amount0, amount1);
     }
 
-    /// @notice Remove `liquidity` of your shares from the position. Always
-    ///         available: no lockup, no exit fee, no timelock, no pause.
+    /// @notice Remove `liquidity` of your shares. Always available: no lockup,
+    ///         no exit fee, no timelock, no pause. Fees your shares earned stay
+    ///         yours to claim, now or later.
     function withdraw(uint128 liquidity, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)
         public
         nonReentrant
@@ -363,78 +296,49 @@ contract TidewellVault is IUnlockCallback {
         if (recipient == address(0)) revert ZeroAddress();
         if (balanceOf[msg.sender] < liquidity) revert InsufficientShares();
 
-        _updateReward(msg.sender);
-        balanceOf[msg.sender] -= liquidity;
-        totalSupply -= liquidity;
-
-        bytes memory result = poolManager.unlock(abi.encode(Action.Withdraw, recipient, liquidity));
+        bytes memory result = poolManager.unlock(abi.encode(Action.Withdraw, msg.sender, recipient, liquidity));
         (amount0, amount1) = abi.decode(result, (uint256, uint256));
         if (amount0 < amount0Min || amount1 < amount1Min) revert Slippage();
         emit Withdrawn(msg.sender, recipient, liquidity, amount0, amount1);
     }
 
-    /// @notice Send your earned WETH to `recipient`. Never reverts for want of
-    ///         rewards: with nothing earned it pays nothing.
-    function claim(address recipient) public nonReentrant returns (uint256 amount) {
+    /// @notice Pay your fees to `recipient`, in both tokens. With nothing
+    ///         owed it pays nothing and does not revert.
+    function claim(address recipient) public nonReentrant returns (uint256 amount0, uint256 amount1) {
         if (recipient == address(0)) revert ZeroAddress();
-        amount = _claim(msg.sender, recipient);
+        bytes memory result = poolManager.unlock(abi.encode(Action.Claim, msg.sender, recipient, uint128(0)));
+        (amount0, amount1) = abi.decode(result, (uint256, uint256));
+        emit Claimed(msg.sender, recipient, amount0, amount1);
     }
 
     /// @notice Withdraw everything and claim, in one call.
     function exit(uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline)
         external
-        returns (uint256 amount0, uint256 amount1, uint256 reward)
+        returns (uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1)
     {
         uint256 shares = balanceOf[msg.sender];
-        if (shares > 0) {
-            (amount0, amount1) = withdraw(uint128(shares), amount0Min, amount1Min, recipient, deadline);
-        }
-        reward = claim(recipient);
+        if (shares > 0) (amount0, amount1) = withdraw(uint128(shares), amount0Min, amount1Min, recipient, deadline);
+        (fees0, fees1) = claim(recipient);
     }
 
-    // -----------------------------------------------------------------------
-    // Harvest (keeper)
-    // -----------------------------------------------------------------------
+    /// @notice Collect the position's fees and credit them to the shares that
+    ///         earned them. Anyone may call; nothing depends on it — every
+    ///         deposit, withdraw and claim does the same first.
+    function poke() external nonReentrant {
+        poolManager.unlock(abi.encode(Action.Poke, address(0), address(0), uint128(0)));
+    }
 
-    /// @notice Collect the position's fees, convert the token side to ETH in
-    ///         this pool, take the protocol's share, and stream the rest.
-    /// @param minEthFromTokens The least ETH the token-side swap may return.
-    ///        Computed off chain by the keeper from a trailing price, so a
-    ///        price pushed around just before the harvest reverts it instead
-    ///        of selling the fees cheaply. Ignored when there are no token fees.
-    function harvest(uint256 minEthFromTokens, uint256 deadline)
-        external
-        nonReentrant
-        checkDeadline(deadline)
-        returns (uint256 reward, uint256 protocolCut)
-    {
-        if (msg.sender != keeper) revert NotKeeper();
-        _updateReward(address(0));
-        lastHarvestAt = block.timestamp;
-
-        bytes memory result = poolManager.unlock(abi.encode(Action.Harvest, address(0), uint128(0)));
-        (uint256 ethFees, uint256 tokenSold, uint256 ethFromTokens) = abi.decode(result, (uint256, uint256, uint256));
-        if (tokenSold > 0 && ethFromTokens < minEthFromTokens) revert Slippage();
-
-        uint256 total = ethFees + ethFromTokens;
-        if (ethIsNative && total > 0) weth.deposit{value: total}();
-
-        protocolCut = total * protocolFeeBps / BPS;
-        reward = total - protocolCut;
-        if (protocolCut > 0) _sendWeth(treasury, protocolCut);
-        if (reward > 0) _notifyReward(reward);
-
-        emit Harvested(ethFees, tokenSold, ethFromTokens, protocolCut, reward);
+    /// @notice Pay the protocol's share to the treasury. Anyone may call.
+    function payProtocolFees() external nonReentrant returns (uint256 amount0, uint256 amount1) {
+        address to = treasury;
+        bytes memory result = poolManager.unlock(abi.encode(Action.Protocol, address(0), to, uint128(0)));
+        (amount0, amount1) = abi.decode(result, (uint256, uint256));
+        emit ProtocolFeesPaid(to, amount0, amount1);
     }
 
     // -----------------------------------------------------------------------
     // Owner (no path to staker funds)
     // -----------------------------------------------------------------------
-
-    function setKeeper(address keeper_) external onlyOwner {
-        keeper = keeper_;
-        emit KeeperSet(keeper_);
-    }
 
     function setTreasury(address treasury_) external onlyOwner {
         if (treasury_ == address(0)) revert ZeroAddress();
@@ -442,9 +346,11 @@ contract TidewellVault is IUnlockCallback {
         emit TreasurySet(treasury_);
     }
 
-    /// @notice Lower or raise the fee, never above the cap fixed at deploy.
-    function setProtocolFee(uint16 bps) external onlyOwner {
+    /// @notice Change the fee on fees collected from now on, never above the
+    ///         cap fixed at deploy. Fees earned so far are cut at the old rate.
+    function setProtocolFee(uint16 bps) external onlyOwner nonReentrant {
         if (bps > protocolFeeCapBps) revert FeeAboveCap();
+        if (totalSupply > 0) poolManager.unlock(abi.encode(Action.Poke, address(0), address(0), uint128(0)));
         protocolFeeBps = bps;
         emit ProtocolFeeSet(bps);
     }
@@ -474,41 +380,52 @@ contract TidewellVault is IUnlockCallback {
     enum Action {
         Deposit,
         Withdraw,
-        Harvest
+        Claim,
+        Poke,
+        Protocol
     }
 
     /// @dev Only the PoolManager calls this, and only during this vault's own
     ///      `unlock` — the PoolManager calls back whoever unlocked it.
+    ///      `account` is msg.sender of the outer call (the payer, for a
+    ///      deposit); `recipient` is who receives shares, tokens or fees.
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
-        (Action action, address party, uint128 liquidity) = abi.decode(data, (Action, address, uint128));
-        PoolKey memory key = poolKey();
+        (Action action, address account, address recipient, uint128 liquidity) =
+            abi.decode(data, (Action, address, address, uint128));
 
-        if (action == Action.Harvest) return _harvestInside(key);
+        // 1. Collect what the position has earned and credit it to the
+        //    shares as they stand before this action changes anything.
+        _collectInside();
 
-        int256 liquidityDelta = action == Action.Deposit ? int256(uint256(liquidity)) : -int256(uint256(liquidity));
-        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(
-            key,
-            ModifyLiquidityParams({tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: liquidityDelta, salt: 0}),
-            ""
-        );
-        // Any change to the position also collects every fee it has earned.
-        // Those belong to the stakers as a whole, not to whoever triggered the
-        // change: they are held for the next harvest.
-        _collectFees(feesAccrued);
-        BalanceDelta principal = callerDelta - feesAccrued;
+        if (action == Action.Poke) return "";
+        if (action == Action.Protocol) return _payProtocol(recipient);
 
+        // 2. Bring the holder's fees up to date before their shares change:
+        //    for a deposit the holder is the recipient of the new shares.
+        address holder = action == Action.Deposit ? recipient : account;
+        _accrue(holder);
+        if (action == Action.Claim) return _pay(holder, recipient);
+
+        // 3. Shares change, then the position: the position is never larger
+        //    than totalSupply, not even inside this call.
         if (action == Action.Deposit) {
-            uint256 owed0 = uint256(-int256(principal.amount0()));
-            uint256 owed1 = uint256(-int256(principal.amount1()));
-            Settlement.pay(poolManager, currency0, currency0.isAddressZero() ? address(this) : party, owed0);
-            Settlement.pay(poolManager, currency1, party, owed1);
+            balanceOf[holder] += liquidity;
+            totalSupply += liquidity;
+            (BalanceDelta delta,) = poolManager.modifyLiquidity(poolKey(), _params(int256(uint256(liquidity))), "");
+            uint256 owed0 = uint256(-int256(delta.amount0()));
+            uint256 owed1 = uint256(-int256(delta.amount1()));
+            Settlement.pay(poolManager, currency0, currency0.isAddressZero() ? address(this) : account, owed0);
+            Settlement.pay(poolManager, currency1, account, owed1);
             return abi.encode(owed0, owed1);
         }
-        uint256 out0 = uint256(int256(principal.amount0()));
-        uint256 out1 = uint256(int256(principal.amount1()));
-        Settlement.collect(poolManager, currency0, party, out0);
-        Settlement.collect(poolManager, currency1, party, out1);
+        balanceOf[holder] -= liquidity;
+        totalSupply -= liquidity;
+        (BalanceDelta out,) = poolManager.modifyLiquidity(poolKey(), _params(-int256(uint256(liquidity))), "");
+        uint256 out0 = uint256(int256(out.amount0()));
+        uint256 out1 = uint256(int256(out.amount1()));
+        Settlement.collect(poolManager, currency0, recipient, out0);
+        Settlement.collect(poolManager, currency1, recipient, out1);
         return abi.encode(out0, out1);
     }
 
@@ -516,108 +433,97 @@ contract TidewellVault is IUnlockCallback {
     // Internals
     // -----------------------------------------------------------------------
 
-    function _harvestInside(PoolKey memory key) private returns (bytes memory) {
-        if (totalSupply > 0) {
-            (, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(
-                key, ModifyLiquidityParams({tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: 0, salt: 0}), ""
-            );
-            _collectFees(feesAccrued);
-        }
-
-        uint256 tokenSold;
-        uint256 ethFromTokens;
-        uint256 tokenFees = pendingTokenFees;
-        if (tokenFees > 0) {
-            // Sell the token side for ETH, exact input, in this same pool.
-            bool zeroForOne = ethIndex == 1; // the token is currency0
-            BalanceDelta delta = poolManager.swap(
-                key,
-                SwapParams({
-                    zeroForOne: zeroForOne,
-                    amountSpecified: -int256(tokenFees),
-                    sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
-                }),
-                ""
-            );
-            int128 tokenDelta = zeroForOne ? delta.amount0() : delta.amount1();
-            int128 ethDelta = zeroForOne ? delta.amount1() : delta.amount0();
-            tokenSold = uint256(int256(-tokenDelta));
-            ethFromTokens = uint256(int256(ethDelta));
-            Settlement.pay(poolManager, _tokenCurrency(), address(this), tokenSold);
-            Settlement.collect(poolManager, _ethCurrency(), address(this), ethFromTokens);
-            // A partial fill leaves the rest for the next harvest.
-            pendingTokenFees = tokenFees - tokenSold;
-        }
-
-        uint256 ethFees = pendingEthFees;
-        pendingEthFees = 0;
-        return abi.encode(ethFees, tokenSold, ethFromTokens);
+    function _params(int256 liquidityDelta) private view returns (ModifyLiquidityParams memory) {
+        return ModifyLiquidityParams({tickLower: tickLower, tickUpper: tickUpper, liquidityDelta: liquidityDelta, salt: 0});
     }
 
-    function _collectFees(BalanceDelta feesAccrued) private {
-        uint256 f0 = uint256(int256(feesAccrued.amount0()));
-        uint256 f1 = uint256(int256(feesAccrued.amount1()));
+    /// @dev Collect the position's fees as ERC-6909 claims and credit them:
+    ///      the protocol's share at the current rate, the rest per share.
+    ///      With no shares there is no liquidity, so nothing was earned.
+    ///      Within one call fee growth cannot move between this collection and
+    ///      the liquidity change that follows (nothing swaps in between), so the
+    ///      later modifyLiquidity carries no fees: its delta is all principal.
+    function _collectInside() private {
+        if (totalSupply == 0) return;
+        (, BalanceDelta fees) = poolManager.modifyLiquidity(poolKey(), _params(0), "");
+        uint256 f0 = uint256(int256(fees.amount0()));
+        uint256 f1 = uint256(int256(fees.amount1()));
         if (f0 == 0 && f1 == 0) return;
-        Settlement.collect(poolManager, currency0, address(this), f0);
-        Settlement.collect(poolManager, currency1, address(this), f1);
-        (uint256 ethFees, uint256 tokenFees) = ethIndex == 0 ? (f0, f1) : (f1, f0);
-        pendingEthFees += ethFees;
-        pendingTokenFees += tokenFees;
-        emit FeesCollected(ethFees, tokenFees);
-    }
-
-    /// @dev Synthetix notifyRewardAmount, with nothing lost to rounding: the
-    ///      remainder of `total / duration` waits in `queuedRewards`.
-    function _notifyReward(uint256 reward) private {
-        uint256 total = reward + queuedRewards;
-        if (block.timestamp < periodFinish) total += (periodFinish - block.timestamp) * rewardRate;
-        rewardRate = total / REWARDS_DURATION;
-        queuedRewards = total % REWARDS_DURATION;
-        lastUpdateTime = block.timestamp;
-        periodFinish = block.timestamp + REWARDS_DURATION;
-        rewardsReserved += reward;
-
-        uint256 held = weth.balanceOf(address(this));
-        uint256 wethFeesHeld = ethIsNative ? 0 : pendingEthFees;
-        if (held < rewardsReserved + wethFeesHeld) revert Insolvent();
-        emit RewardAdded(reward, rewardRate, periodFinish);
-    }
-
-    function _updateReward(address account) private {
-        uint256 applicable = lastTimeRewardApplicable();
-        if (applicable > lastUpdateTime) {
-            uint256 streamed = (applicable - lastUpdateTime) * rewardRate;
-            if (totalSupply == 0) {
-                // Nobody to pay: keep it for the next stream.
-                queuedRewards += streamed;
-            } else {
-                rewardPerTokenStored += streamed * PRECISION / totalSupply;
-            }
-            lastUpdateTime = applicable;
+        uint256 cut0 = f0 * protocolFeeBps / BPS;
+        uint256 cut1 = f1 * protocolFeeBps / BPS;
+        if (f0 > 0) {
+            poolManager.mint(address(this), currency0.toId(), f0);
+            protocolOwed0 += cut0;
+            feePerShare0X128 += FullMath.mulDiv(f0 - cut0, Q128, totalSupply);
         }
-        if (account != address(0)) {
-            rewardsScaled[account] = _scaledEarned(account, rewardPerTokenStored);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        if (f1 > 0) {
+            poolManager.mint(address(this), currency1.toId(), f1);
+            protocolOwed1 += cut1;
+            feePerShare1X128 += FullMath.mulDiv(f1 - cut1, Q128, totalSupply);
         }
+        emit FeesCollected(f0, f1, cut0, cut1);
     }
 
-    function _scaledEarned(address account, uint256 rpt) private view returns (uint256) {
-        return rewardsScaled[account] + balanceOf[account] * (rpt - userRewardPerTokenPaid[account]);
+    function _accrue(address account) private {
+        uint256 b = balanceOf[account];
+        uint256 p0 = feePerShare0X128;
+        uint256 p1 = feePerShare1X128;
+        if (b > 0) {
+            owed0X128[account] += b * (p0 - feePerSharePaid0X128[account]);
+            owed1X128[account] += b * (p1 - feePerSharePaid1X128[account]);
+        }
+        feePerSharePaid0X128[account] = p0;
+        feePerSharePaid1X128[account] = p1;
     }
 
-    function _claim(address account, address recipient) private returns (uint256 amount) {
-        _updateReward(account);
-        uint256 scaled = rewardsScaled[account];
-        amount = scaled / PRECISION;
-        if (amount == 0) return 0;
-        rewardsScaled[account] = scaled - amount * PRECISION;
-        rewardsReserved -= amount;
-        _sendWeth(recipient, amount);
-        emit RewardPaid(account, recipient, amount);
+    /// @dev Pay an account's fees from the vault's claims, straight from the
+    ///      PoolManager to the recipient.
+    function _pay(address account, address recipient) private returns (bytes memory) {
+        uint256 a0 = owed0X128[account] / Q128;
+        uint256 a1 = owed1X128[account] / Q128;
+        owed0X128[account] -= a0 * Q128;
+        owed1X128[account] -= a1 * Q128;
+        _payOut(currency0, recipient, a0);
+        _payOut(currency1, recipient, a1);
+        return abi.encode(a0, a1);
     }
 
-    function _sendWeth(address to, uint256 amount) private {
-        if (!weth.transfer(to, amount)) revert Insolvent();
+    function _payProtocol(address to) private returns (bytes memory) {
+        uint256 a0 = protocolOwed0;
+        uint256 a1 = protocolOwed1;
+        protocolOwed0 = 0;
+        protocolOwed1 = 0;
+        _payOut(currency0, to, a0);
+        _payOut(currency1, to, a1);
+        return abi.encode(a0, a1);
+    }
+
+    function _payOut(Currency currency, address to, uint256 amount) private {
+        if (amount == 0) return;
+        if (poolManager.balanceOf(address(this), currency.toId()) < amount) revert Insolvent();
+        poolManager.burn(address(this), currency.toId(), amount);
+        poolManager.take(currency, to, amount);
+    }
+
+    /// @dev Fees per share including what the position has earned and not yet
+    ///      had collected, from the PoolManager's fee growth — for the view.
+    function _feePerShareNow() private view returns (uint256 p0, uint256 p1) {
+        p0 = feePerShare0X128;
+        p1 = feePerShare1X128;
+        uint256 supply = totalSupply;
+        if (supply == 0) return (p0, p1);
+        (uint128 liq, uint256 last0, uint256 last1) =
+            poolManager.getPositionInfo(poolId, address(this), tickLower, tickUpper, bytes32(0));
+        (uint256 now0, uint256 now1) = poolManager.getFeeGrowthInside(poolId, tickLower, tickUpper);
+        uint256 f0;
+        uint256 f1;
+        unchecked {
+            // Fee growth is allowed to wrap, as the PoolManager computes it.
+            f0 = FullMath.mulDiv(now0 - last0, liq, Q128);
+            f1 = FullMath.mulDiv(now1 - last1, liq, Q128);
+        }
+        p0 += FullMath.mulDiv(f0 - f0 * protocolFeeBps / BPS, Q128, supply);
+        p1 += FullMath.mulDiv(f1 - f1 * protocolFeeBps / BPS, Q128, supply);
     }
 
     function _liquidityFor(uint160 sqrtPriceX96, uint256 amount0, uint256 amount1) private view returns (uint128) {
@@ -636,13 +542,5 @@ contract TidewellVault is IUnlockCallback {
         // Full range: the price is always strictly inside it.
         amount0 = SqrtPriceMath.getAmount0Delta(sqrtPriceX96, sqrtB, liquidity, roundUp);
         amount1 = SqrtPriceMath.getAmount1Delta(sqrtA, sqrtPriceX96, liquidity, roundUp);
-    }
-
-    function _ethCurrency() private view returns (Currency) {
-        return ethIndex == 0 ? currency0 : currency1;
-    }
-
-    function _tokenCurrency() private view returns (Currency) {
-        return ethIndex == 0 ? currency1 : currency0;
     }
 }

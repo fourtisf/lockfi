@@ -8,6 +8,17 @@ import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {IWETH9} from "../src/interfaces/IWETH9.sol";
 import {TidewellRouter, TidewellRouterFactory} from "../src/TidewellRouter.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+
+library StateLibraryView {
+    using PoolIdLibrary for PoolKey;
+
+    function slot0(IPoolManager pm, PoolKey memory k) internal view returns (uint160 sqrtP, int24 tick, uint24 a, uint24 b) {
+        return StateLibrary.getSlot0(pm, k.toId());
+    }
+}
 import {Fixture} from "./utils/Fixture.sol";
 
 contract TidewellRouterTest is Fixture {
@@ -53,6 +64,7 @@ contract TidewellRouterTest is Fixture {
     function buildTwap(TidewellRouter r) internal {
         for (uint256 i; i < 7; i++) {
             vm.warp(block.timestamp + 5 minutes);
+            vm.prank(keeper);
             r.poke();
         }
     }
@@ -136,6 +148,7 @@ contract TidewellRouterTest is Fixture {
         // Two samples thirty minutes apart are not an average anyone should
         // trust: one of them could be the manipulated one.
         vm.warp(block.timestamp + 31 minutes);
+        vm.prank(keeper);
         r.poke();
         vm.prank(keeper);
         vm.expectRevert(TidewellRouter.TwapUnavailable.selector);
@@ -182,6 +195,83 @@ contract TidewellRouterTest is Fixture {
         buildTwap(r);
         int24 twap = r.twapTick();
         assertApproxEqAbs(int256(twap), int256(START_TICK), 1);
+    }
+
+    // -------------------------------------------- the review's TWAP attack
+
+    function test_poke_onlyTheKeeper() public {
+        TidewellRouter r = deploy(cadenceConfig());
+        vm.warp(block.timestamp + 5 minutes);
+        vm.expectRevert(TidewellRouter.NotKeeper.selector);
+        r.poke();
+    }
+
+    /// Pre-audit finding 1: swap, poke, swap back in one transaction wrote any
+    /// price into the average. With keeper-only observations the attacker's
+    /// poke reverts, and the price they pushed and pulled back is never seen.
+    function test_sameTransactionManipulation_cannotWriteTheAverage() public {
+        TidewellRouter r = deploy(cadenceConfig());
+        payFees(r, 1 ether);
+        int24 lo = type(int24).max;
+        int24 hi = type(int24).min;
+        int24 pushed;
+        for (uint256 i; i < 7; i++) {
+            vm.warp(block.timestamp + 5 minutes);
+            trade(key, false, 50_000 ether); // push
+            (, pushed,,) = StateLibraryView.slot0(manager, key);
+            vm.expectRevert(TidewellRouter.NotKeeper.selector);
+            r.poke();
+            trade(key, true, 49 ether); // and pull back
+            vm.prank(keeper);
+            r.poke();
+            int24 seen = r.lastTick();
+            if (seen < lo) lo = seen;
+            if (seen > hi) hi = seen;
+        }
+        int24 twap = r.twapTick();
+        // The average is made only of what the keeper saw after each pull
+        // back; the pushed price, thousands of ticks away, is in none of it.
+        assertGe(twap, lo - 1);
+        assertLe(twap, hi + 1);
+        assertGt(int256(pushed) - int256(twap), 2000);
+    }
+
+    /// A compromised keeper can walk the recorded price, never jump it.
+    function test_observations_areTruncated() public {
+        TidewellRouter r = deploy(cadenceConfig());
+        int24 before = r.lastTick();
+        trade(key, false, 200_000 ether); // a move of thousands of ticks
+        vm.warp(block.timestamp + 5 minutes);
+        vm.prank(keeper);
+        r.poke();
+        assertEq(int256(r.lastTick()) - int256(before), 200); // the configured step
+    }
+
+    /// Pre-audit finding 5: after a long gap the average must cover exactly
+    /// the last 30 minutes, not stretch back over the stale stretch.
+    function test_twap_coversExactlyTheLastThirtyMinutes() public {
+        TidewellRouter r = deploy(cadenceConfig());
+        buildTwap(r);
+        vm.warp(block.timestamp + 2 hours); // keeper down
+        // A real move, held — smaller than one truncation step, so the first
+        // observation after the gap records it whole.
+        trade(key, false, 2_000 ether);
+        (, int24 moved,,) = StateLibraryView.slot0(manager, key);
+        assertLt(int256(moved) - int256(r.lastTick()), 200);
+        assertGt(int256(moved) - int256(r.lastTick()), 50);
+        buildTwap(r);
+        // Exactly the last 30 minutes: the stale two hours count for nothing.
+        assertEq(r.twapTick(), moved);
+    }
+
+    function test_swapHookPools_areRefused() public {
+        TidewellRouter.Config memory cfg = cadenceConfig();
+        cfg.key.hooks = IHooks(address(uint160(1 << 7))); // BEFORE_SWAP
+        vm.expectRevert(TidewellRouter.UnsupportedPool.selector);
+        factory.createRouter(cfg, keeper);
+        cfg.key.hooks = IHooks(address(uint160(1 << 6))); // AFTER_SWAP
+        vm.expectRevert(TidewellRouter.UnsupportedPool.selector);
+        factory.createRouter(cfg, keeper);
     }
 
     // ------------------------------------------------------------- milestones
@@ -293,5 +383,53 @@ contract TidewellRouterTest is Fixture {
         cfg.key.hooks = IHooks(address(uint160(0x2)));
         vm.expectRevert(TidewellRouter.UnsupportedPool.selector);
         factory.createRouter(cfg, keeper);
+    }
+}
+
+/// @notice The WETH-pool branches (token as currency0 and as currency1): FDV
+///         and a route, in both orders. Ported from the pre-audit review,
+///         which found the suite only exercised native-ETH pools.
+contract TidewellRouterWethTest is Fixture {
+    function _run(bool tokenFirst) internal {
+        deployCore();
+        while ((address(token) < address(weth)) != tokenFirst) token = new MockERC20("Token", "TKN", 18);
+        token.mint(address(this), 1e36);
+        token.approve(address(swapRouter), type(uint256).max);
+        token.approve(address(lpRouter), type(uint256).max);
+        PoolKey memory key = wethKey();
+        initPool(key);
+        seedLiquidity(key, 1e22);
+        TidewellRouterFactory f = new TidewellRouterFactory(manager, IWETH9(address(weth)));
+        TidewellRouter.Config memory c;
+        c.key = key;
+        c.tickLower = TickMath.minUsableTick(SPACING);
+        c.tickUpper = TickMath.maxUsableTick(SPACING);
+        c.mode = TidewellRouter.Mode.Cadence;
+        c.cadenceSeconds = 1 days;
+        c.maxSlippageBps = 300;
+        c.maxTwapDeviationTicks = 200;
+        c.minRouteWeth = 0.01 ether;
+        TidewellRouter r = f.createRouter(c, keeper);
+        assertEq(r.tokenIs0(), tokenFirst);
+
+        (bool ok,) = address(r).call{value: 10 ether}("");
+        require(ok);
+        for (uint256 i; i < 7; i++) {
+            vm.warp(block.timestamp + 5 minutes);
+            vm.prank(keeper);
+            r.poke();
+        }
+        assertApproxEqRel(r.fdvWeth(), token.totalSupply() / 1000, 0.01e18, "fdv ~ supply x 0.001 WETH");
+        vm.prank(keeper);
+        assertGt(r.route(block.timestamp), 0);
+        assertLt(r.unroutedWeth(), 0.5 ether);
+    }
+
+    function test_wethPool_tokenIsCurrency0() public {
+        _run(true);
+    }
+
+    function test_wethPool_tokenIsCurrency1() public {
+        _run(false);
     }
 }

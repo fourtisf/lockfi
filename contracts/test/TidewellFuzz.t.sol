@@ -86,8 +86,8 @@ contract TidewellFuzzTest is Fixture, DeployPermit2 {
         assertEq(vault.totalSupply(), 0);
     }
 
-    /// Someone who arrives after fees accrued and leaves at once gets back
-    /// their principal and nothing of the fees that were already earned.
+    /// Someone who arrives after fees accrued gets back their principal and
+    /// nothing of the fees that were already earned.
     function testFuzz_lateArrival_cannotTakeEarlierFees(uint256 stakeA, uint256 trades, uint256 stakeB) public {
         stakeA = bound(stakeA, 1 ether, 200 ether);
         stakeB = bound(stakeB, 1 ether, 2000 ether);
@@ -108,11 +108,16 @@ contract TidewellFuzzTest is Fixture, DeployPermit2 {
         uint256 ethAfter = bob.balance;
         uint256 tknAfter = token.balanceOf(bob);
 
-        // Bob ends with at most what he started with, in each token.
+        // Bob ends with at most what he started with, in each token,
         assertLe(ethAfter, ethBefore);
         assertLe(tknAfter, tknBefore);
-        // And the fees stayed with the vault for its stakers.
-        assertGt(vault.pendingEthFees() + vault.pendingTokenFees(), 0);
+        // has no fees to claim,
+        vm.prank(bob);
+        (uint256 c0, uint256 c1) = vault.claim(bob);
+        assertEq(c0 + c1, 0);
+        // and every fee earned stayed with Alice, who earned it.
+        (uint256 a0, uint256 a1) = vault.owed(alice);
+        assertGt(a0 + a1, 0);
     }
 
     /// Whatever the amount and however much of it is swapped, the zap ends
@@ -162,5 +167,28 @@ contract TidewellFuzzTest is Fixture, DeployPermit2 {
         assertEq(address(shaper).balance, 0);
         assertEq(token.balanceOf(address(shaper)), 0);
         assertEq(weth.balanceOf(address(shaper)), 0);
+    }
+
+    /// However large the late deposit and however long it stays afterwards
+    /// with no new trading, it never gets a share of fees earned before it.
+    function testFuzz_lateWhale_getsNothingEarnedBeforeIt(uint256 stakeA, uint256 trades, uint256 whale, uint256 stay)
+        public
+    {
+        stakeA = bound(stakeA, 1 ether, 50 ether);
+        whale = bound(whale, 1 ether, 3000 ether);
+        trades = bound(trades, 1, 6);
+        stay = bound(stay, 0, 60 days);
+        vm.prank(alice);
+        vault.deposit{value: stakeA}(stakeA, stakeA * 1100, 0, 0, alice, block.timestamp);
+        for (uint256 i; i < trades; i++) {
+            trade(key, true, 3 ether);
+            trade(key, false, 3000 ether);
+        }
+        vm.prank(bob);
+        vault.deposit{value: whale}(whale, whale * 1100, 0, 0, bob, block.timestamp);
+        vm.warp(block.timestamp + stay);
+        vm.prank(bob);
+        (uint256 b0, uint256 b1) = vault.claim(bob);
+        assertEq(b0 + b1, 0);
     }
 }

@@ -62,7 +62,7 @@ contract RehearsalTest is Test {
 
         // Native ETH / USDG, 0.05%: the deepest hookless ETH/USDG pool.
         key = PoolKey(Currency.wrap(address(0)), Currency.wrap(USDG), 500, 10, IHooks(address(0)));
-        vault = new TidewellVault(PM, WETH, key, address(this), keeper, treasury, 2000, 1000);
+        vault = new TidewellVault(PM, key, address(this), treasury, 2000, 1000);
         zap = new TidewellZap(PM, POSM, PERMIT2, WETH);
         shaper = new TidewellShaper(PM, POSM, PERMIT2, WETH);
         trader = new PoolSwapTest(PM);
@@ -87,7 +87,7 @@ contract RehearsalTest is Test {
         );
     }
 
-    function test_rehearsal_stakeHarvestClaimWithdraw() public {
+    function test_rehearsal_stakeEarnClaimWithdraw() public {
         if (!forked) return vm.skip(true);
 
         vm.prank(user);
@@ -101,20 +101,25 @@ contract RehearsalTest is Test {
             _trade(false, IERC20Min(USDG).balanceOf(address(this)));
         }
 
-        vm.prank(keeper);
-        (uint256 reward, uint256 cut) = vault.harvest(0, block.timestamp);
-        assertGt(reward, 0, "fees harvested from the real pool");
-        assertEq(IERC20Min(address(WETH)).balanceOf(treasury), cut);
-        assertEq(cut, (reward + cut) / 10);
+        // Fees from real trades, owed to the user in both tokens, with the
+        // protocol's 10% beside them.
+        (uint256 c0, uint256 c1) = vault.claimable(user);
+        assertGt(c0, 0, "ETH fees from the real pool");
+        assertGt(c1, 0, "USDG fees from the real pool");
 
-        vm.warp(block.timestamp + 7 days);
-        uint256 earned = vault.earned(user);
-        assertGt(earned, 0);
+        uint256 ethBefore = user.balance;
         vm.prank(user);
-        (uint256 out0, uint256 out1, uint256 paid) = vault.exit(0, 0, user, block.timestamp);
-        assertEq(paid, earned);
+        (uint256 out0, uint256 out1, uint256 f0, uint256 f1) = vault.exit(0, 0, user, block.timestamp);
+        assertApproxEqAbs(f0, c0, 1);
+        assertApproxEqAbs(f1, c1, 1);
         assertGt(out0 + out1, 0);
-        assertEq(IERC20Min(address(WETH)).balanceOf(user), paid);
+        assertEq(user.balance - ethBefore, out0 + f0);
+        assertEq(IERC20Min(USDG).balanceOf(user), out1 + f1);
+
+        (uint256 p0, uint256 p1) = vault.payProtocolFees();
+        assertEq(treasury.balance, p0);
+        assertEq(IERC20Min(USDG).balanceOf(treasury), p1);
+        assertApproxEqRel(p0 * 9, f0, 0.001e18);
         assertEq(vault.totalSupply(), 0);
     }
 
@@ -157,6 +162,7 @@ contract RehearsalTest is Test {
         assertTrue(ok);
         for (uint256 i; i < 7; i++) {
             vm.warp(block.timestamp + 5 minutes);
+            vm.prank(keeper);
             r.poke();
         }
         vm.prank(keeper);

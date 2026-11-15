@@ -8,11 +8,30 @@ import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {FixedPoint128} from "v4-core/libraries/FixedPoint128.sol";
-import {Vm} from "forge-std/Vm.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
-import {IWETH9} from "../src/interfaces/IWETH9.sol";
 import {TidewellVault} from "../src/TidewellVault.sol";
 import {Fixture} from "./utils/Fixture.sol";
+
+/// @dev A token whose issuer can freeze an address, as USDG's can.
+contract FreezableToken is MockERC20 {
+    mapping(address => bool) public frozen;
+
+    constructor() MockERC20("Frozen", "FRZ", 18) {}
+
+    function freeze(address a) external {
+        frozen[a] = true;
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        require(!frozen[msg.sender] && !frozen[to], "frozen");
+        return super.transfer(to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        require(!frozen[from] && !frozen[to], "frozen");
+        return super.transferFrom(from, to, amount);
+    }
+}
 
 contract TidewellVaultTest is Fixture {
     PoolKey internal key;
@@ -26,8 +45,8 @@ contract TidewellVaultTest is Fixture {
         initPool(key);
         seedLiquidity(key, 1e21);
         vault = newVault(key);
-        fund(alice, address(vault), 1000 ether, 1e27);
-        fund(bob, address(vault), 1000 ether, 1e27);
+        fund(alice, address(vault), 10_000 ether, 1e30);
+        fund(bob, address(vault), 10_000 ether, 1e30);
     }
 
     // ---------------------------------------------------------------- helpers
@@ -45,49 +64,46 @@ contract TidewellVaultTest is Fixture {
         }
     }
 
-    function harvest() internal returns (uint256 reward, uint256 cut) {
-        vm.prank(keeper);
-        (reward, cut) = vault.harvest(0, block.timestamp);
+    function claimAll(address who) internal returns (uint256 a0, uint256 a1) {
+        vm.prank(who);
+        (a0, a1) = vault.claim(who);
+    }
+
+    /// @dev What the vault's position has earned and not yet collected, from
+    ///      the PoolManager's own fee growth.
+    function uncollected() internal view returns (uint256 f0, uint256 f1) {
+        IPoolManager pm = IPoolManager(address(manager));
+        (uint128 liq, uint256 last0, uint256 last1) = StateLibrary.getPositionInfo(
+            pm, vault.poolId(), address(vault), vault.tickLower(), vault.tickUpper(), bytes32(0)
+        );
+        (uint256 now0, uint256 now1) =
+            StateLibrary.getFeeGrowthInside(pm, vault.poolId(), vault.tickLower(), vault.tickUpper());
+        f0 = FullMath.mulDiv(now0 - last0, liq, FixedPoint128.Q128);
+        f1 = FullMath.mulDiv(now1 - last1, liq, FixedPoint128.Q128);
+    }
+
+    function claimsHeld(Currency c) internal view returns (uint256) {
+        return manager.balanceOf(address(vault), c.toId());
     }
 
     // ----------------------------------------------------------- construction
 
-    function test_constructor_rejectsUnsupportedPools() public {
+    function test_constructor_rejectsHookedPools_andBoundsTheFee() public {
         PoolKey memory hooked = key;
         hooked.hooks = IHooks(address(0x1234));
         vm.expectRevert(TidewellVault.UnsupportedPool.selector);
-        new TidewellVault(manager, IWETH9(address(weth)), hooked, owner, keeper, treasury, 2000, 1000);
+        new TidewellVault(manager, hooked, owner, treasury, 2000, 1000);
 
-        // ETH/WETH: both sides are ETH.
-        (address a, address b) = (address(0), address(weth));
-        PoolKey memory ethWeth = PoolKey(Currency.wrap(a), Currency.wrap(b), FEE, SPACING, IHooks(address(0)));
-        manager.initialize(ethWeth, 79228162514264337593543950336);
-        vm.expectRevert(TidewellVault.UnsupportedPool.selector);
-        new TidewellVault(manager, IWETH9(address(weth)), ethWeth, owner, keeper, treasury, 2000, 1000);
-
-        // Two tokens, no ETH side: rewards could not be paid in WETH.
-        MockERC20 other = new MockERC20("Other", "OTH", 18);
-        (address x, address y) =
-            address(other) < address(token) ? (address(other), address(token)) : (address(token), address(other));
-        PoolKey memory noEth = PoolKey(Currency.wrap(x), Currency.wrap(y), FEE, SPACING, IHooks(address(0)));
-        manager.initialize(noEth, 79228162514264337593543950336);
-        vm.expectRevert(TidewellVault.UnsupportedPool.selector);
-        new TidewellVault(manager, IWETH9(address(weth)), noEth, owner, keeper, treasury, 2000, 1000);
-    }
-
-    function test_constructor_capIsBoundedAndFeeUnderCap() public {
         vm.expectRevert(TidewellVault.CapAboveMaximum.selector);
-        new TidewellVault(manager, IWETH9(address(weth)), key, owner, keeper, treasury, 2001, 1000);
+        new TidewellVault(manager, key, owner, treasury, 2001, 1000);
         vm.expectRevert(TidewellVault.FeeAboveCap.selector);
-        new TidewellVault(manager, IWETH9(address(weth)), key, owner, keeper, treasury, 1000, 1001);
-    }
+        new TidewellVault(manager, key, owner, treasury, 1000, 1001);
 
-    function test_constructor_requiresInitializedPool() public {
         PoolKey memory fresh = key;
         fresh.fee = 500;
         fresh.tickSpacing = 10;
         vm.expectRevert(TidewellVault.PoolNotInitialized.selector);
-        new TidewellVault(manager, IWETH9(address(weth)), fresh, owner, keeper, treasury, 2000, 1000);
+        new TidewellVault(manager, fresh, owner, treasury, 2000, 1000);
     }
 
     // ---------------------------------------------------------------- deposit
@@ -96,10 +112,8 @@ contract TidewellVaultTest is Fixture {
         uint256 ethBefore = alice.balance;
         uint256 tknBefore = token.balanceOf(alice);
         vm.prank(alice);
-        // Ask for more ETH than 1,000 TKN can pair with: the excess comes back.
         (uint128 liquidity, uint256 used0, uint256 used1) =
             vault.deposit{value: 3 ether}(3 ether, 1000 ether, 0, 0, alice, block.timestamp);
-
         assertGt(liquidity, 0);
         assertEq(vault.balanceOf(alice), liquidity);
         assertEq(vault.totalSupply(), liquidity);
@@ -110,65 +124,157 @@ contract TidewellVaultTest is Fixture {
         assertEq(address(vault).balance, 0);
     }
 
-    function test_deposit_wrongValueAndExpiredDeadlineRevert() public {
-        vm.prank(alice);
+    function test_deposit_guards() public {
+        vm.startPrank(alice);
         vm.expectRevert(TidewellVault.WrongValue.selector);
         vault.deposit{value: 1 ether}(2 ether, 2000 ether, 0, 0, alice, block.timestamp);
-
-        vm.prank(alice);
         vm.expectRevert(TidewellVault.Expired.selector);
         vault.deposit{value: 1 ether}(1 ether, 2000 ether, 0, 0, alice, block.timestamp - 1);
-    }
-
-    function test_deposit_slippageMinimumsRevert() public {
-        vm.prank(alice);
         vm.expectRevert(TidewellVault.Slippage.selector);
         vault.deposit{value: 1 ether}(1 ether, 2000 ether, 1 ether, 1999 ether, alice, block.timestamp);
+        vm.stopPrank();
     }
 
-    function test_deposit_feesEarnedBeforeYouJoinAreNotYours() public {
-        stake(alice, 10 ether);
-        churn(5);
-        // Bob's deposit touches the position, which collects every fee it has
-        // earned. Those are held for the next harvest, not handed to Bob.
-        uint128 bobShares = stake(bob, 10 ether);
-        assertGt(vault.pendingEthFees() + vault.pendingTokenFees(), 0);
+    function test_deposit_forSomeoneElse_creditsThemNotThePayer() public {
+        vm.prank(alice);
+        (uint128 l,,) = vault.deposit{value: 1 ether}(1 ether, 2000 ether, 0, 0, bob, block.timestamp);
+        assertEq(vault.balanceOf(bob), l);
+        assertEq(vault.balanceOf(alice), 0);
+    }
 
-        uint256 ethBefore = bob.balance;
-        uint256 tknBefore = token.balanceOf(bob);
-        vm.prank(bob);
-        (uint256 out0, uint256 out1) = vault.withdraw(bobShares, 0, 0, bob, block.timestamp);
-        // Principal only: what he put in, less rounding in the pool's favour.
-        assertApproxEqAbs(out0, 10 ether, 2);
-        assertEq(bob.balance, ethBefore + out0);
-        assertEq(token.balanceOf(bob), tknBefore + out1);
+    // ------------------------------------------- fees belong to who earned them
+
+    /// The review's sniping scenario: Alice alone earns every fee; Bob deposits
+    /// nine times her stake just before anyone collects. Bob gets none of it.
+    function test_fees_cannotBeSnipedByALateLargeDeposit() public {
+        stake(alice, 10 ether);
+        churn(10);
+        (uint256 f0, uint256 f1) = uncollected();
+        stake(bob, 90 ether); // collects first, credited to Alice's shares only
+
+        (uint256 b0, uint256 b1) = claimAll(bob);
+        assertEq(b0 + b1, 0, "Bob earned nothing he can claim");
+        (uint256 a0, uint256 a1) = claimAll(alice);
+        // Alice gets everything her stake earned, less the 10% protocol fee.
+        assertApproxEqAbs(a0, f0 - f0 / 10, 2);
+        assertApproxEqAbs(a1, f1 - f1 / 10, 2);
+    }
+
+    /// The review's forfeiture scenario: leaving does not lose what you earned.
+    function test_fees_surviveWithdrawingEverything() public {
+        stake(alice, 10 ether);
+        stake(bob, 10 ether);
+        churn(10);
+        vm.prank(alice);
+        (,, uint256 fa0, uint256 fa1) = vault.exit(0, 0, alice, block.timestamp);
+        assertGt(fa0, 0);
+        assertGt(fa1, 0);
+
+        // A month later Bob's half is still there for him, and equal to hers.
+        vm.warp(block.timestamp + 30 days);
+        (uint256 b0, uint256 b1) = claimAll(bob);
+        assertApproxEqAbs(b0, fa0, 1);
+        assertApproxEqAbs(b1, fa1, 1);
+    }
+
+    function test_fees_splitByShareAndTime() public {
+        uint128 sa = stake(alice, 10 ether);
+        churn(5); // Alice alone
+        (uint256 alone0, uint256 alone1) = uncollected();
+        uint128 sb = stake(bob, 10 ether);
+        churn(5);
+        (uint256 a0, uint256 a1) = claimAll(alice);
+        (uint256 b0, uint256 b1) = claimAll(bob);
+        // Alice: everything the vault earned while she was alone (less 10%),
+        // plus Bob's share of what came after scaled by her shares to his.
+        assertApproxEqAbs(a0, alone0 - alone0 / 10 + b0 * sa / sb, 3);
+        assertApproxEqAbs(a1, alone1 - alone1 / 10 + b1 * sa / sb, 3);
+    }
+
+    /// §3.5, restated for per-share fees: claiming every hour pays exactly
+    /// what never claiming pays.
+    function test_claimingEveryHour_paysExactlyWhatNeverClaimingPays() public {
+        stake(alice, 10 ether);
+        stake(bob, 10 ether);
+        uint256 bob0;
+        uint256 bob1;
+        for (uint256 h; h < 72; h++) {
+            vm.warp(block.timestamp + 1 hours);
+            churn(1);
+            (uint256 c0, uint256 c1) = claimAll(bob);
+            bob0 += c0;
+            bob1 += c1;
+        }
+        (uint256 a0, uint256 a1) = claimAll(alice);
+        (uint256 d0, uint256 d1) = claimAll(bob);
+        bob0 += d0;
+        bob1 += d1;
+        assertGt(a0, 0);
+        assertEq(a0, bob0);
+        assertEq(a1, bob1);
+    }
+
+    /// The protocol's share is exactly 10% of what was collected.
+    function test_protocolFee_isTenPercentOfFees_paidToTheTreasury() public {
+        stake(alice, 10 ether);
+        churn(10);
+        (uint256 f0, uint256 f1) = uncollected();
+        vault.poke();
+        assertEq(vault.protocolOwed0(), f0 * 1000 / 10_000);
+        assertEq(vault.protocolOwed1(), f1 * 1000 / 10_000);
+
+        uint256 eth = treasury.balance;
+        (uint256 p0, uint256 p1) = vault.payProtocolFees();
+        assertEq(treasury.balance - eth, p0);
+        assertEq(token.balanceOf(treasury), p1);
+        assertEq(vault.protocolOwed0() + vault.protocolOwed1(), 0);
+    }
+
+    function test_claimable_matchesWhatClaimPays() public {
+        stake(alice, 10 ether);
+        churn(7);
+        (uint256 v0, uint256 v1) = vault.claimable(alice);
+        (uint256 a0, uint256 a1) = claimAll(alice);
+        assertApproxEqAbs(a0, v0, 1);
+        assertApproxEqAbs(a1, v1, 1);
+        (uint256 again0, uint256 again1) = claimAll(alice);
+        assertEq(again0 + again1, 0);
+    }
+
+    /// §9's P3 criterion needs no keeper now: after 48 hours in which nobody
+    /// touched the vault, one claim collects exactly what the position earned
+    /// in that window (the staker's 90%), measured from the PoolManager.
+    function test_48hUntouched_oneClaimCollectsExactlyWhatAccrued() public {
+        stake(alice, 10 ether);
+        churn(2);
+        claimAll(alice);
+        for (uint256 h; h < 48; h++) {
+            vm.warp(block.timestamp + 1 hours);
+            churn(1);
+        }
+        (uint256 f0, uint256 f1) = uncollected();
+        (uint256 a0, uint256 a1) = claimAll(alice);
+        assertApproxEqAbs(a0, f0 - f0 * 1000 / 10_000, 1);
+        assertApproxEqAbs(a1, f1 - f1 * 1000 / 10_000, 1);
+        (uint256 again0, uint256 again1) = claimAll(alice);
+        assertEq(again0 + again1, 0, "no double payment");
     }
 
     // --------------------------------------------------------------- withdraw
 
-    function test_withdraw_worksWithNoRewardsEverAndNoWeth() public {
-        uint128 shares = stake(alice, 5 ether);
-        assertEq(vault.rewardRate(), 0);
-        assertEq(weth.balanceOf(address(vault)), 0);
-        vm.prank(alice);
-        (uint256 out0,) = vault.withdraw(shares, 0, 0, alice, block.timestamp);
-        assertApproxEqAbs(out0, 5 ether, 2);
-        assertEq(vault.totalSupply(), 0);
-        assertEq(vault.positionLiquidity(), 0);
-    }
-
-    function test_withdraw_worksWithDepositsClosed() public {
+    function test_withdraw_returnsPrincipal_andIsAlwaysAvailable() public {
         uint128 shares = stake(alice, 5 ether);
         vm.prank(owner);
         vault.setDepositsOpen(false);
-
         vm.prank(bob);
         vm.expectRevert(TidewellVault.DepositsClosed.selector);
         vault.deposit{value: 1 ether}(1 ether, 2000 ether, 0, 0, bob, block.timestamp);
 
         vm.prank(alice);
-        vault.withdraw(shares, 0, 0, alice, block.timestamp);
-        assertEq(vault.balanceOf(alice), 0);
+        (uint256 out0,) = vault.withdraw(shares, 0, 0, alice, block.timestamp);
+        assertApproxEqAbs(out0, 5 ether, 2);
+        assertEq(vault.totalSupply(), 0);
+        assertEq(vault.positionLiquidity(), 0);
     }
 
     function test_withdraw_cannotTakeMoreThanYourShares() public {
@@ -179,203 +285,77 @@ contract TidewellVaultTest is Fixture {
         vault.withdraw(shares + 1, 0, 0, alice, block.timestamp);
     }
 
-    // ---------------------------------------------------------------- harvest
-
-    function test_harvest_tenPercentToTreasury_restStreamsOverSevenDays() public {
-        stake(alice, 10 ether);
-        churn(10);
-
-        (uint256 reward, uint256 cut) = harvest();
-        assertGt(reward, 0);
-        // The protocol's share is 10% of the fees, exactly (§3.3, §7).
-        assertEq(cut, (reward + cut) * 1000 / 10_000);
-        assertEq(weth.balanceOf(treasury), cut);
-        assertEq(vault.periodFinish(), block.timestamp + 7 days);
-        assertEq(vault.lastHarvestAt(), block.timestamp);
-
-        // Half way: half the stream, give or take rounding.
-        vm.warp(block.timestamp + 3.5 days);
-        assertApproxEqRel(vault.earned(alice), reward / 2, 1e15);
-
-        // At the end: all of it, less at most dust held back by rounding.
-        vm.warp(block.timestamp + 3.5 days);
-        uint256 earned = vault.earned(alice);
-        assertLe(earned, reward);
-        assertApproxEqAbs(earned, reward, 7 days);
-
-        vm.prank(alice);
-        uint256 paid = vault.claim(alice);
-        assertEq(paid, earned);
-        assertEq(weth.balanceOf(alice), paid);
-    }
-
-    function test_harvest_onlyTheKeeper() public {
-        stake(alice, 1 ether);
-        vm.prank(alice);
-        vm.expectRevert(TidewellVault.NotKeeper.selector);
-        vault.harvest(0, block.timestamp);
-    }
-
-    function test_harvest_minimumFromTokenSaleIsEnforced() public {
+    function test_withdraw_principalExcludesFees() public {
         stake(alice, 10 ether);
         churn(5);
-        vm.prank(keeper);
-        vm.expectRevert(TidewellVault.Slippage.selector);
-        vault.harvest(1000 ether, block.timestamp);
-    }
-
-    function test_harvest_withNothingStakedOrEarnedIsHarmless() public {
-        (uint256 reward, uint256 cut) = harvest();
-        assertEq(reward + cut, 0);
-    }
-
-    function test_rewards_streamedWhileNobodyIsStakedAreQueuedNotLost() public {
-        uint128 shares = stake(alice, 10 ether);
-        churn(10);
-        (uint256 reward,) = harvest();
-
-        // Alice leaves a day in; six days of stream have nobody to go to.
-        vm.warp(block.timestamp + 1 days);
-        vm.prank(alice);
-        vault.exit(0, 0, alice, block.timestamp);
-        uint256 alicePaid = weth.balanceOf(alice);
-        vm.warp(block.timestamp + 6 days);
-
-        // Bob arrives and the next harvest folds the queued WETH in.
-        stake(bob, 10 ether);
-        churn(1);
-        (uint256 reward2,) = harvest();
-        vm.warp(block.timestamp + 7 days);
-        uint256 bobEarned = vault.earned(bob);
-
-        // Everything notified reaches a staker, less rounding dust.
-        assertApproxEqAbs(alicePaid + bobEarned, reward + reward2, 2 * 7 days);
-        assertGt(bobEarned, reward2);
-        shares; // silence
-    }
-
-    // ------------------------------------------------------ §9: P3 acceptance
-
-    /// @dev What the vault's position is owed plus what it already holds,
-    ///      from the PoolManager's own fee accounting.
-    function owedFees() internal view returns (uint256 eth, uint256 tkn) {
-        IPoolManager pm = IPoolManager(address(manager));
-        (uint128 liq, uint256 last0, uint256 last1) = StateLibrary.getPositionInfo(
-            pm, vault.poolId(), address(vault), vault.tickLower(), vault.tickUpper(), bytes32(0)
-        );
-        (uint256 now0, uint256 now1) =
-            StateLibrary.getFeeGrowthInside(pm, vault.poolId(), vault.tickLower(), vault.tickUpper());
-        eth = FullMath.mulDiv(now0 - last0, liq, FixedPoint128.Q128) + vault.pendingEthFees();
-        tkn = FullMath.mulDiv(now1 - last1, liq, FixedPoint128.Q128) + vault.pendingTokenFees();
-    }
-
-    /// @dev Harvest, returning the fees it reported collecting.
-    function harvestLogged() internal returns (uint256 ethFees, uint256 tokenSold) {
-        vm.recordLogs();
-        harvest();
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig = keccak256("Harvested(uint256,uint256,uint256,uint256,uint256)");
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == sig) {
-                (ethFees, tokenSold,,,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
-                return (ethFees, tokenSold);
-            }
-        }
-        revert("no Harvested event");
-    }
-
-    /// @notice "Killing the keeper for 48 hours and restarting it distributes
-    ///         exactly the fees accrued in that window, with no double-payment
-    ///         and no loss." The on-chain half: one harvest after a 48-hour
-    ///         gap collects exactly what the position earned, measured
-    ///         independently from the PoolManager's fee growth; and every
-    ///         later harvest collects exactly what accrued since, so no fee is
-    ///         ever counted twice.
-    function test_keeperOutage48h_oneHarvestCollectsExactlyWhatAccrued() public {
-        stake(alice, 10 ether);
-        churn(2);
-        harvest();
-
-        for (uint256 h; h < 48; h++) {
-            vm.warp(block.timestamp + 1 hours);
-            churn(1);
-        }
-
-        (uint256 owedEth, uint256 owedTkn) = owedFees();
-        assertGt(owedEth, 0);
-        assertGt(owedTkn, 0);
-        (uint256 ethFees, uint256 tokenSold) = harvestLogged();
-        assertEq(ethFees, owedEth, "ETH-side fees: exactly what accrued");
-        assertEq(tokenSold, owedTkn, "token-side fees: exactly what accrued, all sold");
-        assertEq(vault.pendingTokenFees(), 0);
-
-        // Restarted again at once: it collects only what accrued since — the
-        // vault's own share of the fee its harvest swap just paid — never the
-        // 48 hours a second time.
-        (uint256 sinceEth, uint256 sinceTkn) = owedFees();
-        (uint256 ethFees2, uint256 tokenSold2) = harvestLogged();
-        assertEq(ethFees2, sinceEth);
-        assertEq(tokenSold2, sinceTkn);
-        assertLt(ethFees2 + tokenSold2 / 1000, (ethFees + tokenSold / 1000) / 50);
-    }
-
-    // ------------------------------------------------------- the §3.5 invariant
-
-    /// @notice A staker who never claims and withdraws at T receives exactly
-    ///         the same WETH as one who claimed every hour.
-    function test_claimingEveryHour_paysExactlyWhatNeverClaimingPays() public {
-        stake(alice, 10 ether);
-        stake(bob, 10 ether);
-        assertEq(vault.balanceOf(alice), vault.balanceOf(bob));
-        churn(10);
-        harvest();
-
-        for (uint256 h = 1; h <= 24 * 7; h++) {
-            vm.warp(block.timestamp + 1 hours);
-            vm.prank(bob);
-            vault.claim(bob);
-            if (h == 60) {
-                churn(3); // a second harvest mid-stream
-                harvest();
-            }
-        }
-        vm.warp(block.timestamp + 3 days);
-        vm.prank(alice);
-        vault.exit(0, 0, alice, block.timestamp);
+        uint128 bobShares = stake(bob, 10 ether);
         vm.prank(bob);
-        vault.exit(0, 0, bob, block.timestamp);
+        (uint256 out0,) = vault.withdraw(bobShares, 0, 0, bob, block.timestamp);
+        assertApproxEqAbs(out0, 10 ether, 2);
+    }
 
-        assertGt(weth.balanceOf(alice), 0);
-        assertEq(weth.balanceOf(alice), weth.balanceOf(bob));
+    /// Review finding 4: a token issuer freezing the vault's address must not
+    /// block withdrawals or claims. The vault never holds the tokens.
+    function test_frozenVaultAddress_doesNotBlockWithdrawOrClaim() public {
+        FreezableToken frz = new FreezableToken();
+        frz.mint(address(this), 1e36);
+        frz.approve(address(swapRouter), type(uint256).max);
+        frz.approve(address(lpRouter), type(uint256).max);
+        PoolKey memory k =
+            PoolKey(Currency.wrap(address(0)), Currency.wrap(address(frz)), FEE, SPACING, IHooks(address(0)));
+        manager.initialize(k, startPrice(k));
+        seedLiquidity(k, 1e21);
+        TidewellVault v = new TidewellVault(manager, k, owner, treasury, 2000, 1000);
+        frz.mint(alice, 1e30);
+        vm.prank(alice);
+        frz.approve(address(v), type(uint256).max);
+        vm.prank(alice);
+        (uint128 s,,) = v.deposit{value: 10 ether}(10 ether, 11_000 ether, 0, 0, alice, block.timestamp);
+        for (uint256 i; i < 5; i++) {
+            trade(k, true, 5 ether);
+            trade(k, false, 5000 ether);
+        }
+        frz.freeze(address(v));
+
+        vm.prank(alice);
+        (uint256 out0, uint256 out1) = v.withdraw(s, 0, 0, alice, block.timestamp);
+        assertGt(out0, 0);
+        assertGt(out1, 0);
+        vm.prank(alice);
+        (uint256 c0, uint256 c1) = v.claim(alice);
+        assertGt(c0, 0);
+        assertGt(c1, 0);
     }
 
     // ------------------------------------------------------------------ owner
 
-    function test_protocolFee_canNeverExceedTheCap() public {
+    function test_protocolFee_canNeverExceedTheCap_andAppliesFromNowOn() public {
+        stake(alice, 10 ether);
+        churn(5);
+        (uint256 f0,) = uncollected();
         vm.startPrank(owner);
-        vault.setProtocolFee(2000);
         vm.expectRevert(TidewellVault.FeeAboveCap.selector);
         vault.setProtocolFee(2001);
-        vault.setProtocolFee(0);
+        vault.setProtocolFee(2000); // collects first: fees so far cut at 10%
         vm.stopPrank();
+        assertEq(vault.protocolOwed0(), f0 * 1000 / 10_000);
 
-        TidewellVault capped = new TidewellVault(manager, IWETH9(address(weth)), key, owner, keeper, treasury, 1500, 1000);
+        TidewellVault capped = new TidewellVault(manager, key, owner, treasury, 1500, 1000);
         vm.prank(owner);
         vm.expectRevert(TidewellVault.FeeAboveCap.selector);
         capped.setProtocolFee(1600);
     }
 
-    function test_owner_onlyOwnerAndTwoStepTransfer() public {
+    function test_owner_onlyOwner_twoStepTransfer() public {
         vm.prank(alice);
         vm.expectRevert(TidewellVault.NotOwner.selector);
-        vault.setKeeper(alice);
+        vault.setTreasury(alice);
         vm.prank(alice);
         vm.expectRevert(TidewellVault.NotOwner.selector);
-        vault.setProtocolFee(0);
+        vault.setDepositsOpen(false);
 
         vm.prank(owner);
         vault.transferOwnership(alice);
-        assertEq(vault.owner(), owner);
         vm.prank(bob);
         vm.expectRevert(TidewellVault.NotOwner.selector);
         vault.acceptOwnership();
@@ -385,14 +365,24 @@ contract TidewellVaultTest is Fixture {
     }
 
     function test_receive_rejectsStrayEth() public {
-        vm.deal(alice, 1 ether);
         vm.prank(alice);
         (bool ok,) = address(vault).call{value: 1 ether}("");
         assertFalse(ok);
     }
+
+    function test_claimsHeld_coverEverythingOwed() public {
+        stake(alice, 10 ether);
+        stake(bob, 3 ether);
+        churn(6);
+        vault.poke();
+        (uint256 a0, uint256 a1) = vault.owed(alice);
+        (uint256 b0, uint256 b1) = vault.owed(bob);
+        assertGe(claimsHeld(key.currency0), a0 + b0 + vault.protocolOwed0());
+        assertGe(claimsHeld(key.currency1), a1 + b1 + vault.protocolOwed1());
+    }
 }
 
-/// @notice The same vault on WETH pools, with WETH sorting on either side.
+/// @notice The same vault on a WETH pool, WETH on either side.
 contract TidewellVaultWethTest is Fixture {
     function _run(PoolKey memory key) internal {
         initPool(key);
@@ -405,28 +395,20 @@ contract TidewellVaultWethTest is Fixture {
         weth.deposit{value: 100 ether}();
 
         bool ethIs0 = Currency.unwrap(key.currency0) == address(weth);
-        (uint256 d0, uint256 d1) = ethIs0 ? (uint256(10 ether), uint256(11_000 ether)) : (uint256(11_000 ether), uint256(10 ether));
+        (uint256 d0, uint256 d1) =
+            ethIs0 ? (uint256(10 ether), uint256(11_000 ether)) : (uint256(11_000 ether), uint256(10 ether));
         vm.prank(alice);
         (uint128 shares,,) = vault.deposit(d0, d1, 0, 0, alice, block.timestamp);
         assertEq(vault.positionLiquidity(), shares);
-
         for (uint256 i; i < 5; i++) {
             trade(key, ethIs0, 5 ether);
             trade(key, !ethIs0, 5000 ether);
         }
-        vm.prank(keeper);
-        (uint256 reward, uint256 cut) = vault.harvest(0, block.timestamp);
-        assertGt(reward, 0);
-        assertEq(weth.balanceOf(treasury), cut);
-
-        vm.warp(block.timestamp + 7 days);
-        uint256 before = weth.balanceOf(alice);
         vm.prank(alice);
-        vault.exit(0, 0, alice, block.timestamp);
-        assertGt(weth.balanceOf(alice), before);
+        (,, uint256 f0, uint256 f1) = vault.exit(0, 0, alice, block.timestamp);
+        assertGt(f0, 0);
+        assertGt(f1, 0);
         assertEq(vault.totalSupply(), 0);
-        // Everything left is reserved dust or nothing.
-        assertGe(weth.balanceOf(address(vault)), vault.rewardsReserved());
     }
 
     function test_wethPool() public {
@@ -436,7 +418,6 @@ contract TidewellVaultWethTest is Fixture {
 
     function test_wethPool_otherOrder() public {
         deployCore();
-        // Redeploy the token until it sorts on the other side of WETH.
         bool wethFirst = address(weth) < address(token);
         while ((address(weth) < address(token)) == wethFirst) {
             token = new MockERC20("Token", "TKN", 18);

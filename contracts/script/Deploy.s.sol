@@ -30,8 +30,7 @@ import {TidewellRouterFactory} from "../src/TidewellRouter.sol";
 /// button. A rehearsal on a fork runs anvil with --chain-id 31337.
 ///
 /// Environment:
-///   OWNER                  vaults' owner: sets keeper, treasury, fee (<= cap)
-///   KEEPER                 harvest / route trigger (a hot wallet with gas only)
+///   OWNER                  vaults' owner: sets treasury, fee (<= cap), closes deposits
 ///   TREASURY               receives the protocol fee
 ///   PROTOCOL_FEE_BPS       default 1000 (10% of harvested fees)
 ///   PROTOCOL_FEE_CAP_BPS   default 2000; immutable per vault, never above 2000
@@ -88,7 +87,6 @@ contract Deploy is Script {
 
     function _deploy(PoolKey[] memory pools) internal returns (Deployed memory d) {
         address owner = vm.envAddress("OWNER");
-        address keeper = vm.envAddress("KEEPER");
         address treasury = vm.envAddress("TREASURY");
         uint16 feeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));
         uint16 capBps = uint16(vm.envOr("PROTOCOL_FEE_CAP_BPS", uint256(2000)));
@@ -99,7 +97,7 @@ contract Deploy is Script {
         d.factory = address(new TidewellRouterFactory(POOL_MANAGER, WETH));
         d.vaults = new address[](pools.length);
         for (uint256 i; i < pools.length; i++) {
-            d.vaults[i] = address(new TidewellVault(POOL_MANAGER, WETH, pools[i], owner, keeper, treasury, capBps, feeBps));
+            d.vaults[i] = address(new TidewellVault(POOL_MANAGER, pools[i], owner, treasury, capBps, feeBps));
         }
         vm.stopBroadcast();
         d.pools = pools;

@@ -3,23 +3,22 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
 import {TidewellVault} from "../src/TidewellVault.sol";
 import {Fixture} from "./utils/Fixture.sol";
 
-/// @notice Drives the vault the way fifty wallets, traders and a keeper would,
-///         in random order. CLAUDE.md §9: "random deposit / withdraw / claim
+/// @notice Drives the vault the way fifty wallets and the market would, in
+///         random order. CLAUDE.md §9: "random deposit / withdraw / claim
 ///         orderings across 50 wallets never leave the vault unable to pay
-///         sum(earned)".
+///         sum(earned)" — here, every fee owed, in both tokens.
 contract VaultHandler is Fixture {
     TidewellVault public vault;
     PoolKey internal key;
     address[] public actors;
 
-    // Ghost accounting, kept outside the vault so the invariants can check
-    // the vault against an independent tally.
-    uint256 public ghostNotified;
-    uint256 public ghostPaid;
-    uint256 public ghostCut;
+    // Independent tallies the invariants check the vault against.
+    uint256 public ghostPaid0;
+    uint256 public ghostPaid1;
     uint256 public calls;
 
     constructor() {
@@ -39,6 +38,10 @@ contract VaultHandler is Fixture {
         return actors.length;
     }
 
+    function currency(uint256 i) external view returns (Currency) {
+        return i == 0 ? key.currency0 : key.currency1;
+    }
+
     function _actor(uint256 seed) internal view returns (address) {
         return actors[seed % actors.length];
     }
@@ -49,6 +52,15 @@ contract VaultHandler is Fixture {
         eth = bound(eth, 0.001 ether, 50 ether);
         vm.prank(a);
         vault.deposit{value: eth}(eth, eth * 2000, 0, 0, a, block.timestamp);
+    }
+
+    function depositFor(uint256 payerSeed, uint256 recipientSeed, uint256 eth) external {
+        calls++;
+        address payer = _actor(payerSeed);
+        address recipient = _actor(recipientSeed);
+        eth = bound(eth, 0.001 ether, 20 ether);
+        vm.prank(payer);
+        vault.deposit{value: eth}(eth, eth * 2000, 0, 0, recipient, block.timestamp);
     }
 
     function withdraw(uint256 seed, uint256 fraction) external {
@@ -65,15 +77,18 @@ contract VaultHandler is Fixture {
         calls++;
         address a = _actor(seed);
         vm.prank(a);
-        ghostPaid += vault.claim(a);
+        (uint256 c0, uint256 c1) = vault.claim(a);
+        ghostPaid0 += c0;
+        ghostPaid1 += c1;
     }
 
     function exit(uint256 seed) external {
         calls++;
         address a = _actor(seed);
         vm.prank(a);
-        (,, uint256 reward) = vault.exit(0, 0, a, block.timestamp);
-        ghostPaid += reward;
+        (,, uint256 f0, uint256 f1) = vault.exit(0, 0, a, block.timestamp);
+        ghostPaid0 += f0;
+        ghostPaid1 += f1;
     }
 
     function swap(bool zeroForOne, uint256 amount) external {
@@ -82,12 +97,14 @@ contract VaultHandler is Fixture {
         trade(key, zeroForOne, amount);
     }
 
-    function harvest() external {
+    function poke() external {
         calls++;
-        vm.prank(keeper);
-        (uint256 reward, uint256 cut) = vault.harvest(0, block.timestamp);
-        ghostNotified += reward;
-        ghostCut += cut;
+        vault.poke();
+    }
+
+    function payProtocol() external {
+        calls++;
+        vault.payProtocolFees();
     }
 
     function setFee(uint256 bps) external {
@@ -102,16 +119,18 @@ contract VaultHandler is Fixture {
         vm.warp(block.timestamp + bound(secs, 1 minutes, 3 days));
     }
 
-    /// @notice Every staker leaves, in order, and is paid in full.
-    function everyoneExits() external returns (uint256 paid) {
+    /// @notice Every staker leaves and claims, in order, and is paid exactly
+    ///         what the vault said they were owed.
+    function everyoneExits() external {
+        vault.poke();
         for (uint256 i; i < actors.length; i++) {
             address a = actors[i];
-            uint256 owed = vault.earned(a);
+            (uint256 o0, uint256 o1) = vault.owed(a);
             vm.prank(a);
-            (,, uint256 reward) = vault.exit(0, 0, a, block.timestamp);
-            require(reward == owed, "paid less than earned");
-            paid += reward;
+            (,, uint256 f0, uint256 f1) = vault.exit(0, 0, a, block.timestamp);
+            require(f0 == o0 && f1 == o1, "paid other than owed");
         }
+        vault.payProtocolFees();
     }
 }
 
@@ -122,22 +141,33 @@ contract TidewellVaultInvariantTest is Test {
     function setUp() public {
         handler = new VaultHandler();
         vault = handler.vault();
-        bytes4[] memory selectors = new bytes4[](8);
+        bytes4[] memory selectors = new bytes4[](11);
         selectors[0] = VaultHandler.deposit.selector;
-        selectors[1] = VaultHandler.withdraw.selector;
-        selectors[2] = VaultHandler.claim.selector;
-        selectors[3] = VaultHandler.exit.selector;
-        selectors[4] = VaultHandler.swap.selector;
-        selectors[5] = VaultHandler.harvest.selector;
-        selectors[6] = VaultHandler.setFee.selector;
-        selectors[7] = VaultHandler.warp.selector;
+        selectors[1] = VaultHandler.depositFor.selector;
+        selectors[2] = VaultHandler.withdraw.selector;
+        selectors[3] = VaultHandler.claim.selector;
+        selectors[4] = VaultHandler.exit.selector;
+        selectors[5] = VaultHandler.swap.selector;
+        selectors[6] = VaultHandler.poke.selector;
+        selectors[7] = VaultHandler.payProtocol.selector;
+        selectors[8] = VaultHandler.setFee.selector;
+        selectors[9] = VaultHandler.warp.selector;
+        selectors[10] = VaultHandler.swap.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
 
-    function _sumEarned() internal view returns (uint256 sum) {
+    function _held(uint256 i) internal view returns (uint256) {
+        return PM(address(vault.poolManager())).balanceOf(address(vault), handler.currency(i).toId());
+    }
+
+    function _sumOwed() internal view returns (uint256 s0, uint256 s1) {
         uint256 n = handler.actorCount();
-        for (uint256 i; i < n; i++) sum += vault.earned(handler.actors(i));
+        for (uint256 i; i < n; i++) {
+            (uint256 o0, uint256 o1) = vault.owed(handler.actors(i));
+            s0 += o0;
+            s1 += o1;
+        }
     }
 
     /// §3.5: sum(balances) == totalSupply, always.
@@ -159,31 +189,31 @@ contract TidewellVaultInvariantTest is Test {
         assertLe(vault.protocolFeeCapBps(), 2000);
     }
 
-    /// §9: the vault can always pay sum(earned).
-    function invariant_canAlwaysPayEverythingEarned() public view {
-        uint256 sumEarned = _sumEarned();
-        assertLe(sumEarned, vault.rewardsReserved());
-        assertGe(weth().balanceOf(address(vault)), vault.rewardsReserved());
+    /// §9: the vault can always pay every fee it owes — every staker's and the
+    /// protocol's — from the claims it holds, in both tokens.
+    function invariant_canAlwaysPayEverythingOwed() public view {
+        (uint256 s0, uint256 s1) = _sumOwed();
+        assertGe(_held(0), s0 + vault.protocolOwed0());
+        assertGe(_held(1), s1 + vault.protocolOwed1());
     }
 
-    /// Nothing notified goes missing: it is paid, or still reserved.
-    function invariant_rewardAccountingCloses() public view {
-        assertEq(handler.ghostNotified(), handler.ghostPaid() + vault.rewardsReserved());
+    /// The only thing left over is rounding dust below a wei per staker.
+    function invariant_noValueStrandedBeyondDust() public view {
+        (uint256 s0, uint256 s1) = _sumOwed();
+        uint256 n = handler.actorCount();
+        assertLe(_held(0) - s0 - vault.protocolOwed0(), n + handler.calls());
+        assertLe(_held(1) - s1 - vault.protocolOwed1(), n + handler.calls());
     }
 
-    /// After every run: every staker can leave, and is paid what they earned.
+    /// After every run: everyone leaves and is paid exactly what they are owed.
     function afterInvariant() public {
         handler.everyoneExits();
         assertEq(vault.totalSupply(), 0);
         assertEq(uint256(vault.positionLiquidity()), 0);
-        assertGe(weth().balanceOf(address(vault)), vault.rewardsReserved());
-    }
-
-    function weth() internal view returns (WETHView) {
-        return WETHView(address(vault.weth()));
+        assertEq(vault.protocolOwed0() + vault.protocolOwed1(), 0);
     }
 }
 
-interface WETHView {
-    function balanceOf(address) external view returns (uint256);
+interface PM {
+    function balanceOf(address owner, uint256 id) external view returns (uint256);
 }
