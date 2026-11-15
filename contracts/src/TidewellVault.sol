@@ -334,14 +334,16 @@ contract TidewellVault is IUnlockCallback {
         if (liquidity == 0) revert ZeroLiquidity();
 
         _updateReward(recipient);
+        // Shares first, then the PoolManager: nothing outside this call ever
+        // sees the position larger than totalSupply. A failed check below
+        // reverts both together.
+        balanceOf[recipient] += liquidity;
+        totalSupply += liquidity;
 
         bytes memory result = poolManager.unlock(abi.encode(Action.Deposit, msg.sender, liquidity));
         (amount0, amount1) = abi.decode(result, (uint256, uint256));
         if (amount0 > amount0Desired || amount1 > amount1Desired) revert Slippage();
         if (amount0 < amount0Min || amount1 < amount1Min) revert Slippage();
-
-        balanceOf[recipient] += liquidity;
-        totalSupply += liquidity;
 
         if (ethIsNative && msg.value > amount0) {
             Currency.wrap(address(0)).transfer(msg.sender, msg.value - amount0);
