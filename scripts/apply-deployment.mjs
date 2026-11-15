@@ -41,7 +41,9 @@ cfg[chainId] = {
   zap: addr(dep.zap),
   shaper: addr(dep.shaper),
   routerFactory: addr(dep.routerFactory),
-  routerFactoryDeployedBlock: dep.routerFactory ? Number(dep.block) : null,
+  // The factory's own creation block when recorded (contracts.sh takes it from
+  // the receipt), else the deployment's first block, which is earlier.
+  routerFactoryDeployedBlock: dep.routerFactory ? Number(dep.routerFactoryBlock ?? dep.block) : null,
   keeper: addr(dep.keeper) ?? cfg[chainId]?.keeper ?? null,
   vaults: (dep.vaults ?? []).map((v) => ({
     address: addr(v.address),

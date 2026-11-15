@@ -194,6 +194,32 @@ if [[ $missing -ne 0 ]]; then
 fi
 [[ $status -eq 0 ]] || echo "    (forge exit $status: most likely source verification only — the contracts are deployed)"
 
+# Inside a forge script on an Arbitrum chain, block.number is the L1
+# (Ethereum) block — 26 million when this chain was at 115 million — so the
+# file's blocks are replaced with the receipts' own. The indexer starts
+# reading each contract at its block; an L1 number there sends it scanning
+# ninety million empty blocks before a single stake shows on the site.
+node -e '
+  const fs = require("fs");
+  const [out, bc] = process.argv.slice(1);
+  const d = JSON.parse(fs.readFileSync(out, "utf8"));
+  let receipts = [];
+  try { receipts = JSON.parse(fs.readFileSync(bc, "utf8")).receipts ?? []; } catch {}
+  const at = {};
+  for (const r of receipts) if (r.contractAddress) at[r.contractAddress.toLowerCase()] = Number(BigInt(r.blockNumber));
+  const blockOf = (a) => at[String(a).toLowerCase()];
+  const all = [d.zap, d.shaper, d.routerFactory, ...d.vaults.map((v) => v.address)].map(blockOf);
+  if (all.some((n) => !Number.isInteger(n))) {
+    console.error("    receipts missing for some contracts in " + bc + ": blocks NOT corrected — say so when sending this back");
+    process.exit(0);
+  }
+  d.block = Math.min(...all);
+  d.routerFactoryBlock = blockOf(d.routerFactory);
+  for (const v of d.vaults) v.deployedBlock = blockOf(v.address);
+  fs.writeFileSync(out, JSON.stringify(d, null, 2) + "\n");
+  console.log("    blocks taken from the receipts: " + d.block + " to " + Math.max(...all));
+' "$OUT" "$APP_DIR/contracts/broadcast/Deploy.s.sol/4663/run-latest.json"
+
 say "deployed. Send this back so it is published to the site:"
 cat "$OUT"
 cat <<EOF

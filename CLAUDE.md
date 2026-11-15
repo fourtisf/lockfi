@@ -2174,8 +2174,7 @@ is given, and `scripts/apply-deployment.mjs` applies the same rule. A dry run
 writes nothing. Both paths were run against the real chain: refused without
 either, simulated with the acknowledgement.
 
-`config/deployments.json` is empty, so the site still says staking is not
-open. `docs/audit/` is the package for the auditor; `contracts/README.md` is
+`docs/audit/` is the package for the auditor; `contracts/README.md` is
 the runbook: rehearsal, testnet (chainId 46630 — its RPC was not reachable
 from the sandbox, so whether Uniswap v4 is deployed there is unverified), and
 mainnet after the audit.
@@ -2184,3 +2183,47 @@ What only ALFA can do: choose and pay an auditor; confirm the 10% fee and
 the 20% cap (§10 — the cap is immutable per vault); create the owner
 multisig, the treasury and a keeper hot wallet; deploy with their own keys;
 put `KEEPER_PRIVATE_KEY` in the server's `.env`.
+
+### Deployed: Robinhood Chain mainnet, 2026-11-15, unaudited
+
+ALFA ran `deploy/contracts.sh` on the box. Five transactions from the
+deployer `0x147C…fb32` (nonces 0–4), every one status 1:
+
+| Contract | Address | Block |
+|---|---|---|
+| TidewellZap | `0xd66dD61F88d1CF615e2098fdC10806D8ef043D3C` | 115,041,332 |
+| TidewellShaper | `0x89bAC15372Fd3770C871f0cc78c27c2Adb324A01` | 115,041,347 |
+| TidewellRouterFactory | `0x54e57b4130eA1448740B7d37f3Ae1B826b353549` | 115,041,378 |
+| TidewellVault, ETH/USDG 0.046% (pool `0x54f78839…`) | `0xff36537B0135F04021431461fC28EfFEff9D9A5c` | 115,041,410 |
+| TidewellVault, ETH/USDG 0.05% (pool `0x387bf619…`) | `0x901deabd094Bd204CBe02854b1924E5AB4C41597` | 115,041,443 |
+
+Owner and treasury are both `0x147C…fb32`; keeper `0x3D0b…27e3`; fee 10%,
+cap 20%; deposits open. Checked from outside the box before publishing:
+each address holds code; each vault reads back the PoolManager, its pool id,
+currencies, fee, spacing, owner, treasury, fee and cap as intended; the zap,
+shaper and factory read back §2's addresses; and **all five runtime
+bytecodes equal this repository's build** once immutables are masked. On a
+fork of mainnet a fresh wallet staked 0.01 ETH through the deployed zap into
+each vault and exited with 0.004995 ETH + 9.04 USDG.
+
+Two things the deploy taught:
+
+- **`block.number` in a forge script on an Arbitrum chain is the L1 block.**
+  The script recorded 26,421,134 for a chain at 115 million. The indexer
+  starts reading each vault at its `deployedBlock`, so that figure would have
+  sent it through ninety million empty blocks before a stake appeared on the
+  site. The blocks above are the receipts', found by scanning for the
+  deployer's transactions (the explorer is behind a Cloudflare challenge and
+  the public RPC keeps no historical state, so `eth_getCode` bisection does
+  not work either). `contracts.sh` now rewrites the file's blocks from
+  forge's broadcast receipts before printing it.
+- **Anvil's test account 0 is EIP-7702-delegated to a sweeper on this
+  chain**, so a fork test from it sees every native-ETH payout vanish — the
+  first exit "returned" 9 USDG and no ETH. A fresh key receives both sides.
+  Fork checks here use a fresh wallet; Foundry tests use `makeAddr`, which is
+  unaffected.
+
+`contracts/deployments/*.json` is ignored: it is written on the deploying
+machine, and committing it would make the box's `git checkout` refuse to
+overwrite its own untracked copy. `config/deployments.json` is the record.
+

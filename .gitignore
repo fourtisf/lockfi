@@ -26,3 +26,6 @@ contracts/broadcast/*/31337
 
 # Python bytecode (scripts/build-how-it-works.py imports build-brand.py)
 __pycache__/
+
+# Written on the deploying machine; the published record is config/deployments.json.
+contracts/deployments/*.json

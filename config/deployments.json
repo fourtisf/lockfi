@@ -1,12 +1,25 @@
 {
-  "_comment": "Tidewell contract addresses per chain. Written by contracts/script/Deploy.s.sol output, by hand, after a deploy. Empty means not deployed: the site then says staking is not open, and nothing can be signed.",
   "4663": {
     "network": "Robinhood Chain",
     "audited": false,
-    "zap": null,
-    "shaper": null,
-    "routerFactory": null,
-    "routerFactoryDeployedBlock": null,
-    "vaults": []
-  }
+    "auditReport": null,
+    "zap": "0xd66dd61f88d1cf615e2098fdc10806d8ef043d3c",
+    "shaper": "0x89bac15372fd3770c871f0cc78c27c2adb324a01",
+    "routerFactory": "0x54e57b4130ea1448740b7d37f3ae1b826b353549",
+    "routerFactoryDeployedBlock": 115041378,
+    "keeper": "0x3d0b3dbcf62bb8aab3159f6261913b25f95b27e3",
+    "vaults": [
+      {
+        "address": "0xff36537b0135f04021431461fc28effeff9d9a5c",
+        "poolId": "v4:0x54f7883914619af9105355bf83ed678bcf9f63560218ac61c9963b9503d0ba32",
+        "deployedBlock": 115041410
+      },
+      {
+        "address": "0x901deabd094bd204cbe02854b1924e5ab4c41597",
+        "poolId": "v4:0x387bf619da4d3fb62bb276482693dba1b9b3520f573cabdfe033384a24125982",
+        "deployedBlock": 115041443
+      }
+    ]
+  },
+  "_comment": "Tidewell contract addresses per chain. Written by contracts/script/Deploy.s.sol output, by hand, after a deploy. Empty means not deployed: the site then says staking is not open, and nothing can be signed."
 }

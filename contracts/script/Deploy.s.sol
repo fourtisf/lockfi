@@ -121,6 +121,8 @@ contract Deploy is Script {
         for (uint256 i; i < d.vaults.length; i++) {
             string memory v = string.concat("vault", vm.toString(i));
             vm.serializeAddress(v, "address", d.vaults[i]);
+            // On an Arbitrum chain this is the L1 block, not the chain's own;
+            // deploy/contracts.sh replaces it with the receipt's block.
             vm.serializeUint(v, "deployedBlock", block.number);
             entries[i] = vm.serializeString(v, "poolId", string.concat("v4:", vm.toString(PoolId.unwrap(d.pools[i].toId()))));
         }
