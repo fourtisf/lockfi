@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { MyStakes } from '@/components/stakes/MyStakes';
 import { StakesBody } from '@/components/stakes/StakesBody';
+import { DATA_SOURCE } from '@/lib/data';
 import { BRAND } from '@/lib/site';
 
 export const metadata: Metadata = { title: `Stakes — ${BRAND}` };
@@ -11,10 +12,21 @@ export default function StakesPage() {
       <div className="head">
         <div>
           <h1>Stakes</h1>
-          <p className="lede">
-            Drop in one token. Your share of the pool&rsquo;s swap fees streams to you in WETH over a
-            rolling seven days. Leave whenever you like.
-          </p>
+          {DATA_SOURCE === 'live' ? (
+            // Real vaults credit fees per share as they are collected and pay
+            // them in the pool's two tokens; the simulator still rehearses the
+            // WETH stream.
+            <p className="lede">
+              Drop in ETH. Your share of the pool&rsquo;s swap fees is credited the moment it&rsquo;s
+              earned — claim any time in ETH and the pool&rsquo;s token. Leave whenever you like:
+              leaving never forfeits fees already earned.
+            </p>
+          ) : (
+            <p className="lede">
+              Drop in one token. Your share of the pool&rsquo;s swap fees streams to you in WETH over a
+              rolling seven days. Leave whenever you like.
+            </p>
+          )}
         </div>
       </div>
       <StakesBody />

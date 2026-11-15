@@ -1,39 +1,48 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
-import { PROTOCOL_FEE_BPS } from '@/lib/chain';
-import { ageLabel, usd, weth } from '@/lib/format';
+import { AuditNotice, SignGate } from '@/components/wallet/Wallet';
+import { useStakeForm } from '@/hooks/useStakeForm';
+import { signingStatus } from '@/lib/contracts/status';
+import { ageLabel, usd } from '@/lib/format';
 import { BRAND } from '@/lib/site';
+import { DATA_SOURCE } from '@/lib/data';
 import { poolsOfToken } from '@/lib/pools';
-import { stakeQuote } from '@/lib/stake';
-import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldReason, feeYieldTitle, feeYieldValue } from '@/lib/yield';
+import {
+  FEE_YIELD_LABEL,
+  VAULT_YIELD_NOTE,
+  feeYieldQualifier,
+  feeYieldReason,
+  feeYieldTitle,
+  feeYieldValue,
+} from '@/lib/yield';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function StakeDrawer() {
-  const { pools, vaults, global, portfolio } = useMarket();
-  const { stakePoolId, closeStake, openStake, act } = useUi();
+  const { pools, vaults } = useMarket();
+  const { stakePoolId, closeStake, openStake } = useUi();
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const returnFocusTo = useRef<HTMLElement | null>(null);
-  const [amount, setAmount] = useState('1');
 
   const pool = pools.find((p) => p.id === stakePoolId) ?? null;
   const open = pool !== null;
-  // Staking needs a vault to stake into. The live site has none until the
-  // contracts ship, and the simulator has them for six pools of ten — the
-  // drawer used to offer a stake form for every pool regardless.
+  const form = useStakeForm(pool);
+  // Staking needs a vault to stake into. In the simulator that is one of its
+  // generated vaults (six pools of ten); live, it is a vault and the zap
+  // deployed on chain (config/deployments.json) — nothing else signs.
   const hasVault = pool !== null && vaults.some((v) => v.poolId === pool.id);
-  const canStake = pool !== null && pool.stakeable && hasVault;
+  const canStake =
+    pool !== null && (form.mode === 'live' || (form.mode === 'preview' && pool.stakeable && hasVault));
   // No vault anywhere is not a missing vault for this pool: staking itself has
-  // not launched (the contracts are P2, and §8 puts an audit before mainnet).
-  const stakingLaunched = vaults.length > 0;
-  const balance = portfolio.walletBalanceEth;
+  // not launched.
+  const stakingLaunched = vaults.length > 0 || signingStatus().vaults.length > 0;
   // The token's pools, deepest first. The board shows one row per token, so
   // this is where its other pools are found (lib/pools.ts).
   const siblings = pool ? poolsOfToken(pools, pool) : [];
@@ -75,14 +84,11 @@ export function StakeDrawer() {
     };
   }, [open, closeStake]);
 
-  const eth = Number.parseFloat(amount) || 0;
   const enoughData = pool?.feeYield.basis !== 'insufficient';
-  // The same sum the stake panel does (lib/stake.ts): weekly fees from the
-  // trailing window, after the protocol's cut, which the disclosure below
-  // reads from the same constant.
-  const quote = pool ? stakeQuote(pool, eth, global.ethPriceUsd) : null;
-  const share = quote?.share ?? 0;
-  const weeklyWeth = quote?.weeklyWeth ?? null;
+  // The same sum the stake panel does (lib/stake.ts, through useStakeForm):
+  // weekly fees from the trailing window, after the protocol's cut — the
+  // same fee the disclosure below prints, read from the vault when live.
+  const share = form.quote?.share ?? 0;
 
   return (
     <>
@@ -120,8 +126,9 @@ export function StakeDrawer() {
               <div className="kv">
                 <div>
                   {/* §1's label, once — it used to sit above and below the figure. */}
-                  <div className="k">
+                  <div className="k" title={hasVault && DATA_SOURCE === 'live' ? VAULT_YIELD_NOTE : undefined}>
                     {FEE_YIELD_LABEL.charAt(0).toUpperCase() + FEE_YIELD_LABEL.slice(1)}
+                    {hasVault && DATA_SOURCE === 'live' ? ' · pool average' : ''}
                   </div>
                   <div
                     className={`v num${enoughData ? ' up' : ' muted'}`}
@@ -157,9 +164,17 @@ export function StakeDrawer() {
                       <b>Staking isn&rsquo;t open yet</b>
                       <p className="hint">
                         {BRAND}&rsquo;s vaults — the contracts that hold a stake and pay it a share
-                        of the pool&rsquo;s fees — are still being built, and none goes live before an
-                        independent security audit. Until then this shows each pool&rsquo;s real
-                        trading, fees and depth, read from the chain. Nothing can be deposited yet.
+                        of the pool&rsquo;s fees — are not deployed yet. Until they are, this shows
+                        each pool&rsquo;s real trading, fees and depth, read from the chain. Nothing
+                        can be deposited yet.
+                      </p>
+                    </>
+                  ) : form.closedReason === 'no-eth-side' ? (
+                    <>
+                      <b>Not enterable with ETH</b>
+                      <p className="hint">
+                        This pool&rsquo;s {BRAND} vault exists, but the pool has no ETH side, and this
+                        form stakes ETH. Nothing can be staked into it from here yet.
                       </p>
                     </>
                   ) : !pool.stakeable ? (
@@ -244,12 +259,19 @@ export function StakeDrawer() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="0.0"
+                        value={form.amount}
+                        onChange={(e) => form.setAmount(e.target.value)}
                       />
                       <span className="unit">ETH</span>
-                      {balance !== null && <span className="max">Max {balance}</span>}
+                      {form.maxLabel !== null && (
+                        <button type="button" className="max" onClick={() => form.setShare(1)}>
+                          Max {form.maxLabel}
+                        </button>
+                      )}
                     </div>
+                    <p className="hint">{form.minLabel}</p>
                   </div>
 
                   <div className="note">
@@ -259,12 +281,15 @@ export function StakeDrawer() {
                     </div>
                     <div className="disclose">
                       <span className="muted">Est. weekly fees · from trailing 7d</span>
-                      <b className="num">{weeklyWeth === null ? '—' : weth(weeklyWeth)}</b>
+                      <b className="num">{form.weeklyLabel ?? '—'}</b>
                     </div>
-                    {/* §7: the protocol fee is disclosed here, before signing. */}
+                    {/* §7: the protocol fee is disclosed here, before signing —
+                        live, as the vault itself reports it. */}
                     <div className="disclose">
                       <span className="muted">{BRAND} fee</span>
-                      <b className="num">{PROTOCOL_FEE_BPS / 100}% of fees earned</b>
+                      <b className="num">
+                        {form.feeLabel}
+                      </b>
                     </div>
                     <div className="disclose">
                       <span className="muted">Lockup</span>
@@ -273,6 +298,12 @@ export function StakeDrawer() {
                   </div>
 
                   <p className="hint" style={{ marginTop: 12 }}>
+                    {form.mode === 'live' && (
+                      <>
+                        Fees are credited the moment they&rsquo;re earned — claim any time in ETH and{' '}
+                        {pool.token.symbol}. Leaving never forfeits fees already earned.{' '}
+                      </>
+                    )}
                     Your position stays withdrawable by your wallet only. If the token drops, the
                     value of your stake drops with it — fees soften that, they don&rsquo;t remove
                     it.
@@ -281,11 +312,20 @@ export function StakeDrawer() {
               ) : null}
             </div>
 
-            {!canStake && (
+            {!canStake ? (
               <p className="dr-f-why">
-                {!stakingLaunched ? `Staking opens when ${BRAND} vaults launch, after an audit.` : 'No vault to stake into for this pool yet.'}
+                {!stakingLaunched
+                  ? `Staking opens when ${BRAND} vaults launch.`
+                  : form.closedReason === 'no-eth-side'
+                    ? 'This pool has no ETH side to stake with.'
+                    : 'No vault to stake into for this pool yet.'}
               </p>
-            )}
+            ) : form.problem && (form.mode === 'preview' || form.walletStatus === 'ready') ? (
+              <p className={`dr-f-why${form.quiet ? '' : ' down'}`} role={form.quiet ? undefined : 'alert'}>
+                {form.problem}
+              </p>
+            ) : null}
+            {canStake && form.mode === 'live' && <AuditNotice className="dr-audit" />}
             <div className="dr-f">
               <button
                 className="btn btn-ghost"
@@ -296,19 +336,25 @@ export function StakeDrawer() {
               >
                 Build custom
               </button>
-              <button
-                className="btn btn-brand"
-                disabled={!canStake || balance === null}
-                title={
-                  !canStake ? undefined : balance === null ? 'Connect a wallet to stake' : undefined
-                }
-                onClick={() => {
-                  act('Staking');
-                  closeStake();
-                }}
-              >
-                Stake
-              </button>
+              {canStake && form.mode === 'live' ? (
+                <SignGate>
+                  <button className="btn btn-brand" disabled={!form.canSubmit} onClick={() => void form.submit()}>
+                    {form.busy ? 'Staking…' : 'Stake'}
+                  </button>
+                </SignGate>
+              ) : (
+                <button
+                  className="btn btn-brand"
+                  disabled={!canStake || !form.canSubmit}
+                  title={!canStake ? undefined : (form.problem ?? undefined)}
+                  onClick={() => {
+                    void form.submit();
+                    closeStake();
+                  }}
+                >
+                  Stake
+                </button>
+              )}
             </div>
           </>
         )}

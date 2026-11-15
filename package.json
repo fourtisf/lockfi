@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "api": "tsx server/api/main.ts",
     "indexer": "tsx server/indexer/main.ts",
+    "keeper": "tsx server/keeper/main.ts",
     "doctor": "bash deploy/doctor.sh",
     "verify:chain": "tsx server/scripts/verify-chain.ts",
     "find:tokens": "tsx server/scripts/find-tokens.ts",
@@ -28,13 +29,15 @@
     "@fastify/rate-limit": "^11.2.0",
     "@fastify/websocket": "^11.3.0",
     "@prisma/client": "^6.19.3",
+    "@tanstack/react-query": "5.105.0",
     "fastify": "^5.12.4",
     "ioredis": "^6.0.0",
     "next": "14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "sharp": "^0.33.5",
-    "viem": "^2.56.5"
+    "viem": "^2.56.5",
+    "wagmi": "2.19.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

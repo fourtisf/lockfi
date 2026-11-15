@@ -1,9 +1,21 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { zeroHash } from 'viem';
+import { useReadContract } from 'wagmi';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { BinChart } from '@/components/positions/BinChart';
+import { AuditNotice, SignGate } from '@/components/wallet/Wallet';
+import { useActions } from '@/hooks/useActions';
+import { usePortfolio } from '@/hooks/usePortfolio';
+import { useWallet } from '@/hooks/useWallet';
+import { CHAIN, CONTRACTS } from '@/lib/chain';
+import { shapeToTickBins, tokenShareOfBins } from '@/lib/contracts/shaped';
+import { mintAvailability } from '@/lib/contracts/status';
+import { maxSpendableWei, parseEthInput, weiToNumber } from '@/lib/contracts/tx';
+import { stateViewAbi } from '@/lib/contracts/uniswap';
+import { DATA_SOURCE } from '@/lib/data';
 import type { ShapeId } from '@/lib/data/types';
 import { price as fmtPrice } from '@/lib/format';
 import { MAX_BINS, MIN_BINS, SHAPES, shapeWeights } from '@/lib/shapes';
@@ -35,12 +47,22 @@ export function ShapeBuilder() {
   return <Builder />;
 }
 
+const LIVE = DATA_SOURCE === 'live';
+
+/** Why a live pool cannot be minted into here, in a sentence. */
+const UNAVAILABLE = {
+  'no-key': 'This pool is not a Uniswap v4 pool the indexer has a key for, so it cannot be minted into here.',
+  'no-shaper': `Minting opens when ${BRAND}’s shaper contract is deployed.`,
+  'no-eth-side': 'This pool has no ETH side, so a position cannot be minted into it with ETH.',
+} as const;
+
 function Builder() {
-  const { pools, global, portfolio } = useMarket();
-  // Null with no wallet connected: no balance to cap the deposit at, and
-  // nothing to sign a mint with.
-  const balance = portfolio.walletBalanceEth;
+  const { pools, global } = useMarket();
+  const { portfolio, balanceWei } = usePortfolio();
+  const wallet = useWallet();
+  const actions = useActions();
   const { act } = useUi();
+  const [busy, setBusy] = useState(false);
 
   const stakeablePools = pools.filter((p) => p.stakeable);
   const [poolId, setPoolId] = useState(stakeablePools[0]?.id ?? pools[0].id);
@@ -54,6 +76,26 @@ function Builder() {
   const shapeMeta = SHAPES.find((s) => s.id === shape)!;
   const weights = useMemo(() => shapeWeights(shape, bins), [shape, bins]);
 
+  // Live: TidewellShaper, for a v4 pool with a key and an ETH side. The
+  // pool's current price is read so the shape can be put on its tick grid.
+  const avail = LIVE ? mintAvailability(pool) : null;
+  const target = avail?.ok ? avail : null;
+  const slot0 = useReadContract({
+    address: CONTRACTS.stateView as `0x${string}`,
+    abi: stateViewAbi,
+    functionName: 'getSlot0',
+    args: [target?.poolId ?? zeroHash],
+    chainId: CHAIN.id,
+    query: { enabled: target !== null, refetchInterval: 15_000 },
+  });
+  const sqrtPriceX96 = slot0.data?.[0];
+  const currentTick = slot0.data?.[1];
+
+  // Null with no wallet connected: no balance to cap the deposit at, and
+  // nothing to sign a mint with. Live, it is the wallet's ETH less gas.
+  const balance =
+    LIVE ? (balanceWei === null ? null : Number(weiToNumber(maxSpendableWei(balanceWei)).toFixed(4))) : portfolio.walletBalanceEth;
+
   const eth = Number.parseFloat(amount) || 0;
 
   // Nothing downstream is meaningful for an inverted or empty range, so the
@@ -62,6 +104,7 @@ function Builder() {
   if (!Number.isFinite(eth) || eth <= 0) problems.push('Enter a deposit amount.');
   else if (balance !== null && eth > balance) problems.push(`Deposit is above your balance of ${balance} ETH.`);
   if (maxPct <= minPct) problems.push('Max must be above Min.');
+  if (minPct <= -100) problems.push('Min must be above −100%.');
   if (minPct > 0) problems.push('Min must be at or below the current price.');
   if (maxPct < 0) problems.push('Max must be at or above the current price.');
   const valid = problems.length === 0;
@@ -76,10 +119,46 @@ function Builder() {
   // token rather than in WETH.
   const span = (safeMax - safeMin) / 100 || 1;
   const priceFraction = (0 - safeMin / 100) / span;
-  const tokenShare = weights.reduce(
+  const pageShare = weights.reduce(
     (acc, w, i) => acc + ((i + 0.5) / bins > priceFraction ? w : 0),
     0,
   );
+
+  // Live, the shape on this pool's tick grid, and the split those exact
+  // bins need at the pool's price — what the shaper will actually swap.
+  const plan = useMemo(
+    () =>
+      target && currentTick !== undefined && valid
+        ? shapeToTickBins({
+            weights,
+            minPct,
+            maxPct,
+            currentTick,
+            tickSpacing: target.key.tickSpacing,
+            tokenIsCurrency0: target.tokenIsCurrency0,
+          })
+        : null,
+    [target, currentTick, valid, weights, minPct, maxPct],
+  );
+  const tokenShare =
+    plan?.ok && sqrtPriceX96 !== undefined
+      ? tokenShareOfBins(plan.bins, sqrtPriceX96, target!.tokenIsCurrency0)
+      : pageShare;
+  const amountWei = parseEthInput(amount);
+
+  const mint = async () => {
+    if (!LIVE) {
+      act('Minting');
+      return;
+    }
+    if (!target || amountWei === null) return;
+    setBusy(true);
+    try {
+      await actions.mintShaped({ target, weights, minPct, maxPct, amountWei }, pool.token.symbol);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Estimated, and labelled as such: this pool's trailing-7d yield scaled by
   // how tightly the range concentrates it. Never a forecast (§1).
@@ -122,7 +201,11 @@ function Builder() {
               onChange={(e) => setAmount(e.target.value)}
             />
             <span className="unit">ETH</span>
-            {balance !== null && <span className="max">Max {balance}</span>}
+            {balance !== null && (
+              <button type="button" className="max" onClick={() => setAmount(String(balance))}>
+                Max {balance}
+              </button>
+            )}
           </div>
           <p className="hint">
             {BRAND} swaps part of this into {pool.token.symbol} to fill the shape you choose.
@@ -220,29 +303,71 @@ function Builder() {
           </p>
         </div>
 
-        <button
-          className="btn btn-brand"
-          style={{ width: '100%', justifyContent: 'center', height: 46 }}
-          disabled={!valid || balance === null}
-          onClick={() => act('Minting')}
-        >
-          Mint position
-        </button>
+        {LIVE && target ? (
+          <SignGate className="btn btn-brand mint-go">
+            <button
+              className="btn btn-brand mint-go"
+              disabled={!valid || busy || balance === null || !plan?.ok || amountWei === null}
+              onClick={() => void mint()}
+            >
+              {busy ? 'Minting…' : 'Mint position'}
+            </button>
+          </SignGate>
+        ) : (
+          <button
+            className="btn btn-brand mint-go"
+            disabled={!valid || balance === null || (LIVE && !target)}
+            onClick={() => void mint()}
+          >
+            Mint position
+          </button>
+        )}
         {!valid ? (
           <p className="hint down" style={{ textAlign: 'center', marginTop: 8 }} role="alert">
             {problems[0]}
           </p>
-        ) : balance === null ? (
-          // Not an input error, so not red: the builder works as a calculator,
-          // and minting waits on a wallet and the shaper contract (P2).
+        ) : LIVE && avail && !avail.ok ? (
+          // Not an input error, so not red: the builder still works as a
+          // calculator for this pool.
           <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
-            Minting needs a wallet, which arrives with {BRAND}&rsquo;s contracts.
+            {UNAVAILABLE[avail.reason]}
+          </p>
+        ) : LIVE && wallet.status !== 'ready' ? (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            {wallet.status === 'wrong-chain'
+              ? `Minting needs your wallet on ${CHAIN.name}.`
+              : 'Connect a wallet to mint. The position NFTs go to it.'}
+          </p>
+        ) : LIVE && slot0.isError ? (
+          <p className="hint down" style={{ textAlign: 'center', marginTop: 8 }} role="alert">
+            Could not read this pool&rsquo;s price from the chain. Try again in a moment.
+          </p>
+        ) : LIVE && currentTick === undefined ? (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            Reading the pool&rsquo;s price…
+          </p>
+        ) : LIVE && plan && !plan.ok ? (
+          <p className="hint down" style={{ textAlign: 'center', marginTop: 8 }} role="alert">
+            {plan.reason}
+          </p>
+        ) : LIVE && plan?.ok ? (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            One transaction, {plan.bins.length} {plan.bins.length === 1 ? 'position' : 'positions'}, each a
+            Uniswap v4 NFT minted to your wallet.
+            {plan.merged > 0 &&
+              ` ${plan.merged} ${plan.merged === 1 ? 'bin merges' : 'bins merge'} into neighbours on this pool’s tick spacing of ${target!.key.tickSpacing}.`}
+            {' '}The price may move 0.5% at most before it lands, or nothing happens.
+          </p>
+        ) : balance === null ? (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            Minting needs a wallet.
           </p>
         ) : (
           <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
             One transaction. Gas ≈ $0.06. You keep the NFT.
           </p>
         )}
+        {LIVE && target && <AuditNotice className="center" />}
       </div>
 
       <div className="card viz">

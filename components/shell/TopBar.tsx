@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
+import { WalletButton } from '@/components/wallet/Wallet';
 import { DATA_SOURCE } from '@/lib/data';
 import { lagLabel, usd, usdExact } from '@/lib/format';
 import { BRAND } from '@/lib/site';
@@ -19,7 +20,7 @@ const SEARCHABLE = ['/pools', '/stakes', '/portfolio'];
 
 export function TopBar() {
   const { global, featured, indexerLagSeconds } = useMarket();
-  const { query, setQuery, wallet, connect } = useUi();
+  const { query, setQuery } = useUi();
   const pathname = usePathname();
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -50,7 +51,7 @@ export function TopBar() {
   const statusTitle = simulated
     ? behind
       ? 'Simulated data. The simulator is also rehearsing an indexer that has fallen behind head: numbers on screen are as of this lag.'
-      : 'Simulated data: the P0 simulator generates every number on this page. No transaction is ever sent.'
+      : 'Simulated data: the simulator generates every number on this page. No transaction is ever sent, even with a wallet connected.'
     : behind
       ? 'The indexer is behind head. Numbers on screen are as of this lag, not live.'
       : 'Indexer is at head.';
@@ -109,13 +110,7 @@ export function TopBar() {
               !simulated && <span className="lag-live">Live</span>
             )}
           </span>
-          <button className="btn btn-ghost" onClick={connect} aria-label={wallet ?? 'Connect wallet'}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="3" y="6" width="18" height="13" rx="2" />
-              <path d="M3 10h18M16 14.5h2" />
-            </svg>
-            <span className="wallet-long">{wallet ?? 'Connect wallet'}</span>
-          </button>
+          <WalletButton />
         </div>
       </div>
 

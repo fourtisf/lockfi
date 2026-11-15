@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, Manrope, Sora } from 'next/font/google';
 import { MarketProvider } from '@/components/providers/MarketProvider';
 import { UiProvider } from '@/components/providers/UiProvider';
+import { WalletProvider } from '@/components/providers/WalletProvider';
 import { Footer } from '@/components/shell/Footer';
 import { TabBar } from '@/components/shell/Nav';
 import { StakeDrawer } from '@/components/shell/StakeDrawer';
@@ -63,6 +64,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
+        <WalletProvider>
         <UiProvider>
           <MarketProvider initial={initial}>
             <a className="skip" href="#main">
@@ -78,6 +80,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Toast />
           </MarketProvider>
         </UiProvider>
+        </WalletProvider>
       </body>
     </html>
   );

@@ -10,17 +10,30 @@ import {
   type ReactNode,
 } from 'react';
 
+/** What a toast says, and optionally where to check it. */
+export interface ToastInput {
+  message: string;
+  /** An explorer link for a transaction the toast is about. */
+  link?: string;
+  /** Still in progress (waiting for a signature or a receipt): stays up until replaced. */
+  busy?: boolean;
+  /** How long it stays up, when not busy. */
+  ms?: number;
+}
+
+export interface ToastState extends ToastInput {
+  id: number;
+}
+
 interface UiState {
   query: string;
   setQuery: (q: string) => void;
-  wallet: string | null;
-  connect: () => void;
-  toast: string | null;
-  showToast: (message: string) => void;
+  toast: ToastState | null;
+  showToast: (message: string | ToastInput) => void;
   /**
-   * An action that would sign a transaction. Nothing can be signed until the
-   * contracts ship (P2), so the toast says exactly that instead of reporting a
-   * success that did not happen.
+   * An action that would sign a transaction, on a surface where nothing can
+   * be signed — the simulator, whose pools exist nowhere on chain. The toast
+   * says exactly that instead of reporting a success that did not happen.
    */
   act: (action: string) => void;
   stakePoolId: string | null;
@@ -32,16 +45,19 @@ const UiContext = createContext<UiState | null>(null);
 
 export function UiProvider({ children }: { children: ReactNode }) {
   const [query, setQuery] = useState('');
-  // Stays null until P2 wires a connector.
-  const [wallet] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [stakePoolId, setStakePoolId] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastId = useRef(0);
 
-  const showToast = useCallback((message: string) => {
-    setToast(message);
+  const showToast = useCallback((input: string | ToastInput) => {
+    const next: ToastInput = typeof input === 'string' ? { message: input } : input;
+    toastId.current += 1;
+    setToast({ ...next, id: toastId.current });
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3200);
+    toastTimer.current = null;
+    if (next.busy) return;
+    toastTimer.current = setTimeout(() => setToast(null), next.ms ?? (next.link ? 10_000 : 3200));
   }, []);
 
   const act = useCallback(
@@ -49,19 +65,10 @@ export function UiProvider({ children }: { children: ReactNode }) {
     [showToast],
   );
 
-  // There is no wallet connector before P2. Pretending to connect one, with a
-  // made-up address in the top bar, would be the first dishonest number on the
-  // page, so the button says what is true instead.
-  const connect = useCallback(() => {
-    showToast('Wallets arrive with the contracts in P2. This preview sends nothing.');
-  }, [showToast]);
-
   const value = useMemo<UiState>(
     () => ({
       query,
       setQuery,
-      wallet,
-      connect,
       toast,
       showToast,
       act,
@@ -69,7 +76,7 @@ export function UiProvider({ children }: { children: ReactNode }) {
       openStake: setStakePoolId,
       closeStake: () => setStakePoolId(null),
     }),
-    [query, wallet, connect, toast, showToast, act, stakePoolId],
+    [query, toast, showToast, act, stakePoolId],
   );
 
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;

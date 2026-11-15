@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Pool } from './data/types';
-import { LP_FEE_SHARE, PREVIEW_BALANCE_ETH, dailyFromHalfDays, depositProblem, stakeQuote } from './stake';
+import {
+  LP_FEE_SHARE,
+  MIN_DEPOSIT_USD,
+  PREVIEW_BALANCE_ETH,
+  dailyFromHalfDays,
+  depositProblem,
+  minDepositEth,
+  minDepositLabel,
+  stakeQuote,
+} from './stake';
 
 const pool = (over: Partial<Pool> = {}): Pool =>
   ({
@@ -31,6 +40,11 @@ describe('stakeQuote', () => {
     expect(stakeQuote(pool({ feeYield: { basis: 'insufficient' } }), 1, 2500).weeklyWeth).toBeNull();
   });
 
+  it('deducts the fee the vault reports, once read', () => {
+    const q = stakeQuote(pool(), 4, 2500, 2000);
+    expect(q.weeklyWeth).toBeCloseTo((70_000 * q.share * 0.8) / 2500, 12);
+  });
+
   it('is zero for nothing deposited', () => {
     expect(stakeQuote(pool(), 0, 2500)).toEqual({ depositUsd: 0, share: 0, weeklyWeth: 0 });
   });
@@ -38,17 +52,40 @@ describe('stakeQuote', () => {
 
 describe('depositProblem', () => {
   it('refuses empty and over-balance amounts', () => {
-    expect(depositProblem(0, PREVIEW_BALANCE_ETH)).toMatch(/Enter/);
-    expect(depositProblem(Number.NaN, PREVIEW_BALANCE_ETH)).toMatch(/Enter/);
-    expect(depositProblem(PREVIEW_BALANCE_ETH + 0.01, PREVIEW_BALANCE_ETH)).toMatch(/balance/);
-    expect(depositProblem(PREVIEW_BALANCE_ETH, PREVIEW_BALANCE_ETH)).toBeNull();
+    expect(depositProblem(0, PREVIEW_BALANCE_ETH, 2500)).toMatch(/Enter/);
+    expect(depositProblem(Number.NaN, PREVIEW_BALANCE_ETH, 2500)).toMatch(/Enter/);
+    expect(depositProblem(PREVIEW_BALANCE_ETH + 0.01, PREVIEW_BALANCE_ETH, 2500)).toMatch(/balance/);
+    expect(depositProblem(PREVIEW_BALANCE_ETH, PREVIEW_BALANCE_ETH, 2500)).toBeNull();
   });
 
-  // The live site has no wallet until P2: no balance to compare against, and
-  // no invented one either.
+  // No wallet: no balance to compare against, and no invented one either.
   it('asks for a wallet when there is none, whatever the amount', () => {
-    expect(depositProblem(1, null)).toMatch(/Connect a wallet/);
-    expect(depositProblem(0, null)).toMatch(/Connect a wallet/);
+    expect(depositProblem(1, null, 2500)).toMatch(/Connect a wallet/);
+    expect(depositProblem(0, null, 2500)).toMatch(/Connect a wallet/);
+  });
+
+  it('refuses a deposit under the $10 minimum, and takes one at it', () => {
+    // $10 at $2,500 is 0.004 ETH.
+    expect(depositProblem(0.0039, 1, 2500)).toMatch(/^Minimum \$10/);
+    expect(depositProblem(0.004, 1, 2500)).toBeNull();
+  });
+
+  it('will not check the minimum against an ETH price it does not have', () => {
+    expect(depositProblem(1, 2, 0)).toMatch(/ETH price is not known/);
+    expect(depositProblem(1, 2, Number.NaN)).toMatch(/ETH price is not known/);
+  });
+});
+
+describe('minimum deposit', () => {
+  it('is ten dollars, in one place', () => {
+    expect(MIN_DEPOSIT_USD).toBe(10);
+  });
+
+  it('converts at the ETH price, and not without one', () => {
+    expect(minDepositEth(2500)).toBeCloseTo(0.004, 12);
+    expect(minDepositEth(0)).toBeNull();
+    expect(minDepositLabel(2500)).toBe("Minimum $10 · ≈ 0.0040 ETH at today's price");
+    expect(minDepositLabel(0)).toMatch(/not known/);
   });
 });
 

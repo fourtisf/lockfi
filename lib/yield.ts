@@ -9,6 +9,16 @@ export const MIN_DATA_HOURS = 24;
 export const FEE_YIELD_LABEL = 'fee yield, trailing 7d';
 
 /**
+ * Said wherever a pool's fee yield is shown next to a vault. The figure is
+ * the pool's average over all its liquidity; the vault holds a full-range
+ * position, which earns less per dollar than the average whenever other LPs
+ * concentrate near the price. Showing the pool figure as the vault's own
+ * would overstate it (§7).
+ */
+export const VAULT_YIELD_NOTE =
+  "The whole pool's average. A full-range stake usually earns less than this when other liquidity in the pool is concentrated near the price.";
+
+/**
  * fees_window / tvl_now, annualised over the window that actually exists.
  * Lives next to the provider on purpose — components never compute yield.
  */

@@ -4,12 +4,17 @@ import { useRouter } from 'next/navigation';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
-import { countdown, signOf, tone, usdExact } from '@/lib/format';
+import { usePortfolio } from '@/hooks/usePortfolio';
+import { useWallet } from '@/hooks/useWallet';
+import { countdown, shortWallet, signOf, tone, usdExact } from '@/lib/format';
 import { SHAPES } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
+import { claimableLabel, hasClaimable } from '@/lib/wallet/portfolio';
 
 export function PositionList() {
-  const { portfolio, pools } = useMarket();
+  const { pools } = useMarket();
+  const { portfolio, source, stakes: walletStakes } = usePortfolio();
+  const { status } = useWallet();
   const { query } = useUi();
   const router = useRouter();
 
@@ -69,26 +74,37 @@ export function PositionList() {
 
       {stakes.map((stake) => {
         const pool = pools.find((p) => p.id === stake.poolId);
-        if (!pool) return null;
+        const live = walletStakes.find((s) => s.vaultId === stake.vaultId);
+        if (!pool && !live) return null;
+        const digits = 2;
         return (
           <div className="pnl-row" key={stake.vaultId}>
             <div className="tok">
-              <TokenBadge token={pool.token} />
+              {pool && <TokenBadge token={pool.token} />}
               <div>
-                <div className="n">{pool.token.symbol} stake</div>
+                <div className="n">{pool ? pool.token.symbol : `Vault ${shortWallet(live!.vault)}`} stake</div>
                 <div className="s">
-                  Streaming · {countdown(stake.streamRemainingSeconds)}
+                  {live
+                    ? 'Fees credited the moment they’re earned'
+                    : <>Streaming · {countdown(stake.streamRemainingSeconds)}</>}
                 </div>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div className="num" style={{ fontWeight: 600 }}>
-                {usdExact(stake.stakedUsd)}
+                {Number.isFinite(stake.stakedUsd) ? usdExact(stake.stakedUsd) : '—'}
               </div>
-              <div className={`num ${tone(stake.earnedWeth, 2)}`} style={{ fontSize: 12 }}>
-                {signOf(stake.earnedWeth, 2) > 0 ? '+' : ''}
-                {stake.earnedWeth.toFixed(2)} WETH fees
-              </div>
+              {live ? (
+                // Two tokens, as the vault pays them.
+                <div className={`num ${hasClaimable(live) ? 'up' : ''}`} style={{ fontSize: 12 }}>
+                  {claimableLabel(live)} claimable
+                </div>
+              ) : (
+                <div className={`num ${tone(stake.earnedWeth, digits)}`} style={{ fontSize: 12 }}>
+                  {signOf(stake.earnedWeth, digits) > 0 ? '+' : ''}
+                  {stake.earnedWeth.toFixed(digits)} WETH fees
+                </div>
+              )}
             </div>
           </div>
         );
@@ -99,8 +115,11 @@ export function PositionList() {
         // wallet and no vault until P2, so this is what is true there.
         <div className="empty">
           <b>Nothing here yet</b>
-          Positions and stakes appear once a wallet is connected. Wallet connection arrives with
-          {' '}{BRAND}&rsquo;s contracts, which are not deployed yet.
+          {source === 'wallet'
+            ? `This wallet has no stake in a ${BRAND} vault. Positions minted with the shape builder are Uniswap v4 NFTs in your wallet; listing them here comes with the indexer.`
+            : status === 'disconnected' || status === 'connecting'
+              ? 'Connect a wallet to see its stakes and positions.'
+              : 'Stakes and positions appear here once they can be read for this wallet.'}
         </div>
       ) : (
         positions.length === 0 &&

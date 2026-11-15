@@ -650,3 +650,68 @@ td.fd{animation:fd 1.1s ease-out}
   font-size:13px;line-height:1.6;color:var(--fg-3)}
 .aw-why code{font-family:var(--mono);color:var(--fg-2);
   background:var(--raise);border-radius:5px;padding:1px 5px}
+
+/* ---------- wallet (P2) ----------
+   Neutral throughout: connecting a wallet is neither a gain nor a loss, and
+   the wrong-network state is a step to take, not a negative number (§19). */
+.wm{position:relative;flex:none}
+.wm-inline{display:block;width:100%}
+.dr-f .wm-inline{flex:1;width:auto}
+.dr-f .wm-inline .btn{width:100%}
+.wm-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:60;width:min(300px,calc(100vw - 32px));
+  background:var(--panel);border:1px solid var(--bd);border-radius:var(--r);box-shadow:var(--shadow-up);
+  padding:8px;display:flex;flex-direction:column;gap:2px;text-align:left}
+.wm-pop.up{top:auto;bottom:calc(100% + 8px);left:0;right:auto;width:100%;min-width:240px}
+.wm-h{font-size:12.5px;font-weight:600;color:var(--fg-3);padding:6px 10px 4px}
+.wm-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:var(--r-s);
+  font-size:14px;font-weight:600;color:var(--fg);text-align:left;transition:background var(--t-hover)}
+.wm-item:hover{background:var(--panel-2)}
+.wm-item[disabled]{opacity:.5;cursor:not-allowed}
+.wm-item img{width:20px;height:20px;border-radius:5px;flex:none}
+.wm-strong{color:var(--ac)}
+.wm-dot{width:20px;height:20px;border-radius:5px;background:var(--raise);flex:none}
+.wm-addr{font-size:12.5px;color:var(--fg-2);padding:0 10px 6px;word-break:break-all}
+.wm-note{font-size:12.5px;color:var(--fg-3);line-height:1.5;padding:6px 10px}
+.wm-note.down{color:var(--red)}
+.btn.wm-warn{border-color:var(--fg-3);color:var(--fg)}
+
+/* An unaudited deployment, said beside every signing button. A notice, so
+   neutral ink on a raised ground — red is for negative numbers only. */
+.audit{margin-top:10px;padding:8px 12px;border:1px solid var(--bd-2);border-radius:var(--r-s);
+  background:var(--panel-2);font-size:12.5px;line-height:1.45;color:var(--fg-2)}
+.audit b{color:var(--fg);font-weight:700}
+.audit.center{text-align:center}
+.dr-audit{margin:10px 22px 0}
+.mine-audit{margin:0;flex-basis:100%}
+
+/* "Max" is a control: it fills the amount. */
+.inp button.max{padding:2px 4px;border-radius:5px;cursor:pointer}
+.inp button.max:hover{background:var(--ac-dim)}
+
+/* A transaction toast carries an explorer link, so it takes the pointer. */
+.toast{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.toast.has-link{pointer-events:auto}
+.toast a{color:var(--panel);text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+.toast a:focus-visible{outline-color:var(--panel)}
+.toast .spin{width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+  animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Withdraw, opened under its stake row. */
+.wd-row td{background:var(--panel-2)}
+.wd{display:flex;flex-direction:column;gap:10px;max-width:520px}
+.wd .quick{margin-top:0;max-width:320px}
+.wd .hint{margin-top:0}
+
+/* Mint and router buttons fill their panel, gated or not. */
+.mint-go,.router-go{width:100%;justify-content:center;height:46px}
+
+/* Router: a dollar milestone and the WETH figure the contract compares. */
+.milestone{grid-template-columns:minmax(0,1fr) auto 28px}
+.ms-weth{font-size:12.5px;color:var(--fg-3);white-space:nowrap;padding:0 4px}
+.adv summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--fg-2);padding:4px 0;border-radius:var(--r-s)}
+.adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.adv-grid label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--fg-3);font-weight:600;min-width:0}
+.router-made{margin-top:14px}
+.router-made a{word-break:break-all;color:var(--ac)}
+@media (max-width:640px){.adv-grid{grid-template-columns:1fr}.wm-pop{right:-8px}}
