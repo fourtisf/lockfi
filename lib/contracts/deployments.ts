@@ -21,6 +21,8 @@ export interface Deployment {
   network: string;
   /** False until an external audit has signed off (CLAUDE.md §8, P5). */
   audited: boolean;
+  /** Where the audit report is, when there is one. */
+  auditReport?: string | null;
   zap: `0x${string}` | null;
   shaper: `0x${string}` | null;
   routerFactory: `0x${string}` | null;

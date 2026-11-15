@@ -13,7 +13,7 @@ bytecode_hash = "none"
 # PoolManager is deployed locally by the tests and is over EIP-170 without
 # via-IR; production uses the PoolManager already on chain.
 gas_limit = "30000000000"
-fs_permissions = [{ access = "read", path = "./" }]
+fs_permissions = [{ access = "read", path = "./" }, { access = "read-write", path = "./deployments" }]
 # The Uniswap PositionManager only compiles with via-IR. It is deployed by the
 # tests from its artifact; production uses the one already on chain.
 additional_compiler_profiles = [{ name = "posm", via_ir = true, optimizer_runs = 500 }]
