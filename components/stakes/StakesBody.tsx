@@ -25,7 +25,8 @@ import {
   yieldPct,
   VAULT_YIELD_NOTE,
 } from '@/lib/yield';
-import { feeTierLabel, feeTokensLabel, pairLabel } from '@/lib/pair';
+import { feeTierLabel, feeTokensLabel, pairLabel, poolContracts } from '@/lib/pair';
+import { CopyAddress } from '@/components/ui/CopyAddress';
 
 const FILTERS: { id: 'all' | Quote; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -349,6 +350,8 @@ function Earnings() {
 
 function StakePanel({ pool }: { pool: Pool }) {
   const form = useStakeForm(pool);
+  const { vaults } = useMarket();
+  const vault = vaults.find((v) => v.poolId === pool.id);
   const shares = [0.25, 0.5, 0.75, 1];
   const live = form.mode === 'live';
   const button = (
@@ -362,6 +365,14 @@ function StakePanel({ pool }: { pool: Pool }) {
       <h2>
         <TokenBadge token={pool.token} /> Stake {pairLabel(pool)} · {feeTierLabel(pool)}
       </h2>
+      {vault && (
+        <div className="spanel-ca">
+          <CopyAddress label={`${BRAND} vault`} address={vault.address} />
+          {poolContracts(pool).map((c) => (
+            <CopyAddress key={c.address} label={c.symbol} address={c.address} />
+          ))}
+        </div>
+      )}
       <div className="sub">
         <span className={pool.feeYield.basis === 'insufficient' ? 'num' : 'num up'}>
           {feeYieldValue(pool.feeYield)}

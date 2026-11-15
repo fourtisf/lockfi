@@ -31,8 +31,43 @@ export function pairLabel(pool: Pick<Pool, 'token' | 'quote' | 'key'>): string {
  * the chain's two ETH/USDG vaults indistinguishable.
  */
 export function feeTierLabel(pool: Pick<Pool, 'feeTierBps' | 'key'>): string {
+  if (isDynamicFee(pool)) return 'Dynamic';
   const pct = pool.key ? pool.key.fee / 10_000 : pool.feeTierBps / 100;
   return `${Number(pct.toFixed(4))}%`;
+}
+
+/**
+ * Uniswap v4's DYNAMIC_FEE_FLAG (LPFeeLibrary): a key whose fee is 0x800000
+ * has no fixed fee — its hook sets the fee on every swap. Read as a number it
+ * printed "838.8608%" on HOODIE's deepest pool.
+ */
+export const DYNAMIC_FEE_FLAG = 0x800000;
+
+export function isDynamicFee(pool: Pick<Pool, 'key'>): boolean {
+  return pool.key !== undefined && pool.key.fee === DYNAMIC_FEE_FLAG;
+}
+
+export interface PoolContract {
+  symbol: string;
+  address: `0x${string}`;
+}
+
+/**
+ * The contracts a person would copy for this pool: each side that is a token
+ * (native ETH has no contract), the traded token first. From the pool key, so
+ * the ETH/USDG pools list USDG and not the WETH contract they never hold.
+ */
+export function poolContracts(pool: Pick<Pool, 'token' | 'quote' | 'key'>): PoolContract[] {
+  const token = pool.token.address.toLowerCase();
+  const quoteSymbol = pool.quote === 'USDG' ? 'USDG' : 'WETH';
+  if (!pool.key) return [{ symbol: pool.token.symbol, address: pool.token.address as `0x${string}` }];
+  const out: PoolContract[] = [];
+  for (const c of [pool.key.currency0, pool.key.currency1]) {
+    const a = c.toLowerCase();
+    if (a === ZERO) continue;
+    out.push({ symbol: a === token ? pool.token.symbol : quoteSymbol, address: c });
+  }
+  return out.sort((x, y) => Number(y.address.toLowerCase() === token) - Number(x.address.toLowerCase() === token));
 }
 
 /** The two things a vault pays fees in, named as a person would: "ETH and USDG". */

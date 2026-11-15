@@ -748,3 +748,23 @@ a.ca-v:hover{color:var(--ac)}
 .dr-vaults{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .dr-vaults .btn{justify-content:flex-start;gap:8px;width:100%;text-align:left}
 .dr-vaults .btn .muted{margin-left:auto;font-family:var(--mono);font-size:12px}
+
+/* Contract addresses: label, short address, Copy, explorer link. */
+.dr-ca,.spanel-ca{display:flex;flex-direction:column;gap:6px;margin:0 0 16px;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;background:var(--raise)}
+.spanel-ca{margin:8px 0 12px}
+.ca-row{display:flex;align-items:center;gap:8px;font-size:12.5px;min-width:0}
+.ca-label{color:var(--fg-2);min-width:0;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%}
+.ca-addr{font-family:var(--mono);font-size:12.5px;color:var(--fg);margin-left:auto}
+.ca-copy{border:1px solid var(--bd);background:var(--panel);color:var(--ac);font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:3px 9px;cursor:pointer;min-width:62px}
+.ca-copy:hover{border-color:var(--ac)}
+.ca-link{color:var(--fg-2);text-decoration:none;font-size:13px;padding:2px 4px;border-radius:6px}
+.ca-link:hover{color:var(--ac)}
+
+/* The drawer's pool list: the pair, its fee as a tag, and which pool has a vault. */
+.dr-pool-name{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden}
+.dr-pool-name b{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.dr-pool-name .pill{padding:1px 7px;font-size:11px;flex:none}
+.dr-pools button,.dr-pools-head{grid-template-columns:minmax(0,1fr) 68px 76px;gap:10px}
+.dr-pool-name .pill.grey{background:var(--panel);border:1px solid var(--bd)}
+.dr-pool-name b{flex:0 1 auto;min-width:0}
+.ca-copy{display:inline-flex;align-items:center;justify-content:center;line-height:1.3;height:24px}

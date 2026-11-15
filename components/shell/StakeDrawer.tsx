@@ -20,7 +20,8 @@ import {
   feeYieldTitle,
   feeYieldValue,
 } from '@/lib/yield';
-import { feeTierLabel, feeTokensLabel, pairLabel } from '@/lib/pair';
+import { feeTierLabel, feeTokensLabel, isDynamicFee, pairLabel, poolContracts } from '@/lib/pair';
+import { CopyAddress } from '@/components/ui/CopyAddress';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -38,7 +39,9 @@ export function StakeDrawer() {
   // Staking needs a vault to stake into. In the simulator that is one of its
   // generated vaults (six pools of ten); live, it is a vault and the zap
   // deployed on chain (config/deployments.json) — nothing else signs.
-  const hasVault = pool !== null && vaults.some((v) => v.poolId === pool.id);
+  const vaultHere = pool !== null ? (vaults.find((v) => v.poolId === pool.id) ?? null) : null;
+  const hasVault = vaultHere !== null;
+  const vaultPools = new Set(vaults.map((v) => v.poolId));
   const canStake =
     pool !== null && (form.mode === 'live' || (form.mode === 'preview' && pool.stakeable && hasVault));
   // No vault anywhere is not a missing vault for this pool: staking itself has
@@ -139,6 +142,14 @@ export function StakeDrawer() {
             </div>
 
             <div className="dr-b">
+              {/* What a person copies to check or buy: the pool's token
+                  contracts (native ETH has none) and its vault, if any. */}
+              <div className="dr-ca" aria-label="Contract addresses">
+                {poolContracts(pool).map((c) => (
+                  <CopyAddress key={c.address} label={c.symbol} address={c.address} />
+                ))}
+                {vaultHere && <CopyAddress label={`${BRAND} vault`} address={vaultHere.address} />}
+              </div>
               <div className="kv">
                 <div>
                   {/* §1's label, once — it used to sit above and below the figure. */}
@@ -213,7 +224,7 @@ export function StakeDrawer() {
                       <div className="dr-vaults">
                         {openVaults.map((p) => (
                           <button key={p.id} className="btn btn-ghost" onClick={() => openStake(p.id)}>
-                            <TokenBadge token={p.token} /> {pairLabel(p)} · {feeTierLabel(p)}
+                            <TokenBadge token={p.token} /> {pairLabel(p)} · {feeTierLabel(p)} fee
                             <span className="muted"> {feeYieldValue(p.feeYield)}</span>
                           </button>
                         ))}
@@ -235,7 +246,7 @@ export function StakeDrawer() {
                     draws less trading. Tap one to see it.
                   </p>
                   <div className="dr-pools-head" aria-hidden="true">
-                    <span>Fee · pair</span>
+                    <span>Pool · fee</span>
                     <span>Depth</span>
                     <span>Fee yield 7d</span>
                   </div>
@@ -245,8 +256,15 @@ export function StakeDrawer() {
                       aria-current={p.id === pool.id}
                       onClick={() => openStake(p.id)}
                     >
-                      <span className="muted">
-                        {feeTierLabel(p)} · {pairLabel(p)}
+                      <span className="dr-pool-name">
+                        <b>{pairLabel(p)}</b>
+                        <span
+                          className="pill grey"
+                          title={isDynamicFee(p) ? 'Dynamic fee: set by the pool’s hook on every swap' : `Trading fee ${feeTierLabel(p)}`}
+                        >
+                          {feeTierLabel(p)}
+                        </span>
+                        {vaultPools.has(p.id) && <span className="pill brand">Vault</span>}
                       </span>
                       <span className="num">{usd(p.tvlUsd)}</span>
                       <span className="num" title={feeYieldTitle(p.feeYield)}>

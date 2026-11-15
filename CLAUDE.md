@@ -2294,3 +2294,26 @@ Pools younger than a day still read from their first trade, marked with its
 age (`+20107.8% 5h` on a five-hour-old launch). That is "since launch", as
 DexScreener shows new pairs, and the marker says so.
 
+### Contract addresses to copy, a fee of 838.8608%, and which pool has a vault
+
+ALFA: there must be a contract address that can be copied, and the "fee ·
+pair" list was confusing.
+
+- **Every drawer now opens on its contracts** (`components/ui/CopyAddress.tsx`):
+  the pool's token contracts from its key — native ETH has none, so the
+  ETH/USDG pools list USDG, not a WETH contract they never hold
+  (`poolContracts` in `lib/pair.ts`) — and the Tidewell vault's address when
+  the pool has one. Each shows the short form, copies the whole address
+  (clipboard API, with a textarea fallback), and links to the explorer. The
+  Stakes panel carries the same block under its title.
+- **"838.8608%" was Uniswap v4's `DYNAMIC_FEE_FLAG`** (0x800000): a key with
+  that fee has no fixed fee — its hook sets one per swap. `feeTierLabel` says
+  **Dynamic**; HOODIE's deepest pool was the one that showed it.
+- **The pool list reads as pools, not as a string.** Each row is the pair, its
+  fee as a tag, and a **Vault** tag on the pools that have one, so the drawer
+  says which of a token's pools can be staked. Columns narrowed so the tags fit
+  without truncating the pair; no horizontal overflow at desktop or phone width.
+
+("Check lockfi" — the repository's own name, `fourtisf/lockfi`; no product by
+that name was found.)
+
