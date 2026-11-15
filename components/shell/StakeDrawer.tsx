@@ -8,6 +8,7 @@ import { TokenBadge } from '@/components/ui/TokenBadge';
 import { PROTOCOL_FEE_BPS } from '@/lib/chain';
 import { ageLabel, usd, weth } from '@/lib/format';
 import { BRAND } from '@/lib/site';
+import { poolsOfToken } from '@/lib/pools';
 import { stakeQuote } from '@/lib/stake';
 import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldTitle, feeYieldValue } from '@/lib/yield';
 
@@ -16,7 +17,7 @@ const FOCUSABLE =
 
 export function StakeDrawer() {
   const { pools, vaults, global, portfolio } = useMarket();
-  const { stakePoolId, closeStake, act } = useUi();
+  const { stakePoolId, closeStake, openStake, act } = useUi();
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const returnFocusTo = useRef<HTMLElement | null>(null);
@@ -30,6 +31,9 @@ export function StakeDrawer() {
   const hasVault = pool !== null && vaults.some((v) => v.poolId === pool.id);
   const canStake = pool !== null && pool.stakeable && hasVault;
   const balance = portfolio.walletBalanceEth;
+  // The token's pools, deepest first. The board shows one row per token, so
+  // this is where its other pools are found (lib/pools.ts).
+  const siblings = pool ? poolsOfToken(pools, pool) : [];
 
   // Escape closes, Tab cycles inside, focus returns where it came from.
   useEffect(() => {
@@ -139,6 +143,33 @@ export function StakeDrawer() {
                   <div className="v num">{usd(pool.volume24hUsd)}</div>
                 </div>
               </div>
+
+              {siblings.length > 1 && (
+                <div className="dr-pools">
+                  <div className="k">
+                    {pool.token.symbol} trades in {siblings.length} pools · deepest first
+                  </div>
+                  {siblings.slice(0, 8).map((p) => (
+                    <button
+                      key={p.id}
+                      aria-current={p.id === pool.id}
+                      onClick={() => openStake(p.id)}
+                    >
+                      <span className="muted">
+                        {(p.feeTierBps / 100).toFixed(2)}% fee · {p.protocol}
+                        {p.quote === 'USDG' ? ' · USDG' : ''}
+                      </span>
+                      <span className="num">{usd(p.tvlUsd)}</span>
+                      <span className="num" title={feeYieldTitle(p.feeYield)}>
+                        {feeYieldValue(p.feeYield)}
+                      </span>
+                    </button>
+                  ))}
+                  {siblings.length > 8 && (
+                    <p className="hint">and {siblings.length - 8} smaller pools</p>
+                  )}
+                </div>
+              )}
 
               {canStake ? (
                 <>

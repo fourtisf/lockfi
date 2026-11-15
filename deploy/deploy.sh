@@ -140,4 +140,8 @@ for _ in $(seq 1 15); do
   curl -s -o /dev/null --max-time 2 localhost:3001/api/health && break
   sleep 1
 done
+# Warm both caches — the API's snapshot and the web server's copy of it — so
+# the first visitor after a deploy opens on the boards, not a loading card.
+curl -s -o /dev/null --max-time 120 localhost:3001/api/snapshot || true
+curl -s -o /dev/null --max-time 30 localhost:3000/pools || true
 node "$APP_DIR/deploy/indexer-status.mjs" || true

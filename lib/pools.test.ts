@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { SimProvider } from './data/sim-provider';
+import type { Pool } from './data/types';
+import { poolsOfToken, tokenRows } from './pools';
+
+const base = new SimProvider().getSnapshot()!.pools[0];
+
+function pool(id: string, address: string, tvlUsd: number, volume24hUsd = 0): Pool {
+  return { ...base, id, tvlUsd, volume24hUsd, token: { ...base.token, address, symbol: 'CASHCAT' } };
+}
+
+const REAL = '0x020bfc650a365f8bb26819deaabf3e21291018b4';
+const COPYCAT = '0x9b6fd26a9c8af688e5e82ecf226835c70dede8b3';
+
+describe('tokenRows', () => {
+  it('shows a token once, through its deepest pool, however many pools it has', () => {
+    const rows = tokenRows([
+      pool('a', REAL, 1_000),
+      pool('b', REAL, 90_000),
+      pool('c', REAL.toUpperCase().replace('0X', '0x'), 5_000),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].pool.id).toBe('b');
+    expect(rows[0].others.map((p) => p.id)).toEqual(['c', 'a']);
+  });
+
+  it('keeps a copycat with the same name as its own row', () => {
+    // Grouped by address, never by symbol: another contract calling itself
+    // CASHCAT is another token.
+    const rows = tokenRows([pool('a', REAL, 1_000), pool('x', COPYCAT, 2_000)]);
+    expect(rows.map((r) => r.pool.id).sort()).toEqual(['a', 'x']);
+  });
+
+  it('breaks a depth tie on volume, then on id, so the row never flickers', () => {
+    const rows = tokenRows([pool('b', REAL, 0, 10), pool('a', REAL, 0, 10), pool('c', REAL, 0, 50)]);
+    expect(rows[0].pool.id).toBe('c');
+    expect(rows[0].others.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('leaves a token with one pool exactly as it was', () => {
+    const only = pool('a', REAL, 1_000);
+    expect(tokenRows([only])).toEqual([{ pool: only, others: [] }]);
+  });
+});
+
+describe('poolsOfToken', () => {
+  it('lists every pool of the token, deepest first, and no copycat', () => {
+    const all = [pool('a', REAL, 1_000), pool('x', COPYCAT, 9_000), pool('b', REAL, 3_000)];
+    expect(poolsOfToken(all, all[0]).map((p) => p.id)).toEqual(['b', 'a']);
+  });
+});

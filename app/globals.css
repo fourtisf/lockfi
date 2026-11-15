@@ -247,6 +247,15 @@ td.fd{animation:fd 1.1s ease-out}
 .pill.brand{background:var(--ac-dim);color:var(--ac)}
 .pill.down{background:var(--red-dim);color:var(--red)}
 .pill.grey{background:var(--raise);color:var(--fg-2)}
+/* "+3 pools" beside a ticker: words, so the body face, quiet and small. */
+.tok-id .pools-n{margin-left:6px;padding:1px 6px;font-family:var(--sans);font-size:10.5px;letter-spacing:0;vertical-align:1px}
+/* The drawer's list of a token's pools, deepest first; the open one marked. */
+.dr-pools{margin:4px 0 18px}
+.dr-pools .k{margin-bottom:6px}
+.dr-pools button{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;width:100%;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:none;color:inherit;font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.dr-pools button:hover{background:var(--raise)}
+.dr-pools button[aria-current="true"]{border-color:var(--bd);background:var(--raise)}
+.dr-pools .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .grid{display:grid;gap:20px}
 .g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr 1fr}

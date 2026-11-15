@@ -143,6 +143,48 @@ describe('/api/health', () => {
   });
 });
 
+describe('/api/snapshot', () => {
+  // By here the health tests have synced the fixture chain. Each request
+  // comes from its own client, so this file's tight rate limit stays out of
+  // a test about caching.
+  let client = 0;
+  const get = async () =>
+    (
+      await app.inject({
+        method: 'GET',
+        url: '/api/snapshot',
+        headers: { 'x-forwarded-for': `192.0.2.${++client}` },
+      })
+    ).json();
+
+  it('answers from the last build instead of rebuilding per request', async () => {
+    const first = await get();
+    expect(first.pools.length).toBe(4);
+    // Repeat requests inside the window get the same build — the same
+    // revision — rather than each waiting on a fresh one.
+    for (let i = 0; i < 5; i++) {
+      const again = await get();
+      expect(again.revision).toBe(first.revision);
+    }
+  });
+
+  it('rebuilds once after an indexer tick, and then serves that build', async () => {
+    const { publishTick } = await import('./bus');
+    const before = (await get()).revision;
+    await publishTick({ toBlock: '1', lagSeconds: 0 });
+    // The rebuild runs in the background; whoever asks meanwhile is answered
+    // from the previous build at once, and the new one arrives shortly.
+    await expect
+      .poll(async () => (await get()).revision, {
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(before);
+    const after = (await get()).revision;
+    const settled = (await get()).revision;
+    expect(settled).toBe(after);
+  });
+});
+
 describe('rate limiting', () => {
   it('answers 429, not 500, once the budget is spent', async () => {
     // 500 would be wrong in a way that matters: it tells a client the server

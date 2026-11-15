@@ -61,6 +61,9 @@ function configurationProblem(): string | null {
  * already been converted to a number by the SQL. This is the guard for the
  * one that has not: it throws rather than silently emitting `null`.
  */
+/** A snapshot older than this is rebuilt even if no tick said so. */
+const SNAPSHOT_MAX_AGE_MS = 15_000;
+
 function serialise(snapshot: MarketSnapshot): string {
   return JSON.stringify(snapshot, (_key, value) => {
     if (typeof value === 'bigint') {
@@ -116,30 +119,88 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(websocket);
 
   /**
-   * The snapshot is cached for as long as a tick has not arrived. Every
-   * connected client on a quiet chain then costs one query, not one per
-   * client per poll.
+   * The snapshot, served stale-while-revalidate.
+   *
+   * It used to be cached for one second and rebuilt on demand, with every
+   * websocket forcing its own rebuild on every indexer tick. With a few
+   * hundred pools a rebuild takes seconds, and during a first sync a tick
+   * lands on nearly every pass — so the database rebuilt without pause, and
+   * whoever asked for the page waited for it. The web server's render gave up
+   * after 3s and every visitor opened on a loading card.
+   *
+   * Now: the last finished snapshot is answered at once, always. A tick marks
+   * it stale; ONE rebuild runs, and its result is pushed to every socket.
+   * Rebuilds are spaced by at least the debounce and at least as long as the
+   * last one took, so a slow build cannot keep the database busy end to end.
+   * Only the very first request after start waits, and start warms it.
    */
   let cached: { snapshot: MarketSnapshot | null; at: number } | null = null;
   let building: Promise<MarketSnapshot | null> | null = null;
+  let stale = true;
+  let lastBuildMs = 0;
+  let nextBuildAt = 0;
+  let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  const listeners = new Set<(value: MarketSnapshot) => void>();
 
-  async function snapshot(force = false): Promise<MarketSnapshot | null> {
-    if (!force && cached && Date.now() - cached.at < env.streamDebounceMs) {
-      return cached.snapshot;
-    }
-    // Coalesce concurrent requests into one query.
-    if (!building) {
-      building = buildSnapshot({ usdgAddress: USDG || null })
-        .then((value) => {
-          cached = { snapshot: value, at: Date.now() };
-          return value;
-        })
-        .finally(() => {
-          building = null;
-        });
-    }
+  function build(): Promise<MarketSnapshot | null> {
+    if (building) return building;
+    stale = false;
+    const started = Date.now();
+    building = buildSnapshot({ usdgAddress: USDG || null })
+      .then((value) => {
+        cached = { snapshot: value, at: Date.now() };
+        if (value) listeners.forEach((push) => push(value));
+        return value;
+      })
+      .catch((error) => {
+        app.log.error(`snapshot build failed: ${(error as Error).message}`);
+        stale = true;
+        return cached?.snapshot ?? null;
+      })
+      .finally(() => {
+        lastBuildMs = Date.now() - started;
+        nextBuildAt = Date.now() + Math.max(env.streamDebounceMs, lastBuildMs);
+        building = null;
+        // A tick that arrived mid-build is not lost: it left us stale.
+        if (stale) scheduleRebuild();
+      });
     return building;
   }
+
+  function scheduleRebuild(): void {
+    if (rebuildTimer || building) return;
+    const wait = Math.max(0, nextBuildAt - Date.now());
+    rebuildTimer = setTimeout(() => {
+      rebuildTimer = null;
+      void build();
+    }, wait);
+  }
+
+  async function snapshot(): Promise<MarketSnapshot | null> {
+    if (cached?.snapshot) {
+      // No tick for a while still means a refresh: ticks can be lost (a
+      // Redis blip, a second API instance), and the lag figure is computed
+      // when the snapshot is built, so it must not freeze.
+      if (Date.now() - cached.at > SNAPSHOT_MAX_AGE_MS) stale = true;
+      if (stale) scheduleRebuild();
+      return cached.snapshot;
+    }
+    // Nothing yet, or nothing indexed when last asked: ask again. Cheap while
+    // the database is empty, and the honest answer the moment it is not.
+    return build();
+  }
+
+  // One subscription for the whole process, not one per socket.
+  const unsubscribeTicks = subscribeTicks(() => {
+    stale = true;
+    scheduleRebuild();
+  });
+  app.addHook('onClose', async () => {
+    if (rebuildTimer) clearTimeout(rebuildTimer);
+    (await unsubscribeTicks)();
+  });
+  // Warm it, so the first visitor after a restart does not pay for the build.
+  if (!configurationProblem()) void build();
 
   /**
    * Health, and the one thing an uptime monitor can act on.
@@ -267,36 +328,27 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   app.get('/api/stream', { websocket: true }, (connection) => {
     let closed = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const send = async () => {
-      timer = null;
+    const push = (value: MarketSnapshot) => {
       if (closed) return;
-      const value = await snapshot(true);
-      if (closed || !value) return;
       try {
         connection.send(serialise(value));
       } catch {
-        /* the socket went away between the query and the send */
+        /* the socket went away between the build and the send */
       }
     };
 
-    // §4.4: debounce to about a second so a burst of blocks is one push.
-    const schedule = () => {
-      if (closed || timer) return;
-      timer = setTimeout(send, env.streamDebounceMs);
-    };
-
-    void send();
-    const unsubscribePromise = subscribeTicks(schedule);
+    // What we have now, then every rebuild as it finishes. §4.4's debounce
+    // lives in the rebuild spacing, so a burst of blocks is one push.
+    void snapshot().then((value) => value && push(value));
+    listeners.add(push);
 
     connection.on('close', () => {
       closed = true;
-      if (timer) clearTimeout(timer);
-      void unsubscribePromise.then((unsubscribe) => unsubscribe());
+      listeners.delete(push);
     });
     connection.on('error', () => {
       closed = true;
+      listeners.delete(push);
     });
   });
 

@@ -1528,6 +1528,38 @@ is 11160833s behind, past the 300s stall threshold" under it. Three faults:
   looks like. Lags print as `129d`, not seconds. `monitor.sh` does not alert
   on `catching-up`.
 
+### Still a loading card, and twenty CASHCATs
+
+After the first-paint fix the site still opened on "Loading live data" —
+the new card, so the new code — and the board listed CASHCAT twenty times.
+
+**The snapshot was rebuilt on demand, constantly.** `/api/snapshot` was cached
+for one second and rebuilt by whoever asked next, and every websocket forced
+its own rebuild on every indexer tick — which, during a first sync, is nearly
+every pass. With a few hundred pools a build takes seconds, so the database
+rebuilt without pause and the web server's 3s render budget ran out. Now it
+is stale-while-revalidate: the last finished snapshot is answered at once; a
+tick marks it stale and ONE rebuild runs, its result pushed to every socket;
+builds are spaced by at least the debounce and at least the last build's own
+duration; a snapshot older than 15s is refreshed even without a tick (ticks
+can be lost, and the lag figure is computed at build time); start warms it.
+The web server also remembers the last good snapshot for up to 10 minutes
+and serves it if the API is slow or restarting — safe only because the live
+snapshot is public and identical for every visitor; P2's wallets will make
+the portfolio per-visitor, and it must be stripped before that cache.
+`deploy.sh` warms both caches before it returns.
+
+**One row per token.** Every CASHCAT row had the same logo — the same token,
+by address — in a different pool: v4 lets anyone open another pool for a
+token at another fee tier or hook, and each pool has its own price, so the
+same token showed five market caps. `lib/pools.ts` `tokenRows` makes the
+boards one row per token, shown through its **deepest** pool, whole — every
+figure from that one pool, so no yield is re-derived outside SQL (§4) — with
+a "+N pools" pill. Deepest because a thin pool's price is the easiest to
+push. The drawer lists all of the token's pools, deepest first, and any can
+be opened. Grouped by address, so a copycat with the same name keeps its
+own row; `pools.test.ts` holds that.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

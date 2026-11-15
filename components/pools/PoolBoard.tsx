@@ -18,6 +18,7 @@ import {
   feeYieldValue,
   yieldPct,
 } from '@/lib/yield';
+import { tokenRows } from '@/lib/pools';
 
 type Variant = 'trending' | 'established';
 
@@ -58,14 +59,14 @@ export function PoolBoard({
 
     if (variant === 'trending') {
       // Volume ranks Trending, and only Trending. Everything else ranks on
-      // fee yield (§1) — volume is trivially washed.
-      return matching.slice().sort((a, b) => b.volume24hUsd - a.volume24hUsd);
+      // fee yield (§1) — volume is trivially washed. One row per token: its
+      // deepest pool in this view (lib/pools.ts).
+      return tokenRows(matching).sort((a, b) => b.pool.volume24hUsd - a.pool.volume24hUsd);
     }
-    return matching
+    return tokenRows(
       // §10 assumption: a pool joins Established once it has a real 7d record.
-      .filter((p) => p.ageHours >= YIELD_WINDOW_HOURS)
-      .slice()
-      .sort((a, b) => yieldPct(b.feeYield) - yieldPct(a.feeYield));
+      matching.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS),
+    ).sort((a, b) => yieldPct(b.pool.feeYield) - yieldPct(a.pool.feeYield));
   }, [pools, filter, query, variant]);
 
   // An empty board has four different causes, and the live site meets all of
@@ -154,10 +155,11 @@ export function PoolBoard({
                 </td>
               </tr>
             )}
-            {rows.map((pool, i) => (
+            {rows.map(({ pool, others }, i) => (
               <Row
                 key={pool.id}
                 pool={pool}
+                others={others.length}
                 rank={i + 1}
                 leader={i === 0}
                 variant={variant}
@@ -174,6 +176,7 @@ export function PoolBoard({
 
 function Row({
   pool,
+  others,
   rank,
   leader,
   variant,
@@ -181,6 +184,8 @@ function Row({
   onOpen,
 }: {
   pool: Pool;
+  /** How many more pools this token has in the view; the row is its deepest. */
+  others: number;
   rank: number;
   leader: boolean;
   variant: Variant;
@@ -200,7 +205,17 @@ function Row({
           </span>
           <TokenBadge token={pool.token} />
           <span className="tok-id">
-            <span className="n">{pool.token.symbol}</span>
+            <span className="n">
+              {pool.token.symbol}
+              {others > 0 && (
+                <span
+                  className="pill grey pools-n"
+                  title={`${pool.token.symbol} trades in ${others + 1} pools. This row is the deepest; open it to see all of them.`}
+                >
+                  +{others} {others === 1 ? 'pool' : 'pools'}
+                </span>
+              )}
+            </span>
             <span className="s" title={pool.token.name}>
               {pool.token.name}
             </span>

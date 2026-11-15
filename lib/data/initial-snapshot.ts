@@ -18,6 +18,24 @@ import type { MarketSnapshot } from './types';
  * must cost a visitor a loading state, not a blank page that hangs.
  */
 const TIMEOUT_MS = 3_000;
+/** How old a remembered snapshot may be and still be served when the API is not answering. */
+const LAST_GOOD_MAX_AGE_MS = 10 * 60_000;
+
+/**
+ * The last snapshot the API gave us, for when it does not answer in time — a
+ * restart during a deploy, a slow moment. Served in place of the loading
+ * card; the lag figure inside it still says how old the numbers are.
+ *
+ * Shared across requests on purpose, and safe because the live snapshot is
+ * public and identical for every visitor: there is no wallet, so no portfolio
+ * in it. When P2 adds wallets the portfolio becomes per-visitor and must be
+ * stripped before anything is remembered here.
+ */
+let lastGood: { snapshot: MarketSnapshot; at: number } | null = null;
+
+function remembered(): MarketSnapshot | null {
+  return lastGood && Date.now() - lastGood.at < LAST_GOOD_MAX_AGE_MS ? lastGood.snapshot : null;
+}
 
 function apiUrl(): string {
   return process.env.API_INTERNAL_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? '3001'}`;
@@ -32,9 +50,13 @@ export async function initialSnapshot(): Promise<MarketSnapshot | null> {
     });
     // 503 is the API saying there is nothing honest to show yet; the browser
     // then shows why, exactly as it did before.
-    if (!response.ok) return null;
-    return (await response.json()) as MarketSnapshot;
+    if (response.status === 503) return null;
+    if (!response.ok) return remembered();
+    const snapshot = (await response.json()) as MarketSnapshot;
+    lastGood = { snapshot, at: Date.now() };
+    return snapshot;
   } catch {
-    return null;
+    // Slow or down: the last good snapshot rather than a loading card.
+    return remembered();
   }
 }
