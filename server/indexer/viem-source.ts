@@ -6,21 +6,27 @@
  * never look live — and Robinhood Chain's ~100ms blocks (§2) mean a 2000-block
  * range is 2000 timestamps and about three minutes of chain. Fetching each
  * block individually would be 2000 round trips a pass, so timestamps are
- * fetched only for the blocks that actually carry a log, cached, and reused.
+ * fetched only for the blocks that actually carry a log, cached, and reused —
+ * and in a dense stretch, where nearly every block carries one, mostly read
+ * off fixed anchor blocks instead (block-times.ts).
  */
 
 import { rpc } from '../chain/client';
+import { plan, resolve } from './block-times';
 import type { LogSource } from './poller';
 
 export class ViemLogSource implements LogSource {
   /** Block number to timestamp. Blocks are immutable, so this never expires. */
   private readonly times = new Map<bigint, Date>();
   private readonly needed = new Set<bigint>();
+  /** The latest head seen: an anchor past it does not exist yet. */
+  private head = 0n;
 
   async getHeadBlock(): Promise<{ number: bigint; timestamp: Date }> {
     const block = await rpc((c) => c.getBlock({ blockTag: 'latest' }), 'getBlock(latest)');
     const timestamp = new Date(Number(block.timestamp) * 1000);
     this.times.set(block.number, timestamp);
+    if (block.number > this.head) this.head = block.number;
     return { number: block.number, timestamp };
   }
 
@@ -74,25 +80,63 @@ export class ViemLogSource implements LogSource {
     }
     this.needed.clear();
 
-    const missing = [...wanted].filter((b) => !this.times.has(b));
-    // Sequential in small groups: a public endpoint that rate-limits will
-    // refuse a 2000-way burst, and a refused timestamp means a dropped event.
-    const GROUP = 16;
-    for (let i = 0; i < missing.length; i += GROUP) {
-      const group = missing.slice(i, i + GROUP);
+    // In groups, each sent as ONE JSON-RPC batch (the client batches calls made
+    // together). The public endpoint answers a batch of 100 in the time of one.
+    const GROUP = 100;
+    const fetchTimes = async (numbers: bigint[]) => {
       const blocks = await Promise.all(
-        group.map((number) =>
+        numbers.map((number) =>
           rpc((c) => c.getBlock({ blockNumber: number }), `getBlock(${number})`),
         ),
       );
       for (const block of blocks) {
         this.times.set(block.number, new Date(Number(block.timestamp) * 1000));
       }
-    }
+    };
+    // The public endpoint rate-limits (HTTP 429) after a few batches in a row.
+    // A refused batch is waited out and asked again rather than failing the
+    // pass: a failed pass backs off for up to a minute, and in a dense stretch
+    // that turned every rate limit into a minute of nothing.
+    const withPatience = async (numbers: bigint[]) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await fetchTimes(numbers.filter((b) => !this.times.has(b)));
+        } catch (error) {
+          if (attempt >= 5) throw error;
+          await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+        }
+      }
+    };
+    const fetchAll = async (numbers: bigint[]) => {
+      const missing = numbers.filter((b) => !this.times.has(b));
+      for (let i = 0; i < missing.length; i += GROUP) {
+        const group = missing.slice(i, i + GROUP);
+        try {
+          await withPatience(group);
+        } catch {
+          // Not every endpoint takes a batch of 100. Ten at a time; whatever
+          // still fails fails the pass, which retries with everything fetched
+          // so far kept in the cache.
+          for (let j = 0; j < group.length; j += 10) {
+            await withPatience(group.slice(j, j + 10));
+          }
+        }
+      }
+    };
+
+    // Anchors first (block-times.ts): a block between two anchors in the same
+    // hour and within five minutes needs no request of its own. The rest are
+    // fetched themselves.
+    const head = this.head > to ? this.head : to;
+    const { anchors, exact } = plan(wanted, head);
+    await fetchAll([...anchors, ...exact]);
+    const first = resolve(wanted, this.times);
+    await fetchAll(first.unresolved);
+    const resolved = first.unresolved.length > 0 ? resolve(wanted, this.times).times : first.times;
 
     const result = new Map<bigint, Date>();
     for (const block of wanted) {
-      const time = this.times.get(block);
+      const time = resolved.get(block);
       if (time) result.set(block, time);
     }
     // Keep the cache from growing without bound over a long run.

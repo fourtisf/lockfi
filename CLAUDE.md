@@ -1694,6 +1694,66 @@ A migration makes every logo-less token due again, so tokens the launchpad
 source had already answered "none" for — shockR among them — are asked again
 with the page-following it gained, instead of waiting out a day.
 
+### A day stuck at block 4,408,335
+
+ALFA's status report read `up to block 4,408,335 · 130 days behind · pace not
+measurable yet` at 14:05 and again at 15:05. Nothing had moved, probably for
+a day; the "crawling indexer" fixed earlier was this, misdiagnosed.
+
+**The cause, reproduced against the real chain.** At block 4,407,933 a launch
+(`0x03ca8967…`, a hook pool against native ETH) was swapped 6,158 times in
+1,000 blocks by bots. The configured window is 2,000 blocks; 2,000 blocks
+there held more than the endpoint's 10,000-log cap, so `eth_getLogs` was
+refused. The refusal handler halves the window — and floored the halving at
+the configured 2,000. Every pass: refused at 2,000, "range now 2000", retry.
+PM2 showed `online`, and each refused pass printed a progress line for a
+block that did not move.
+
+- **Refusals may now narrow below the configured window**, down to twice the
+  32-block re-scan, which still moves the cursor. Ordinary narrowing stops at
+  the learned ceiling rather than snapping back above it.
+- **A log-count refusal is not a permanent cap.** "logs matched by query
+  exceeds limit" is a fact about one stretch of chain, so after three calm
+  passes the ceiling doubles again; only a refusal naming a block span (and
+  no endpoint naming the count) caps the window for good. Classified on every
+  endpoint's answer — the first line of the error is just "failed on all 4
+  endpoints". `BUSY_LOGS` is 5,000, half the cap; at 2,000 it halved through
+  every busy stretch to a few hundred blocks.
+- **A refused pass prints no progress line**, and `indexer-status.mjs` now
+  says `STUCK at block N` when several recent lines share one block, prints
+  the last error, and says the indexer may be hung when it is behind with no
+  progress lines at all — instead of "not measurable yet", which is what it
+  printed for a day.
+
+**Then the pass was slower than the chain.** Through that stretch nearly every
+block carries a log, each needed its own `getBlock`, and the public endpoint
+answers 429 after a few batches: 500 blocks took 45 seconds. Three changes:
+
+- `getBlock` calls go as JSON-RPC batches of 100 (one HTTP request; the
+  endpoint answers 100 in the time of one), a 429 is waited out and retried
+  instead of failing the pass, and a batch an endpoint refuses falls back to
+  groups of ten.
+- **Timestamps from anchors** (`block-times.ts`): exact times only at every
+  64th block. Arbitrum timestamps never go backwards, so when both anchors
+  share a clock hour every block between does too — `pool_fee_hourly` stays
+  exact — and within five minutes the block's time is interpolated, a pure
+  function of its number, so §9's replays agree. Anything else is fetched
+  itself. 2,481 blocks with logs cost 127 requests instead of 2,481.
+- New tokens' metadata is read ten at a time, batched, not one by one.
+
+Measured against the real chain from the sandbox (one reachable endpoint,
+already rate-limiting it): the stuck stretch went from refused forever to
+1.5 seconds a pass, the window regrew from 500 to 8,000 blocks after it.
+
+**What it showed about the chain.** Head is now block 114.8 million, not the
+62 million the comments elsewhere in this file assume, and sampled every 15
+million blocks the PoolManager emits 650–5,500 logs per 1,000 blocks — about
+**two hundred million events** from here to head. Indexing all of them
+through public endpoints is days, and tens of gigabytes of `swap_events`. The
+site's numbers need far less: trailing 7 days of swaps, plus every pool's
+Initialize and liquidity history for depth. That decision is ALFA's and is
+open below.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside
@@ -1713,6 +1773,10 @@ asset renders without re-rendering sixty.
 
 ### Still open
 
+- **How far back to index swaps.** All of history (days through public
+  endpoints, tens of GB) or pools and liquidity from the start with swaps for
+  the last 8 days only (current within hours, every number on the site
+  unchanged). See *A day stuck at block 4,408,335*.
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in
   `deploy/nginx.conf`, commented out.
 - **The token**: unchanged from §13 — the recommendation is still to ship

@@ -73,8 +73,35 @@ import {
  *
  * Not about memory: it is the signal that the next window at this width would
  * likely be refused, and narrowing before that saves the wasted round trip.
+ * Half the 10,000-log cap this chain's endpoints enforce: 2,000 halved the
+ * window through every busy stretch, down to a few hundred blocks a pass,
+ * while the endpoint would have answered five times that.
  */
-const BUSY_LOGS = 2_000;
+const BUSY_LOGS = 5_000;
+/** Logs in a pass below which the range may widen, as an empty one does. */
+const CALM_LOGS = BUSY_LOGS / 4;
+/** Calm passes in a row after which a ceiling learned from density is raised. */
+const CALM_STREAK = 3;
+
+/**
+ * Whether a refusal is about the block SPAN asked for, rather than how many
+ * logs matched.
+ *
+ * The two need different memories. A span cap is a fact about the endpoint
+ * and holds everywhere; a log-count cap is a fact about the stretch of chain
+ * the window landed in, and the next stretch may be empty. So only a refusal
+ * that names a span — and no endpoint in it complained about the count —
+ * caps the window for good. Anything else, including errors nobody
+ * recognises, is treated as passing: wrongly capping a 100-million-block sync
+ * at a few hundred blocks costs a day, wrongly probing a real cap costs one
+ * refused call. The real endpoint's words for the count:
+ * "logs matched by query exceeds limit of 10000".
+ */
+export function isSpanRefusal(message: string): boolean {
+  const count = /exceeds? (the )?limit|more than \d+ results|too many (results|logs)|response (size|too large)/i;
+  const span = /block range|range (is )?too (large|wide|big)|block span|blocks? (limit|exceed|maximum)|max(imum)? (block )?range/i;
+  return span.test(message) && !count.test(message);
+}
 
 /** The cursor key for the one v4 contract every pool lives in. */
 export const POOL_MANAGER_CURSOR = `v4:${CONTRACTS.poolManager.toLowerCase()}`;
@@ -118,6 +145,8 @@ export interface PassResult {
   logosFound: number;
   /** Blocks this pass covered. Visible so the adaptation is observable. */
   blockRange: number;
+  /** The endpoint refused the window; nothing was read and the cursor did not move. */
+  refused?: boolean;
   /** Seconds between the last indexed block's time and head's. Shown in the top bar (§7). */
   lagSeconds: number;
   caughtUp: boolean;
@@ -182,10 +211,17 @@ export class Poller {
    * it once and then stays under it.
    */
   private blockRange: bigint;
-  /** Never go below this: a busy range still has to make progress. */
+  /** The window once following head, and the floor for ordinary narrowing. */
   private readonly minRange: bigint;
-  /** Learned from refusals. Starts optimistic and only ever comes down. */
+  /**
+   * Learned from refusals. Starts optimistic. A block-span refusal lowers it
+   * for good; a log-count refusal lowers it until the chain calms down.
+   */
   private maxRange: bigint;
+  private readonly configuredMax: bigint;
+  /** Set by a block-span refusal: never asked above again. */
+  private hardCap: bigint | null = null;
+  private calmPasses = 0;
   private readonly reorgDepth: bigint;
   private readonly log: (message: string) => void;
   private readonly tokenReader?: TokenReader;
@@ -210,6 +246,7 @@ export class Poller {
     // 50k is above what most public endpoints allow, deliberately: the first
     // refusal teaches the real ceiling, and one wasted call is worth hours.
     this.maxRange = BigInt(options.maxBlockRange ?? env.maxBlockRange);
+    this.configuredMax = this.maxRange;
     this.reorgDepth = BigInt(options.reorgDepth ?? CHAIN.reorgDepth);
     this.v3Pools = (options.v3Pools ?? []).map((a) => a.toLowerCase());
     this.v3Factory = options.v3Factory?.toLowerCase() ?? null;
@@ -336,18 +373,30 @@ export class Poller {
     try {
       logs = await this.source.getLogs({ address: addresses, fromBlock: from, toBlock: to });
     } catch (error) {
-      // Almost always the endpoint refusing the width — "query returned more
-      // than N results", "block range too large". Endpoints differ and none
-      // announce their cap, so it is found by hitting it once: halve, record
-      // the ceiling, and let the next pass retry the same range narrower. The
-      // cursor does not move, so nothing is skipped.
+      // Almost always the endpoint refusing the width — "logs matched by
+      // query exceeds limit of 10000", "block range too large". Endpoints
+      // differ and none announce their cap, so it is found by hitting it:
+      // halve, record the ceiling, and let the next pass retry the same range
+      // narrower. The cursor does not move, so nothing is skipped.
+      //
+      // The halving used to stop at the configured window (2,000 blocks). At
+      // block 4,408,304 one launch was swapped 6,158 times in 1,000 blocks, so
+      // 2,000 blocks held more than 10,000 logs, every pass was refused at
+      // exactly that width, and the indexer retried one range for a day while
+      // reporting itself online. It may go as low as twice the re-scan now,
+      // which still moves the cursor forward.
       const width = to - from + 1n;
-      this.maxRange = max(this.minRange, width / 2n);
+      // Classified on every endpoint's answer; the first line alone is just
+      // "getLogs(a-b) failed on all 4 endpoints:", which says neither.
+      const full = (error as Error).message;
+      const message = full.split('\n')[0];
+      const floor = this.reorgDepth * 2n > 1n ? this.reorgDepth * 2n : 2n;
+      this.maxRange = max(floor, width / 2n);
+      if (isSpanRefusal(full)) this.hardCap = this.maxRange;
       this.blockRange = this.maxRange;
-      this.log(
-        `  endpoint refused ${width} blocks (${(error as Error).message.split('\n')[0]}) — ` +
-          `range now ${this.blockRange}`,
-      );
+      this.calmPasses = 0;
+      const reason = full.match(/exceeds? limit of \d+|more than \d+ results|block range[^\n]*|too many[^\n]*/i)?.[0];
+      this.log(`  endpoint refused ${width} blocks (${reason ?? message}) — range now ${this.blockRange}`);
       return {
         fromBlock: from,
         toBlock: cursor ?? from,
@@ -362,6 +411,7 @@ export class Poller {
         lagSeconds: 0,
         caughtUp: false,
         blockRange: Number(this.blockRange),
+        refused: true,
       };
     }
     const blockTimes = await this.source.getBlockTimes(from, to);
@@ -497,19 +547,34 @@ export class Poller {
     // following head there is nothing to gain from a wider window and a
     // narrow one keeps latency low.
     const behind = head.number - to;
+    // Ordinary narrowing stops at the configured window, or at the learned
+    // ceiling where that is lower — snapping back above it would only be
+    // refused again.
+    const floor = min(this.minRange, this.maxRange);
+    if (logs.length < CALM_LOGS) {
+      this.calmPasses++;
+      // A ceiling learned from a dense stretch is not a fact about the
+      // endpoint. After a run of quiet passes it is allowed back up, or one
+      // busy launch would cap the rest of a 100-million-block sync.
+      if (this.calmPasses >= CALM_STREAK && this.maxRange < (this.hardCap ?? this.configuredMax)) {
+        this.maxRange = min(this.hardCap ?? this.configuredMax, this.maxRange * 2n);
+        this.calmPasses = 0;
+      }
+    } else {
+      this.calmPasses = 0;
+    }
     if (behind > this.blockRange) {
-      if (logs.length === 0) {
-        // Empty. This is the case that matters — most of a 62-million-block
-        // chain is empty, and doubling turns tens of thousands of passes into
+      if (logs.length < CALM_LOGS) {
+        // Empty or nearly. This is the case that matters — most of the chain
+        // is quiet, and doubling turns tens of thousands of passes into
         // hundreds.
         this.blockRange = min(this.maxRange, this.blockRange * 2n);
       } else if (logs.length > BUSY_LOGS) {
-        // Dense enough that the next window risks a refusal, and each pass is
-        // doing real work anyway.
-        this.blockRange = max(this.minRange, this.blockRange / 2n);
+        // Dense enough that the next window risks a refusal.
+        this.blockRange = max(floor, this.blockRange / 2n);
       }
     } else {
-      this.blockRange = this.minRange;
+      this.blockRange = floor;
     }
 
     const lagSeconds = Math.max(

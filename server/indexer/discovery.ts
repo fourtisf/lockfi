@@ -156,8 +156,14 @@ export async function ensureTokens(
   const known = new Set(existing.map((t) => t.address.toLowerCase()));
   const missing = wanted.filter((a) => !known.has(a));
 
-  for (const address of missing) {
-    const facts = await read(address);
+  // Read ten at a time: the reads for a group go out together, which the
+  // client sends as one JSON-RPC batch. One by one, a pass that met thirty new
+  // launchpad tokens spent seconds here.
+  const read10: TokenFacts[] = [];
+  for (let i = 0; i < missing.length; i += 10) {
+    read10.push(...(await Promise.all(missing.slice(i, i + 10).map((address) => read(address)))));
+  }
+  for (const facts of read10) {
     await prisma.token.upsert({
       where: { address: facts.address },
       create: {

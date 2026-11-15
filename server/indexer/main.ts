@@ -104,7 +104,9 @@ async function main(): Promise<void> {
       // on a 62-million-block chain most ranges are empty, and silence for an
       // hour is indistinguishable from a hang.
       const behind = Number(result.headBlock - result.toBlock);
-      if (result.events > 0 || result.poolsFound > 0 || !result.caughtUp) {
+      // A refused pass logged its own line; a progress line for it would read
+      // as progress on a block that did not move.
+      if (!result.refused && (result.events > 0 || result.poolsFound > 0 || !result.caughtUp)) {
         const pct = ((Number(result.toBlock) / Number(result.headBlock)) * 100).toFixed(2);
         log(
           `blocks ${result.fromBlock}-${result.toBlock} of ${result.headBlock} (${pct}%, ` +

@@ -76,6 +76,23 @@ export function pace(lines) {
   return { rate, etaSeconds: rate > 0 ? behind / rate : null };
 }
 
+/**
+ * True when the indexer is running but not moving: several progress lines in
+ * the last ten minutes, all at the same block. This is what a range retried
+ * forever looks like — the shape the indexer sat in for a day at block
+ * 4,408,335 while PM2 showed it online and this report said "not measurable".
+ */
+export function stuck(lines, now = Date.now()) {
+  const recent = lines.filter((l) => now - l.at <= 10 * 60 * 1000);
+  return recent.length >= 3 && recent.every((l) => l.to === recent[0].to);
+}
+
+/** The last line the indexer wrote about something going wrong. */
+export function lastTrouble(text) {
+  const hits = text.split('\n').filter((l) => /pass failed|endpoint refused|stalled/i.test(l));
+  return hits.length ? hits[hits.length - 1].trim().slice(0, 220) : null;
+}
+
 async function health() {
   try {
     const response = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(8000) });
@@ -87,7 +104,8 @@ async function health() {
 
 async function main() {
   const h = await health();
-  const lines = progressLines(tail(LOG));
+  const text = tail(LOG);
+  const lines = progressLines(text);
   const last = lines[lines.length - 1] ?? null;
   const p = pace(lines);
 
@@ -119,12 +137,26 @@ async function main() {
       ? `  USD price  anchored to USDG ${h.usdg}`
       : '  USD price  not anchored yet: dollar figures read $0 until the WETH/USDG pool is found',
   );
-  if (h.indexed && h.indexed.lagSeconds < 120) {
+  const trouble = lastTrouble(text);
+  if (stuck(lines) || h.status === 'stalled') {
+    console.log(`  pace       STUCK at block ${n(last?.to ?? h.indexed?.lastBlock ?? 0)}: running, but not moving forward`);
+    if (h.message) console.log(`             ${h.message}`);
+    if (trouble) console.log(`  last error ${trouble}`);
+    console.log('  see:       runuser -u balast -- pm2 logs balast-indexer --lines 40 --nostream');
+    process.exitCode = 1;
+  } else if (h.indexed && h.indexed.lagSeconds < 120) {
     console.log('  pace       caught up, following the chain');
   } else if (p && p.etaSeconds !== null) {
     console.log(`  pace       catching up, about ${span(p.etaSeconds)} to go at the current rate`);
   } else if (p) {
     console.log('  pace       NOT gaining on the chain — see: runuser -u balast -- pm2 logs balast-indexer');
+  } else if (lines.length === 0 && h.indexed && h.indexed.lagSeconds > 3600) {
+    // Behind, and not one progress line in the log: the indexer is not
+    // reporting passes at all. Not "not measurable yet" — that is what this
+    // printed for a day while nothing moved.
+    console.log(`  pace       no progress lines in ${LOG} — the indexer may be hung`);
+    if (trouble) console.log(`  last error ${trouble}`);
+    console.log('  see:       runuser -u balast -- pm2 logs balast-indexer --lines 40 --nostream');
   } else {
     console.log('  pace       not measurable yet (needs a few minutes of progress lines)');
   }

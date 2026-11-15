@@ -38,6 +38,9 @@ const clients: PublicClient<Transport, typeof robinhoodChain>[] = RPC_URLS.map((
       // that is down. Keep the inner retry short so failover happens quickly.
       retryCount: 1,
       retryDelay: 250,
+      // Calls made together go as one JSON-RPC batch: block timestamps for a
+      // dense range are fetched a hundred at a time (viem-source.ts).
+      batch: { batchSize: 100, wait: 0 },
     }),
   }),
 );
