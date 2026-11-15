@@ -32,6 +32,7 @@ import {TidewellRouterFactory} from "../src/TidewellRouter.sol";
 /// Environment:
 ///   OWNER                  vaults' owner: sets treasury, fee (<= cap), closes deposits
 ///   TREASURY               receives the protocol fee
+///   KEEPER                 optional: the keeper new routers name (recorded only)
 ///   PROTOCOL_FEE_BPS       default 1000 (10% of harvested fees)
 ///   PROTOCOL_FEE_CAP_BPS   default 2000; immutable per vault, never above 2000
 ///   VAULT_POOLS            "currency0:currency1:fee:tickSpacing,..." (no hooks)
@@ -114,6 +115,8 @@ contract Deploy is Script {
         vm.serializeAddress(obj, "zap", d.zap);
         vm.serializeAddress(obj, "shaper", d.shaper);
         vm.serializeAddress(obj, "routerFactory", d.factory);
+        // Tidewell's keeper, recorded for the site: new routers name it.
+        vm.serializeAddress(obj, "keeper", vm.envOr("KEEPER", address(0)));
         string[] memory entries = new string[](d.vaults.length);
         for (uint256 i; i < d.vaults.length; i++) {
             string memory v = string.concat("vault", vm.toString(i));

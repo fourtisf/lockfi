@@ -9,7 +9,7 @@ scope below is that commit.
 
 | File | What it is | Holds funds? |
 |---|---|---|
-| `contracts/src/TidewellVault.sol` | One vault per Uniswap v4 pool. Stakers' liquidity in one full-range position; harvested fees converted to WETH and streamed over 7 days (Synthetix `StakingRewards`). | **Yes** — stakers' liquidity and WETH rewards. |
+| `contracts/src/TidewellVault.sol` | One vault per hookless Uniswap v4 pool. Stakers' liquidity in one full-range position; fees credited per share at collection and claimable any time in the pool's two tokens, held as PoolManager ERC-6909 claims. | **Yes** — stakers' liquidity and their fees (as claims). |
 | `contracts/src/TidewellRouter.sol` | `TidewellRouter`: a token team's fee stream turned into permanent liquidity; own 30-minute TWAP. `TidewellRouterFactory`: deploys routers. | Yes — unrouted fees, and the permanent position. |
 | `contracts/src/TidewellZap.sol` | One-token stake into a vault, or one-token mint of a v4 position. | Only within a transaction. |
 | `contracts/src/TidewellShaper.sol` | Up to 60 weighted positions minted to the caller in one transaction. | Only within a transaction. |
@@ -43,27 +43,28 @@ Nothing is broadcast.
 
 ## What the tests establish
 
-| Property (CLAUDE.md) | Test |
+| Property | Test |
 |---|---|
 | §3.5 `sum(balances) == totalSupply`, always | `invariant_sharesSumToTotalSupply` |
 | Position liquidity equals shares outstanding | `invariant_positionIsTotalSupply` |
-| §3.5 `protocolFeeBps` never above the constructor cap; cap ≤ 2000 | `invariant_feeNeverAboveCap`, `test_protocolFee_canNeverExceedTheCap`, `test_constructor_capIsBoundedAndFeeUnderCap` |
-| §9 the vault can always pay `sum(earned)` (50 wallets, random orderings, 10,000 runs × 64 calls) | `invariant_canAlwaysPayEverythingEarned`, `invariant_rewardAccountingCloses`, `afterInvariant` (every staker exits and is paid exactly `earned`) |
-| §3.5 never-claim == claim-every-hour, exactly | `test_claimingEveryHour_paysExactlyWhatNeverClaimingPays` |
-| §3.5 withdraw works with `rewardRate == 0` and zero WETH balance | `test_withdraw_worksWithNoRewardsEverAndNoWeth` |
-| Withdraw works with deposits closed | `test_withdraw_worksWithDepositsClosed` |
-| Fees earned before a deposit are not the depositor's | `test_deposit_feesEarnedBeforeYouJoinAreNotYours` |
-| Rewards streamed while nobody is staked are not lost | `test_rewards_streamedWhileNobodyIsStakedAreQueuedNotLost` |
-| §9 P3: one harvest after 48 h collects exactly the accrued fees; no double count | `test_keeperOutage48h_oneHarvestCollectsExactlyWhatAccrued` |
-| §3.5 Shaper: weights must sum to 10,000 | `test_mintShaped_weightsMustSumTo10000` |
-| §3.5 Shaper: 60 bins fit one transaction (8.1M gas against ArbOS's 32M per-tx cap) | `test_mintShaped_sixtyBinsFitInOneTransaction` |
-| Shaper: 61 bins revert, never truncated | `test_mintShaped_moreThan60BinsIsRefusedNotTruncated` |
+| §3.5 `protocolFeeBps` never above the constructor cap; cap ≤ 2000 | `invariant_feeNeverAboveCap`, `test_protocolFee_canNeverExceedTheCap_andAppliesFromNowOn` |
+| §9 the vault can always pay every fee owed, both tokens (50 wallets, random orderings, 10,000 runs × 64 calls) | `invariant_canAlwaysPayEverythingOwed`, `afterInvariant` (everyone exits and is paid exactly what `owed` said) |
+| Nothing stranded beyond dust | `invariant_noValueStrandedBeyondDust` |
+| Fees belong to the shares that earned them: no sniping, no forfeiture | `test_fees_cannotBeSnipedByALateLargeDeposit`, `test_fees_surviveWithdrawingEverything`, `test_fees_splitByShareAndTime`, `testFuzz_lateWhale_getsNothingEarnedBeforeIt` |
+| §3.5 claiming often pays exactly what claiming once pays | `test_claimingEveryHour_paysExactlyWhatNeverClaimingPays` |
+| §9 P3: after 48 h untouched, one claim collects exactly the accrued fees; no double payment | `test_48hUntouched_oneClaimCollectsExactlyWhatAccrued` |
+| Protocol fee exactly 10% of fees, paid to the treasury | `test_protocolFee_isTenPercentOfFees_paidToTheTreasury` |
+| Withdraw always available (deposits closed, no fees) and principal-only | `test_withdraw_returnsPrincipal_andIsAlwaysAvailable`, `test_withdraw_principalExcludesFees` |
+| A frozen vault address blocks nothing | `test_frozenVaultAddress_doesNotBlockWithdrawOrClaim` |
+| §3.5 Shaper: weights sum to 10,000; 61 bins revert; 60 bins fit (8.1M gas vs ArbOS's 32M per-tx cap) | `test_mintShaped_weightsMustSumTo10000`, `test_mintShaped_moreThan60BinsIsRefusedNotTruncated`, `test_mintShaped_sixtyBinsFitInOneTransaction` |
 | §3.5 Zap: a degraded quote reverts, never partially fills | `test_zapStake_degradedQuoteReverts` |
-| §3.5 Router: milestones out of order revert at config time | `test_milestones_outOfOrderRevertAtConfig` |
-| §3.5 Router: a milestone fires at most once | `test_milestone_firesAtMostOnce` |
-| §3.5 Router: spot beyond the TWAP guard reverts | `test_route_spotFarFromTwapReverts` |
-| Router: swap below TWAP − slippage reverts | `test_route_swapWorseThanTheAverageAllowsReverts` |
+| §3.5 Router: milestones out of order revert at config; fire at most once; spot beyond the TWAP guard reverts | `test_milestones_outOfOrderRevertAtConfig`, `test_milestone_firesAtMostOnce`, `test_route_spotFarFromTwapReverts` |
+| Router: TWAP only the keeper can write, truncated, exactly 30 minutes | `test_poke_onlyTheKeeper`, `test_sameTransactionManipulation_cannotWriteTheAverage`, `test_observations_areTruncated`, `test_twap_coversExactlyTheLastThirtyMinutes` |
 | Router: pause stops routes; only unrouted funds withdrawable; routed liquidity untouched | `test_pause_stopsRoutes_withdrawOnlyWhilePaused`, `test_route_addsLiquidityNothingCanRemove` |
+
+The pre-audit review's findings and fixes are in `PRE_AUDIT_REVIEW.md`; the
+static analysis triage in `SLITHER.md`; mutation testing (planted bugs the
+suite must catch) is summarised in `SLITHER.md` too.
 
 See `SECURITY.md` for the threat model and known limitations.
 

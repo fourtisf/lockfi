@@ -41,6 +41,8 @@ cfg[chainId] = {
   zap: addr(dep.zap),
   shaper: addr(dep.shaper),
   routerFactory: addr(dep.routerFactory),
+  routerFactoryDeployedBlock: dep.routerFactory ? Number(dep.block) : null,
+  keeper: addr(dep.keeper) ?? cfg[chainId]?.keeper ?? null,
   vaults: (dep.vaults ?? []).map((v) => ({
     address: addr(v.address),
     poolId: String(v.poolId).toLowerCase(),

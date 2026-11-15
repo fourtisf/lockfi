@@ -26,6 +26,14 @@ export interface Deployment {
   zap: `0x${string}` | null;
   shaper: `0x${string}` | null;
   routerFactory: `0x${string}` | null;
+  /** Block the router factory was deployed in, where its event scan starts. */
+  routerFactoryDeployedBlock?: number | null;
+  /**
+   * Tidewell's keeper: the address new token-team routers are told may
+   * trigger routes (it never receives funds). Optional — until it is
+   * recorded here the router page says a keeper address is needed.
+   */
+  keeper?: `0x${string}` | null;
   vaults: VaultDeployment[];
 }
 

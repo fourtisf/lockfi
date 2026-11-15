@@ -6,6 +6,7 @@
     "zap": null,
     "shaper": null,
     "routerFactory": null,
+    "routerFactoryDeployedBlock": null,
     "vaults": []
   }
 }
