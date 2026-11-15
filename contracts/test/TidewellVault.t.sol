@@ -4,6 +4,11 @@ pragma solidity 0.8.26;
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
+import {FixedPoint128} from "v4-core/libraries/FixedPoint128.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {IWETH9} from "../src/interfaces/IWETH9.sol";
 import {TidewellVault} from "../src/TidewellVault.sol";
@@ -247,6 +252,71 @@ contract TidewellVaultTest is Fixture {
         assertApproxEqAbs(alicePaid + bobEarned, reward + reward2, 2 * 7 days);
         assertGt(bobEarned, reward2);
         shares; // silence
+    }
+
+    // ------------------------------------------------------ §9: P3 acceptance
+
+    /// @dev What the vault's position is owed plus what it already holds,
+    ///      from the PoolManager's own fee accounting.
+    function owedFees() internal view returns (uint256 eth, uint256 tkn) {
+        IPoolManager pm = IPoolManager(address(manager));
+        (uint128 liq, uint256 last0, uint256 last1) = StateLibrary.getPositionInfo(
+            pm, vault.poolId(), address(vault), vault.tickLower(), vault.tickUpper(), bytes32(0)
+        );
+        (uint256 now0, uint256 now1) =
+            StateLibrary.getFeeGrowthInside(pm, vault.poolId(), vault.tickLower(), vault.tickUpper());
+        eth = FullMath.mulDiv(now0 - last0, liq, FixedPoint128.Q128) + vault.pendingEthFees();
+        tkn = FullMath.mulDiv(now1 - last1, liq, FixedPoint128.Q128) + vault.pendingTokenFees();
+    }
+
+    /// @dev Harvest, returning the fees it reported collecting.
+    function harvestLogged() internal returns (uint256 ethFees, uint256 tokenSold) {
+        vm.recordLogs();
+        harvest();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("Harvested(uint256,uint256,uint256,uint256,uint256)");
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == sig) {
+                (ethFees, tokenSold,,,) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, uint256));
+                return (ethFees, tokenSold);
+            }
+        }
+        revert("no Harvested event");
+    }
+
+    /// @notice "Killing the keeper for 48 hours and restarting it distributes
+    ///         exactly the fees accrued in that window, with no double-payment
+    ///         and no loss." The on-chain half: one harvest after a 48-hour
+    ///         gap collects exactly what the position earned, measured
+    ///         independently from the PoolManager's fee growth; and every
+    ///         later harvest collects exactly what accrued since, so no fee is
+    ///         ever counted twice.
+    function test_keeperOutage48h_oneHarvestCollectsExactlyWhatAccrued() public {
+        stake(alice, 10 ether);
+        churn(2);
+        harvest();
+
+        for (uint256 h; h < 48; h++) {
+            vm.warp(block.timestamp + 1 hours);
+            churn(1);
+        }
+
+        (uint256 owedEth, uint256 owedTkn) = owedFees();
+        assertGt(owedEth, 0);
+        assertGt(owedTkn, 0);
+        (uint256 ethFees, uint256 tokenSold) = harvestLogged();
+        assertEq(ethFees, owedEth, "ETH-side fees: exactly what accrued");
+        assertEq(tokenSold, owedTkn, "token-side fees: exactly what accrued, all sold");
+        assertEq(vault.pendingTokenFees(), 0);
+
+        // Restarted again at once: it collects only what accrued since — the
+        // vault's own share of the fee its harvest swap just paid — never the
+        // 48 hours a second time.
+        (uint256 sinceEth, uint256 sinceTkn) = owedFees();
+        (uint256 ethFees2, uint256 tokenSold2) = harvestLogged();
+        assertEq(ethFees2, sinceEth);
+        assertEq(tokenSold2, sinceTkn);
+        assertLt(ethFees2 + tokenSold2 / 1000, (ethFees + tokenSold / 1000) / 50);
     }
 
     // ------------------------------------------------------- the §3.5 invariant
