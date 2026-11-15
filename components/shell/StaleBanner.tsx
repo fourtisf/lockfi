@@ -3,17 +3,7 @@
 import { useMarket } from '@/components/providers/MarketProvider';
 import { DATA_SOURCE } from '@/lib/data';
 import { lagLabel } from '@/lib/format';
-
-/** Past this the figures are not "a little behind": they describe another day. */
-export const STALE_BANNER_SECONDS = 6 * 3600;
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "8 Jul 2026", in UTC, by hand: the server and the browser must print the same string. */
-export function asOfDate(lagSeconds: number, now = Date.now()): string {
-  const d = new Date(now - lagSeconds * 1000);
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
+import { STALE_BANNER_SECONDS, asOfDate } from '@/lib/stale';
 
 /**
  * §7: never render stale numbers as if they were live. The top bar's

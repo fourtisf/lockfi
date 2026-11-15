@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STALE_BANNER_SECONDS, asOfDate } from './StaleBanner';
+import { STALE_BANNER_SECONDS, asOfDate } from './stale';
 
 describe('asOfDate', () => {
   it('names the day the figures are from, in UTC', () => {
