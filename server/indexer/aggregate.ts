@@ -406,10 +406,20 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       ORDER BY pool_id, block_num DESC, log_index DESC
     ),
 
+    -- How far swaps have been read. Liquidity past it is not counted yet:
+    -- while the indexer crosses history for structure only, liquidity runs
+    -- months ahead of the last price it knows, and positions valued at a
+    -- price from before they were opened read as trillions of dollars (the
+    -- live site showed $1.76T). Positions and price from the same moment.
+    horizon AS (
+      SELECT COALESCE((SELECT block_num FROM swap_events ORDER BY block_num DESC LIMIT 1), 0) AS block
+    ),
+
     -- Net liquidity per range: every position in a range, summed.
     ranges AS (
       SELECT pool_id, tick_lower, tick_upper, SUM(liquidity_delta) AS l
-      FROM liquidity_events
+      FROM liquidity_events, horizon
+      WHERE block_num <= horizon.block
       GROUP BY pool_id, tick_lower, tick_upper
       HAVING SUM(liquidity_delta) <> 0
     ),
@@ -520,7 +530,13 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       -- consequence is deliberate: a zero divisor makes the yield an em dash
       -- (§7) instead of a number divided by a divisor we know is wrong. The
       -- poller logs the skipped events so the cause is findable.
-      CASE WHEN missing OR r0 < 0 OR r1 < 0 THEN 0 ELSE
+      -- A pool cannot hold more of a token than exists. Positions implying
+      -- it are not a pool's real holdings — a hook's own bookkeeping, or
+      -- liquidity we saw without what offset it — so its depth is unknown.
+      CASE WHEN missing OR r0 < 0 OR r1 < 0
+             OR (supply0 IS NOT NULL AND supply0 > 0 AND r0 > supply0 * 1.000001)
+             OR (supply1 IS NOT NULL AND supply1 > 0 AND r1 > supply1 * 1.000001)
+           THEN 0 ELSE
         GREATEST(COALESCE(${sane(
           `COALESCE(r0 / power(10::numeric, dec0) * COALESCE(price0_usd, 0), 0)
            + COALESCE(r1 / power(10::numeric, dec1) * COALESCE(price1_usd, 0), 0)`,

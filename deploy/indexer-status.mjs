@@ -17,7 +17,30 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:3001';
-const LOG = process.env.INDEXER_LOG ?? '/var/log/balast/indexer.out.log';
+/**
+ * Where PM2 writes the indexer's output. The ecosystem file names the first;
+ * a process started before that line existed keeps PM2's own default, and on
+ * the live box the first did not exist at all — the report said "no progress
+ * lines" while the indexer was moving 5,000 blocks a second. The freshest
+ * non-empty candidate wins.
+ */
+const LOG_CANDIDATES = [
+  process.env.INDEXER_LOG,
+  '/var/log/balast/indexer.out.log',
+  '/home/balast/.pm2/logs/balast-indexer-out.log',
+  '/root/.pm2/logs/balast-indexer-out.log',
+].filter(Boolean);
+const LOG =
+  LOG_CANDIDATES.map((p) => {
+    try {
+      const st = statSync(p);
+      return st.size > 0 ? { p, t: st.mtimeMs } : null;
+    } catch {
+      return null;
+    }
+  })
+    .filter(Boolean)
+    .sort((a, b) => b.t - a.t)[0]?.p ?? LOG_CANDIDATES[0];
 /** Read only the tail: the log rotates at 20 MB and the last lines are what matter. */
 const TAIL_BYTES = 512 * 1024;
 /** Measure the pace over about this much wall time. */

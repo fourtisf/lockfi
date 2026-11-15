@@ -1808,6 +1808,40 @@ read; they fill as the window phase reaches today.
 The status report also prints the log's last lines when it finds no progress
 lines, instead of only saying so.
 
+### $1.76 trillion, and 0.0% everywhere: the first hour of the window
+
+The first deploy of the swap window showed TVL $1,759,545,824,659, Fees 24h
+$0, Volume 24h $0, and 0.0% on every row. One cause behind all three: the
+cursor had moved into the structure phase, so liquidity ran months ahead of
+the last swap the indexer had read.
+
+- **TVL** valued positions opened in those months at prices from before
+  them. The position maths was checked against summed flows on real pools
+  and agrees; the inputs came from two different moments. `rebuildPoolState`
+  now counts liquidity only up to the last swap read (the *horizon*), and a
+  pool whose positions imply more of a token than its total supply has depth
+  unknown — a backstop for hook bookkeeping and anything else that is not a
+  pool's real holdings.
+- **24h figures** were measured back from the cursor, a day in which no swap
+  had been read: "a day nobody was looking at, reported as a day nobody
+  traded". The snapshot's moment is now the last swap read, so during the
+  structure phase the site shows its last real day, labelled by the lag in
+  the top bar, and moves forward when the window phase begins.
+
+And it was slower on the box than measured here (about 5,000 blocks a
+second). Every pass loaded every pool's id, fee tier and last price — on a
+chain heading for a million launches, a full scan per pass that grows with
+each one. `loadKnownPools`, `loadPriceState` and `loadFeeTiers` now load only
+the pools a pass's events touch. Structure passes also skip aggregation
+entirely (nothing they write changes a figure), publish a snapshot tick at
+most every 30 seconds instead of every pass, and widen until half the
+endpoint's log cap rather than a quarter, up to ten times the configured
+maximum. Measured on the real chain: 37,000 blocks a second, flat.
+
+`indexer-status.mjs` looks for the log where PM2 actually writes it: on the
+box `/var/log/balast/indexer.out.log` did not exist, and the report said "no
+progress lines" while the indexer was moving.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside

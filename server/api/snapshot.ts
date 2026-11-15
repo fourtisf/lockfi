@@ -546,7 +546,16 @@ export async function buildSnapshot(
   const anchor = await resolveUsdg(options.usdgAddress);
   if (!anchor.address) return null;
 
-  const asOf = cursor.lastIndexedAt;
+  // The moment the figures describe: the last block whose SWAPS were read.
+  // Past the swap window the indexer reads ranges for pools and liquidity
+  // only (poller.ts), and its cursor runs ahead of the last trade it knows;
+  // measured from the cursor, every 24h figure on the board read 0.0%, $0,
+  // $0 — a day nobody was looking at, reported as a day nobody traded.
+  const [lastSwap] = await prisma.$queryRaw<{ block_time: Date }[]>`
+    SELECT block_time FROM swap_events ORDER BY block_num DESC LIMIT 1
+  `;
+  const asOf =
+    lastSwap && lastSwap.block_time < cursor.lastIndexedAt ? lastSwap.block_time : cursor.lastIndexedAt;
   const [rows, vaults, portfolio] = await Promise.all([
     queryPools(anchor.address, asOf),
     queryVaults(),

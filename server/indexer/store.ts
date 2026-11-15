@@ -142,13 +142,28 @@ export async function writeCursor(
  */
 export async function loadPriceState(
   beforeBlock: bigint,
+  /**
+   * Only these pools. Every pass used to load every pool's last price — on a
+   * chain with a million launches that is a full scan per pass, and passes
+   * slowed down as the tables grew. A pass needs the pools its own events
+   * touch.
+   */
+  poolIds?: string[],
 ): Promise<Map<string, bigint>> {
-  const rows = await prisma.$queryRaw<{ pool_id: string; sqrt_price_x96: string }[]>`
-    SELECT DISTINCT ON (pool_id) pool_id, sqrt_price_x96::text
-    FROM swap_events
-    WHERE block_num < ${beforeBlock}
-    ORDER BY pool_id, block_num DESC, log_index DESC
-  `;
+  if (poolIds && poolIds.length === 0) return new Map();
+  const rows = poolIds
+    ? await prisma.$queryRaw<{ pool_id: string; sqrt_price_x96: string }[]>`
+        SELECT DISTINCT ON (pool_id) pool_id, sqrt_price_x96::text
+        FROM swap_events
+        WHERE block_num < ${beforeBlock} AND pool_id = ANY(${poolIds})
+        ORDER BY pool_id, block_num DESC, log_index DESC
+      `
+    : await prisma.$queryRaw<{ pool_id: string; sqrt_price_x96: string }[]>`
+        SELECT DISTINCT ON (pool_id) pool_id, sqrt_price_x96::text
+        FROM swap_events
+        WHERE block_num < ${beforeBlock}
+        ORDER BY pool_id, block_num DESC, log_index DESC
+      `;
   const map = new Map<string, bigint>();
   for (const row of rows) map.set(row.pool_id, BigInt(row.sqrt_price_x96));
 
@@ -160,26 +175,34 @@ export async function loadPriceState(
   // and was filtered out — which is what left a freshly created pool with no
   // price at all and halted the indexer. The pool row carries the Initialize
   // price directly, which is the value an in-memory replay would have had.
-  const created = await prisma.$queryRaw<{ id: string; sqrt_price_x96: string }[]>`
-    SELECT p.id, p.init_sqrt_price_x96::text AS sqrt_price_x96
-    FROM pools p
-    WHERE p.init_sqrt_price_x96 IS NOT NULL AND p.init_sqrt_price_x96 > 0
-  `;
+  const created = await prisma.pool.findMany({
+    where: {
+      initSqrtPrice: { gt: 0 },
+      ...(poolIds ? { id: { in: poolIds } } : {}),
+    },
+    select: { id: true, initSqrtPrice: true },
+  });
   for (const row of created) {
-    if (!map.has(row.id)) map.set(row.id, BigInt(row.sqrt_price_x96));
+    if (!map.has(row.id) && row.initSqrtPrice) map.set(row.id, BigInt(row.initSqrtPrice.toFixed(0)));
   }
   return map;
 }
 
 /** Fee tier per pool, for v3 swaps whose event carries no fee (§4). */
-export async function loadFeeTiers(): Promise<Map<string, number>> {
-  const rows = await prisma.pool.findMany({ select: { id: true, feeTier: true } });
+export async function loadFeeTiers(poolIds?: string[]): Promise<Map<string, number>> {
+  const rows = await prisma.pool.findMany({
+    ...(poolIds ? { where: { id: { in: poolIds } } } : {}),
+    select: { id: true, feeTier: true },
+  });
   return new Map(rows.map((r) => [r.id, r.feeTier]));
 }
 
-/** Pool ids already known, so a batch can skip events for unknown pools. */
-export async function loadKnownPools(): Promise<Set<string>> {
-  const rows = await prisma.pool.findMany({ select: { id: true } });
+/** Which of these pools are known, so a batch can skip events for unknown ones. */
+export async function loadKnownPools(poolIds?: string[]): Promise<Set<string>> {
+  const rows = await prisma.pool.findMany({
+    ...(poolIds ? { where: { id: { in: poolIds } } } : {}),
+    select: { id: true },
+  });
   return new Set(rows.map((r) => r.id));
 }
 

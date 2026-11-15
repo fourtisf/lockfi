@@ -237,6 +237,12 @@ export class Poller {
   /** Set by a block-span refusal: never asked above again. */
   private hardCap: bigint | null = null;
   private calmPasses = 0;
+  /**
+   * The ceiling for structure passes, which match one log in a few hundred:
+   * their window is limited by the endpoint's log cap, not the configured
+   * maximum, so it may grow to ten times that.
+   */
+  private structureMax: bigint;
   private readonly reorgDepth: bigint;
   private readonly log: (message: string) => void;
   private readonly tokenReader?: TokenReader;
@@ -262,6 +268,7 @@ export class Poller {
     // refusal teaches the real ceiling, and one wasted call is worth hours.
     this.maxRange = BigInt(options.maxBlockRange ?? env.maxBlockRange);
     this.configuredMax = this.maxRange;
+    this.structureMax = this.maxRange * 10n;
     this.swapWindowSeconds = options.swapWindowSeconds ?? null;
     this.reorgDepth = BigInt(options.reorgDepth ?? CHAIN.reorgDepth);
     this.v3Pools = (options.v3Pools ?? []).map((a) => a.toLowerCase());
@@ -352,7 +359,7 @@ export class Poller {
       cursor === null
         ? this.startBlock
         : max(this.startBlock, cursor - this.reorgDepth + 1n);
-    const to = min(head.number, from + this.blockRange - 1n);
+    let to = min(head.number, from + this.blockRange - 1n);
 
     if (to < from) {
       // Head has not moved past what we already have.
@@ -396,6 +403,13 @@ export class Poller {
       toTime = (await this.source.getBlockTimes(to, to)).get(to);
       structureOnly =
         toTime !== undefined && (head.timestamp.getTime() - toTime.getTime()) / 1000 > this.swapWindowSeconds;
+      // Out of the structure phase, a window grown on one-in-300 logs would be
+      // refused on every log: start from the full-pass ceiling instead.
+      if (!structureOnly && this.blockRange > this.maxRange) {
+        this.blockRange = this.maxRange;
+        to = min(head.number, from + this.blockRange - 1n);
+        toTime = undefined;
+      }
     }
 
     let logs;
@@ -425,9 +439,15 @@ export class Poller {
       const full = (error as Error).message;
       const message = full.split('\n')[0];
       const floor = this.reorgDepth * 2n > 1n ? this.reorgDepth * 2n : 2n;
-      this.maxRange = max(floor, width / 2n);
-      if (isSpanRefusal(full)) this.hardCap = this.maxRange;
-      this.blockRange = this.maxRange;
+      if (structureOnly) {
+        this.structureMax = max(floor, width / 2n);
+        if (isSpanRefusal(full)) this.hardCap = this.structureMax;
+        this.blockRange = this.structureMax;
+      } else {
+        this.maxRange = max(floor, width / 2n);
+        if (isSpanRefusal(full)) this.hardCap = this.maxRange;
+        this.blockRange = this.maxRange;
+      }
       this.calmPasses = 0;
       const reason = full.match(/exceeds? limit of \d+|more than \d+ results|block range[^\n]*|too many[^\n]*/i)?.[0];
       this.log(`  endpoint refused ${width} blocks (${reason ?? message}) — range now ${this.blockRange}`);
@@ -518,8 +538,9 @@ export class Poller {
 
     // Then the rest, with the carried price state loaded from the database so
     // a restart mid-chain resumes exactly where a full replay would be.
-    const known = await loadKnownPools();
     const withBackfill = backfilled.length > 0 ? sortEvents([...ordered, ...backfilled]) : ordered;
+    const touched = [...new Set(withBackfill.map((e) => e.poolId))];
+    const known = await loadKnownPools(touched);
     const usable = withBackfill.filter((e) => known.has(e.poolId));
     const skipped = withBackfill.length - usable.length;
     if (skipped > 0) {
@@ -545,8 +566,8 @@ export class Poller {
 
     const plan = planIngest(usable, {
       chainId: CHAIN.id,
-      sqrtPriceByPool: await loadPriceState(from),
-      feePipsByPool: await loadFeeTiers(),
+      sqrtPriceByPool: await loadPriceState(from, touched),
+      feePipsByPool: await loadFeeTiers(touched),
     });
 
     if (plan.unpriced.length > 0) {
@@ -567,11 +588,16 @@ export class Poller {
     // Aggregates, in dependency order: the anchor price series, the staged
     // token flow, the fee hours valued through the anchor, then pool state
     // built on the flow. Scoped to the hours this range touched.
-    const anchors = await this.anchors();
+    // A structure pass changes nothing an aggregate reads: it has no swaps,
+    // so no fee hour, anchor price or pool price moves, and pool state counts
+    // liquidity only up to the last swap read (aggregate.ts). Skipping the
+    // whole step is what lets it cross 100 million blocks in an hour instead
+    // of fighting the database for each one.
+    const anchors = structureOnly ? null : await this.anchors();
     // Supplies first: the FDV figure in pool_state is computed from them, so
     // refreshing after the rebuild would leave it a pass behind.
     const caughtUpNow = to >= head.number;
-    const globalDue = caughtUpNow || Date.now() - this.lastGlobalAt >= GLOBAL_EVERY_MS;
+    const globalDue = !structureOnly && (caughtUpNow || Date.now() - this.lastGlobalAt >= GLOBAL_EVERY_MS);
     const suppliesRefreshed = globalDue
       ? await refreshSupplies(head.timestamp, { read: this.tokenReader })
       : 0;
@@ -596,13 +622,23 @@ export class Poller {
     // Ordinary narrowing stops at the configured window, or at the learned
     // ceiling where that is lower — snapping back above it would only be
     // refused again.
-    const floor = min(this.minRange, this.maxRange);
-    if (logs.length < CALM_LOGS) {
+    const ceiling = structureOnly ? this.structureMax : this.maxRange;
+    const floor = min(this.minRange, ceiling);
+    // A structure pass's cost is per pass more than per log, so it widens
+    // until it is half full; a full pass widens only when nearly empty.
+    const calmLogs = structureOnly ? BUSY_LOGS / 2 : CALM_LOGS;
+    if (logs.length < calmLogs) {
       this.calmPasses++;
       // A ceiling learned from a dense stretch is not a fact about the
       // endpoint. After a run of quiet passes it is allowed back up, or one
       // busy launch would cap the rest of a 100-million-block sync.
-      if (this.calmPasses >= CALM_STREAK && this.maxRange < (this.hardCap ?? this.configuredMax)) {
+      if (structureOnly) {
+        const top = this.hardCap ?? this.configuredMax * 10n;
+        if (this.calmPasses >= CALM_STREAK && this.structureMax < top) {
+          this.structureMax = min(top, this.structureMax * 2n);
+          this.calmPasses = 0;
+        }
+      } else if (this.calmPasses >= CALM_STREAK && this.maxRange < (this.hardCap ?? this.configuredMax)) {
         this.maxRange = min(this.hardCap ?? this.configuredMax, this.maxRange * 2n);
         this.calmPasses = 0;
       }
@@ -610,11 +646,11 @@ export class Poller {
       this.calmPasses = 0;
     }
     if (behind > this.blockRange) {
-      if (logs.length < CALM_LOGS) {
+      if (logs.length < calmLogs) {
         // Empty or nearly. This is the case that matters — most of the chain
         // is quiet, and doubling turns tens of thousands of passes into
         // hundreds.
-        this.blockRange = min(this.maxRange, this.blockRange * 2n);
+        this.blockRange = min(structureOnly ? this.structureMax : this.maxRange, this.blockRange * 2n);
       } else if (logs.length > BUSY_LOGS) {
         // Dense enough that the next window risks a refusal.
         this.blockRange = max(floor, this.blockRange / 2n);

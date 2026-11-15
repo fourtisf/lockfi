@@ -112,6 +112,40 @@ describe('the swap window', () => {
     expect(calls).toEqual([address]);
   });
 
+  it('values positions at the moment of the last swap read, not past it', async () => {
+    // While the indexer crosses history for structure only, liquidity runs
+    // months ahead of the last price it knows. Positions opened after that
+    // price, valued at it, read as $1.76 trillion on the live site.
+    await resetDatabase();
+    await new Poller({ source: new FixtureLogSource(chain), usdgAddress: USDG, startBlock: 0n,
+      blockRange: RANGE, maxBlockRange: RANGE, tokenReader: fixtureTokenReader }).syncToHead();
+    const before = await prisma.$queryRaw<Record<string, string>[]>`
+      SELECT pool_id, tvl_usd::text AS tvl FROM pool_state ORDER BY pool_id
+    `;
+    const pool = await prisma.pool.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const lastSwap = await prisma.swapEvent.aggregate({ _max: { blockNum: true } });
+    // A huge position opened after the last swap the indexer has read.
+    await prisma.liquidityEvent.create({
+      data: {
+        txHash: '0x' + 'f'.repeat(64), logIndex: 0, poolId: pool.id,
+        blockNum: lastSwap._max.blockNum! + 1000n, blockTime: new Date(),
+        tickLower: -887220, tickUpper: 887220, liquidityDelta: '1000000000000000000000000000000',
+        amount0: 0, amount1: 0, owner: '0x0',
+      },
+    });
+    const { rebuildPoolState } = await import('./aggregate');
+    const { findAnchorPool } = await import('./discovery');
+    const { CONTRACTS } = await import('../../lib/chain');
+    await rebuildPoolState({
+      weth: CONTRACTS.weth.toLowerCase(), usdg: USDG.toLowerCase(), wethDecimals: 18, usdgDecimals: 6,
+      anchorPoolId: await findAnchorPool(USDG),
+    });
+    const after = await prisma.$queryRaw<Record<string, string>[]>`
+      SELECT pool_id, tvl_usd::text AS tvl FROM pool_state ORDER BY pool_id
+    `;
+    expect(after).toEqual(before);
+  });
+
   it('asks for structure by topic, not for every log', () => {
     expect(new Set(STRUCTURE_TOPICS).size).toBe(5);
     // v4 Initialize and ModifyLiquidity, by their real selectors.

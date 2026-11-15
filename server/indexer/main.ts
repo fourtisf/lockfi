@@ -92,6 +92,7 @@ async function main(): Promise<void> {
   }
 
   let backoffMs = 1_000;
+  let lastTickAt = 0;
   let shuttingDown = false;
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
@@ -123,7 +124,13 @@ async function main(): Promise<void> {
             (result.structureOnly ? ' (older than the swap window: pools and liquidity only)' : ''),
         );
         // Tell the API something changed; it debounces before pushing (§4.4).
-        await publishTick({ toBlock: result.toBlock.toString(), lagSeconds: result.lagSeconds });
+        // A structure pass changes nothing the snapshot shows except the lag,
+        // and a snapshot rebuild per pass — every two seconds while crossing
+        // history — only competed with the indexer for the database.
+        if (!result.structureOnly || Date.now() - lastTickAt >= 30_000) {
+          lastTickAt = Date.now();
+          await publishTick({ toBlock: result.toBlock.toString(), lagSeconds: result.lagSeconds });
+        }
       }
       if (result.caughtUp) {
         await sleep(env.pollIntervalMs);
