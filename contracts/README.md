@@ -27,7 +27,9 @@ forge test
 Every deploy uses `script/Deploy.s.sol`. It deploys the zap, the shaper, the
 router factory and one vault per pool in `VAULT_POOLS`, and writes
 `deployments/<chainId>.json`. **It refuses Robinhood Chain mainnet (4663)
-unless `TIDEWELL_AUDIT_REPORT` is set** — CLAUDE.md §8 P5.
+unless `TIDEWELL_AUDIT_REPORT` is set or the owner's explicit unaudited
+acknowledgement is given** — CLAUDE.md §8 P5, §20. A dry run (no
+`--broadcast`) writes nothing: its addresses are predictions.
 
 | Variable | Meaning |
 |---|---|
@@ -38,7 +40,8 @@ unless `TIDEWELL_AUDIT_REPORT` is set** — CLAUDE.md §8 P5.
 | `PROTOCOL_FEE_CAP_BPS` | Default 2000. **Fixed forever per vault.** Confirm before deploying (§10). |
 | `VAULT_POOLS` | `currency0:currency1:fee:tickSpacing,...` — hookless pools with an ETH or WETH side. |
 | `POOL_MANAGER`, `POSITION_MANAGER`, `PERMIT2`, `WETH` | Only off mainnet: that chain's Uniswap addresses. |
-| `TIDEWELL_AUDIT_REPORT` | Mainnet only: the audit report's URL or hash. |
+| `TIDEWELL_AUDIT_REPORT` | Mainnet: the audit report's URL or hash. |
+| `TIDEWELL_UNAUDITED_MAINNET` | Mainnet without an audit: exactly `I_ACCEPT_THE_RISK`. |
 
 The deployer's key never goes in a file in this repository. Pass it on the
 command line from your own machine, or use a hardware wallet (`--ledger`).
@@ -72,12 +75,29 @@ OWNER=0x... KEEPER=0x... TREASURY=0x... VAULT_POOLS=... \
 forge script script/Deploy.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast --ledger
 ```
 
-### 3. Mainnet — only after the external audit
+### 3. Mainnet
+
+ALFA decided to launch on mainnet before an external audit (CLAUDE.md §20).
+The script still refuses 4663 by default; it proceeds with either an audit
+report or the words `TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK`, and an
+unaudited deployment is recorded as such and shown on the site.
+
+The guided way, on the server: `bash /var/www/balast/deploy/contracts.sh`
+(installs Foundry, builds, creates the keeper wallet on the box, asks for the
+owner and treasury addresses, imports a throwaway deployer into an encrypted
+keystore, simulates, deploys on `DEPLOY`, and checks every address holds code
+before printing them). By hand:
 
 ```bash
-TIDEWELL_AUDIT_REPORT=<report URL or hash> OWNER=<multisig> KEEPER=0x... TREASURY=0x... VAULT_POOLS=... \
-forge script script/Deploy.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast --ledger --verify
+TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK OWNER=0x... KEEPER=0x... TREASURY=0x... \
+VAULT_POOLS=0x0000000000000000000000000000000000000000:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168:500:10 \
+forge script script/Deploy.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast --account <keystore> \
+  --verify --verifier blockscout --verifier-url https://robinhoodchain.blockscout.com/api/
 ```
+
+After an audit, deploy new vaults with `TIDEWELL_AUDIT_REPORT=<report>`
+instead; the site drops the unaudited notice for a deployment that records
+one.
 
 ### Publishing a deployment to the site
 

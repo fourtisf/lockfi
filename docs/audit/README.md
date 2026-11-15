@@ -67,10 +67,16 @@ Nothing is broadcast.
 
 See `SECURITY.md` for the threat model and known limitations.
 
-## Deployment gate
+## Deployment gate, and the decision to launch before this audit
 
 `contracts/script/Deploy.s.sol` refuses chainId 4663 unless
-`TIDEWELL_AUDIT_REPORT` names the report, and `scripts/apply-deployment.mjs`
-refuses to publish a 4663 deployment into `config/deployments.json` without
-one. Rehearsals run on an anvil fork with `--chain-id 31337`, so there is no
-override switch that could be flipped for the real chain.
+`TIDEWELL_AUDIT_REPORT` names the report or the owner states
+`TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK`; `scripts/apply-deployment.mjs`
+applies the same rule before publishing to `config/deployments.json`.
+
+**The owner chose to launch on mainnet before this audit, without a deposit
+cap** (CLAUDE.md §20). Contracts deployed that way are recorded
+`audited: false` and the site says so beside every signing button. An audit
+of this code therefore reviews contracts that may already hold funds; the
+owner can close new deposits (`setDepositsOpen(false)`) on a finding, and
+withdraw and claim stay open by construction.

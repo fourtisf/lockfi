@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Script, console2} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -20,11 +21,13 @@ import {TidewellRouterFactory} from "../src/TidewellRouter.sol";
 ///         which scripts/apply-deployment.mjs merges into
 ///         config/deployments.json for the site, indexer and keeper.
 ///
-/// Robinhood Chain mainnet (4663) is refused unless TIDEWELL_AUDIT_REPORT
-/// names the external audit of exactly this code (CLAUDE.md §8, P5: "No
-/// mainnet deployment of the vault before an external audit"). A rehearsal
-/// on a fork runs anvil with --chain-id 31337, so the gate never needs an
-/// override switch that could be flipped for the real thing.
+/// Robinhood Chain mainnet (4663) is refused by default. It proceeds when
+/// TIDEWELL_AUDIT_REPORT names the external audit of exactly this code
+/// (CLAUDE.md §8, P5), or when the owner has decided to launch unaudited and
+/// says so in words: TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK (ALFA's
+/// decision, CLAUDE.md §20). An unaudited deployment is recorded as such, and
+/// the site shows "not yet independently audited" beside every signing
+/// button. A rehearsal on a fork runs anvil with --chain-id 31337.
 ///
 /// Environment:
 ///   OWNER                  vaults' owner: sets keeper, treasury, fee (<= cap)
@@ -33,7 +36,8 @@ import {TidewellRouterFactory} from "../src/TidewellRouter.sol";
 ///   PROTOCOL_FEE_BPS       default 1000 (10% of harvested fees)
 ///   PROTOCOL_FEE_CAP_BPS   default 2000; immutable per vault, never above 2000
 ///   VAULT_POOLS            "currency0:currency1:fee:tickSpacing,..." (no hooks)
-///   TIDEWELL_AUDIT_REPORT  required on 4663: report URL or hash
+///   TIDEWELL_AUDIT_REPORT  on 4663: report URL or hash, or
+///   TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK  on 4663 without an audit
 contract Deploy is Script {
     using PoolIdLibrary for PoolKey;
 
@@ -54,8 +58,12 @@ contract Deploy is Script {
 
     function run() external {
         string memory audit = vm.envOr("TIDEWELL_AUDIT_REPORT", string(""));
-        if (block.chainid == ROBINHOOD_MAINNET && bytes(audit).length == 0) {
-            revert("Refused: no mainnet deployment before an external audit (CLAUDE.md section 8, P5). Set TIDEWELL_AUDIT_REPORT.");
+        bool unauditedAccepted =
+            keccak256(bytes(vm.envOr("TIDEWELL_UNAUDITED_MAINNET", string("")))) == keccak256("I_ACCEPT_THE_RISK");
+        if (block.chainid == ROBINHOOD_MAINNET && bytes(audit).length == 0 && !unauditedAccepted) {
+            revert(
+                "Refused: mainnet needs TIDEWELL_AUDIT_REPORT, or TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK (CLAUDE.md section 8 P5, section 20)."
+            );
         }
 
         POOL_MANAGER = IPoolManager(vm.envOr("POOL_MANAGER", MAINNET_POOL_MANAGER));
@@ -66,40 +74,63 @@ contract Deploy is Script {
         require(address(POSITION_MANAGER).code.length > 0, "POSITION_MANAGER has no code on this chain");
         require(address(WETH).code.length > 0, "WETH has no code on this chain");
 
+        Deployed memory d = _deploy(_pools(vm.envOr("VAULT_POOLS", string(""))));
+        _write(d, audit, bytes(audit).length == 0 && unauditedAccepted);
+    }
+
+    struct Deployed {
+        address zap;
+        address shaper;
+        address factory;
+        address[] vaults;
+        PoolKey[] pools;
+    }
+
+    function _deploy(PoolKey[] memory pools) internal returns (Deployed memory d) {
         address owner = vm.envAddress("OWNER");
         address keeper = vm.envAddress("KEEPER");
         address treasury = vm.envAddress("TREASURY");
         uint16 feeBps = uint16(vm.envOr("PROTOCOL_FEE_BPS", uint256(1000)));
         uint16 capBps = uint16(vm.envOr("PROTOCOL_FEE_CAP_BPS", uint256(2000)));
-        PoolKey[] memory pools = _pools(vm.envOr("VAULT_POOLS", string("")));
 
         vm.startBroadcast();
-        TidewellZap zap = new TidewellZap(POOL_MANAGER, POSITION_MANAGER, PERMIT2, WETH);
-        TidewellShaper shaper = new TidewellShaper(POOL_MANAGER, POSITION_MANAGER, PERMIT2, WETH);
-        TidewellRouterFactory factory = new TidewellRouterFactory(POOL_MANAGER, WETH);
-        address[] memory vaults = new address[](pools.length);
+        d.zap = address(new TidewellZap(POOL_MANAGER, POSITION_MANAGER, PERMIT2, WETH));
+        d.shaper = address(new TidewellShaper(POOL_MANAGER, POSITION_MANAGER, PERMIT2, WETH));
+        d.factory = address(new TidewellRouterFactory(POOL_MANAGER, WETH));
+        d.vaults = new address[](pools.length);
         for (uint256 i; i < pools.length; i++) {
-            vaults[i] = address(new TidewellVault(POOL_MANAGER, WETH, pools[i], owner, keeper, treasury, capBps, feeBps));
+            d.vaults[i] = address(new TidewellVault(POOL_MANAGER, WETH, pools[i], owner, keeper, treasury, capBps, feeBps));
         }
         vm.stopBroadcast();
+        d.pools = pools;
+    }
 
-        // deployments/<chainId>.json
+    /// @dev deployments/<chainId>.json
+    function _write(Deployed memory d, string memory audit, bool unaudited) internal {
         string memory obj = "deployment";
         vm.serializeUint(obj, "chainId", block.chainid);
         vm.serializeUint(obj, "block", block.number);
         vm.serializeBool(obj, "audited", bytes(audit).length > 0);
         vm.serializeString(obj, "auditReport", audit);
-        vm.serializeAddress(obj, "zap", address(zap));
-        vm.serializeAddress(obj, "shaper", address(shaper));
-        vm.serializeAddress(obj, "routerFactory", address(factory));
-        string[] memory entries = new string[](pools.length);
-        for (uint256 i; i < pools.length; i++) {
+        vm.serializeBool(obj, "unauditedAccepted", unaudited);
+        vm.serializeAddress(obj, "zap", d.zap);
+        vm.serializeAddress(obj, "shaper", d.shaper);
+        vm.serializeAddress(obj, "routerFactory", d.factory);
+        string[] memory entries = new string[](d.vaults.length);
+        for (uint256 i; i < d.vaults.length; i++) {
             string memory v = string.concat("vault", vm.toString(i));
-            vm.serializeAddress(v, "address", vaults[i]);
+            vm.serializeAddress(v, "address", d.vaults[i]);
             vm.serializeUint(v, "deployedBlock", block.number);
-            entries[i] = vm.serializeString(v, "poolId", string.concat("v4:", vm.toString(PoolId.unwrap(pools[i].toId()))));
+            entries[i] = vm.serializeString(v, "poolId", string.concat("v4:", vm.toString(PoolId.unwrap(d.pools[i].toId()))));
         }
         string memory json = vm.serializeString(obj, "vaults", entries);
+        // A dry run's addresses are predictions. Written to disk, one could be
+        // published to the site and point users at contracts that do not exist.
+        if (vm.isContext(VmSafe.ForgeContext.ScriptDryRun)) {
+            console2.log("dry run: nothing written. Add --broadcast to deploy.");
+            console2.log(json);
+            return;
+        }
         string memory path = string.concat(vm.projectRoot(), "/deployments/", vm.toString(block.chainid), ".json");
         vm.writeJson(json, path);
         console2.log("wrote", path);

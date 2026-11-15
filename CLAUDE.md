@@ -2059,15 +2059,36 @@ behind a 30-line wrapper (`FOUNDRY_SOLC`). Same compiler version; on a normal
 machine `forge build` fetches the native one. The PositionManager is compiled
 via-IR only for the tests' local deployment (`compilation_restrictions`).
 
+### ALFA's decision: mainnet now, unaudited, no cap
+
+Asked how to go to mainnet — guarded launch with a deposit cap (recommended),
+wait for the audit, or full mainnet — **ALFA chose full mainnet, before an
+audit, without a deposit cap, with a $10 minimum deposit**, first vault on the
+native ETH/USDG 0.05% pool. That overrides §8's P5 ordering, in ALFA's
+words, the same way the FDV default overrode §1's ranking in §19. What stays,
+because neither blocks anything: the site says "not yet independently
+audited" beside every signing button while the deployment records
+`audited: false` (§7 — a fact users must see), and the owner can close new
+deposits on a finding while withdraw and claim stay open.
+
+`deploy/contracts.sh` is the guided deploy on the server: Foundry, build, the
+keeper wallet created on the box with its key written to `.env` (600), the
+owner and treasury addresses asked for, a throwaway deployer imported into an
+encrypted keystore through a hidden prompt, a simulation with its cost
+(~0.0007 ETH), `DEPLOY` typed to send, and every address checked for code on
+chain before it is printed — forge writes the addresses file while preparing
+the transactions, before they are sent, so the file alone proves nothing.
+Rehearsed at chain id 4663 on a fork: deployed, every address held code, and
+the vault read back keeper, treasury, 10% and the 20% cap as configured.
+
 ### P5: where the work stops
 
-**No mainnet vault before an external audit** (§8). That is enforced, not
-just written: `script/Deploy.s.sol` refuses chainId 4663 unless
-`TIDEWELL_AUDIT_REPORT` is set, and `scripts/apply-deployment.mjs` refuses
-to publish a 4663 deployment without one. Rehearsals use an anvil fork with
-`--chain-id 31337`, so there is no override switch to flip by mistake. Both
-were run: the script deployed everything on a fork, and the gate refused the
-real chain.
+**No mainnet vault before an external audit** (§8) — the default, enforced
+not just written, and now passable only with the owner's explicit words: `script/Deploy.s.sol` refuses chainId 4663 unless
+`TIDEWELL_AUDIT_REPORT` is set or `TIDEWELL_UNAUDITED_MAINNET=I_ACCEPT_THE_RISK`
+is given, and `scripts/apply-deployment.mjs` applies the same rule. A dry run
+writes nothing. Both paths were run against the real chain: refused without
+either, simulated with the acknowledgement.
 
 `config/deployments.json` is empty, so the site still says staking is not
 open. `docs/audit/` is the package for the auditor; `contracts/README.md` is

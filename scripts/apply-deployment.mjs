@@ -5,8 +5,9 @@
 //   node scripts/apply-deployment.mjs 4663
 //
 // Robinhood Chain mainnet is refused unless the deployment records an audit
-// report: the same gate as the deploy script, so a file copied by hand from
-// a rehearsal cannot put unaudited vaults in front of users (CLAUDE.md §8 P5).
+// report or the owner's explicit decision to launch unaudited — the same gate
+// as the deploy script, so a file copied by hand from a rehearsal cannot put
+// vaults in front of users by accident (CLAUDE.md §8 P5, §20).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,9 +24,12 @@ if (String(dep.chainId) !== chainId) {
   console.error(`${src} is for chain ${dep.chainId}, not ${chainId}`);
   process.exit(1);
 }
-if (chainId === '4663' && !(dep.audited && dep.auditReport)) {
-  console.error('Refused: a mainnet deployment without an audit report is not applied (CLAUDE.md §8, P5).');
+if (chainId === '4663' && !(dep.audited && dep.auditReport) && dep.unauditedAccepted !== true) {
+  console.error('Refused: a mainnet deployment with neither an audit report nor the unaudited acknowledgement is not applied (CLAUDE.md §8 P5, §20).');
   process.exit(1);
+}
+if (chainId === '4663' && !dep.audited) {
+  console.warn('Applying an UNAUDITED mainnet deployment. The site will say so beside every signing button.');
 }
 const addr = (a) => (a ? String(a).toLowerCase() : null);
 const cfgPath = join(root, 'config/deployments.json');
