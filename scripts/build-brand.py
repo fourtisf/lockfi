@@ -491,8 +491,8 @@ def main() -> None:
     # 17px: at a phone's 390px header that is still a legible 4.4px line.
     _, t_eye_r = outline(t_eye_font, eyebrow, 17, 0, 0, 0.2)
     t_eye, _ = outline(t_eye_font, eyebrow, 17, 88, (TW - t_eye_r) / 2, 0.2)
-    _, t_url_r = outline(url_font, URL, 25, 0, 0, 0.02)
-    t_url, _ = outline(url_font, URL, 25, TH - 38, TW - 50 - t_url_r, 0.02)
+    # No address on this one: ALFA's call. The profile's own link field
+    # carries it, and the banner stays the brand alone.
 
     half = 6.6 * T_KX
     front = tide_line(-half, TW + half, T_BASE, True)
@@ -565,8 +565,7 @@ def main() -> None:
             f'<g transform="translate({tx - INK0 * t_scale:.2f} {t_top - INK0 * t_scale:.2f}) scale({t_scale})">'
             f'{mark_signature(fin, "tm")}</g>\n  '
             f'<path d="{t_word}" fill="url(#tw)"/>\n  '
-            f'<path d="{t_tag}" fill="{f["tag"]}"/>\n  '
-            f'<path d="{t_url}" fill="#FFFFFF" opacity=".9"/>',
+            f'<path d="{t_tag}" fill="{f["tag"]}"/>',
             f'0 0 {TW} {TH}', TW, TH))
 
     # The hero: the premium lockup on the deep-sea ground, with the tagline.

@@ -188,7 +188,7 @@ const SIGNATURE: Asset[] = [
   },
   {
     title: 'Tide X header',
-    use: 'The premium header: the mark\u2019s tide across the banner, rising left to right, the light lying on the water. 1500 \u00d7 500 and 3000 \u00d7 1000, under X\u2019s 5 MB limit; clear of the avatar.',
+    use: 'The premium header: the mark\u2019s tide across the banner, rising left to right, the light lying on the water. No address on it. 1500 \u00d7 500 and 3000 \u00d7 1000, under X\u2019s 5 MB limit; clear of the avatar.',
     preview: 'x-header-tide-glass-1500.png',
     ground: 'light',
     wide: true,
