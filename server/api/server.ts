@@ -16,7 +16,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import { CONTRACTS } from '../../lib/chain';
+import { CHAIN, CONTRACTS } from '../../lib/chain';
+import { deploymentFor, type Deployment } from '../../lib/contracts/deployments';
 import type { MarketSnapshot } from '../../lib/data/types';
 import { prisma } from '../db';
 import { env } from '../env';
@@ -25,6 +26,7 @@ import { resolveUsdg } from '../indexer/anchor';
 import { busKind, subscribeTicks } from './bus';
 import { buildSnapshot } from './snapshot';
 import { lagLabel } from '../../lib/format';
+import { keeperHealth } from '../keeper/health';
 
 const USDG = process.env.USDG_ADDRESS ?? '';
 
@@ -73,8 +75,14 @@ function serialise(snapshot: MarketSnapshot): string {
   });
 }
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface ServerOptions {
+  /** What is deployed: config/deployments.json for this chain unless a test says otherwise. */
+  deployment?: Deployment | null;
+}
+
+export async function buildServer(options: ServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
+  const deployment = options.deployment !== undefined ? options.deployment : deploymentFor(CHAIN.id);
 
   await app.register(cors, {
     // The browser reaches the API through nginx on the same origin, so CORS
@@ -254,10 +262,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     // is the single most consequential value in the system — a wrong anchor
     // makes every dollar figure wrong — so it is auditable from outside.
     const anchor = await resolveUsdg(USDG || null);
+    // The keeper (P3/P4): read from what the chain recorded — each router's
+    // last Observed event — not from the keeper process, which can be
+    // "online" and landing nothing. Vaults need no keeper and are not checked.
+    const keeper = await keeperHealth({ deployment });
 
     // Misconfiguration outranks everything: a never-indexed chain is the
     // SYMPTOM when the indexer cannot start, and reporting the symptom sends
     // whoever is looking to the wrong place.
+    //
+    // A router left unobserved by the keeper ranks below a stalled indexer —
+    // when the indexer has stopped, every figure including a router's last
+    // observation is stale, and the indexer is what to fix first — and above
+    // catching-up, which is the system working while the keeper is not.
     const problem = configurationProblem();
     const status = problem
       ? 'misconfigured'
@@ -267,12 +284,23 @@ export async function buildServer(): Promise<FastifyInstance> {
           ? 'no-anchor'
           : stuck
             ? 'stalled'
-            : behind
-              ? 'catching-up'
-              : 'ok';
+            : keeper.status === 'overdue'
+              ? 'keeper-overdue'
+              : behind
+                ? 'catching-up'
+                : 'ok';
     // Catching up is the system working as designed — an uptime check must
     // not page anyone for a first sync — so it answers 200 like ok. Every
     // state where something is wrong, or nothing is known yet, answers 503.
+    //
+    // keeper-overdue is a 503 for the same reason stalled is: a process has
+    // died quietly while the site looks fine — here, a router whose keeper
+    // stopped poking it, so its TWAP has lapsed and a token team's fees sit
+    // unrouted — and only a person can fix it. It fires after an hour without
+    // an observation (twice the TWAP window; pokes are every four minutes), so
+    // a single failed poke the keeper retries on its own never pages anyone.
+    // Vaults cannot cause it: they need no keeper. Nothing to keep is
+    // "not-needed" inside the keeper section and changes nothing here.
 
     const body = {
       // Kept for anything already reading it, but `status` is the field to
@@ -300,10 +328,16 @@ export async function buildServer(): Promise<FastifyInstance> {
               : status === 'stalled'
                 ? `The indexer has stopped advancing and is ${lagLabel(lagSeconds ?? 0)} behind ` +
                   'the chain. The site is showing numbers that old.'
-                : status === 'catching-up'
-                  ? `The indexer is catching up: ${lagLabel(lagSeconds ?? 0)} behind the chain ` +
-                    'and advancing. Figures on the site are as of the last block indexed.'
-                  : undefined,
+                : status === 'keeper-overdue'
+                  ? keeper.message
+                  : status === 'catching-up'
+                    ? `The indexer is catching up: ${lagLabel(lagSeconds ?? 0)} behind the chain ` +
+                      'and advancing. Figures on the site are as of the last block indexed.'
+                    : undefined,
+      // Last, after the top-level status: per router, the last route and
+      // observation, and the last attempt's reason; vaults are counted and
+      // said to need no keeper.
+      keeper,
     };
 
     return reply.code(status === 'ok' || status === 'catching-up' ? 200 : 503).send(body);

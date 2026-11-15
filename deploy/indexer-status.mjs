@@ -16,6 +16,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
+import { keeperReport } from './keeper-report.mjs';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:3001';
 /**
@@ -267,6 +268,14 @@ async function main() {
 
   await depthReport();
 
+  // What the chain says the keeper has done for each router (P4). Vaults need
+  // no keeper. With no router this says "not needed yet" — not a failure, and
+  // it does not set the exit code.
+  console.log('');
+  console.log('Keeper');
+  for (const line of keeperReport(h.keeper)) console.log(line);
+  if (h.keeper?.status === 'overdue') process.exitCode = 1;
+
   console.log('');
   console.log('With DATA_SOURCE=live the site shows');
   if (!h.indexed) {
@@ -278,7 +287,11 @@ async function main() {
   } else {
     console.log('  real pools, current.');
   }
-  console.log('  Stakes, Portfolio and Router stay empty until the contracts ship: there is no vault to stake into yet.');
+  if (!h.keeper?.vaultCount) {
+    console.log('  Stakes, Portfolio and Router stay empty until the contracts ship: there is no vault to stake into yet.');
+  } else {
+    console.log(`  ${h.keeper.vaultCount} deployed vault(s) on Stakes; stakers claim their fees directly, no keeper involved.`);
+  }
 }
 
 // Run when executed, not when imported by the test.

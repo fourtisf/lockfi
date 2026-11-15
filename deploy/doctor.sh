@@ -213,7 +213,7 @@ if command -v pm2 >/dev/null; then
       let list = [];
       try { list = JSON.parse(raw); } catch { process.stdout.write("PARSE_FAIL\n"); return; }
       const by = new Map(list.map((p) => [p.name, p]));
-      for (const name of ["balast-web", "balast-api", "balast-indexer"]) {
+      for (const name of ["balast-web", "balast-api", "balast-indexer", "balast-keeper"]) {
         const p = by.get(name);
         if (!p) { console.log(`${name}\tmissing\t0`); continue; }
         const env = p.pm2_env || {};
@@ -256,19 +256,53 @@ BODY=$(curl -sS --max-time 10 "$API/api/health" 2>/dev/null)
 if [[ -z "$BODY" ]]; then
   bad "no answer from $API/api/health"
 else
-  STATUS=$(printf '%s' "$BODY" | grep -o '"status":"[a-z-]*"' | head -1 | cut -d'"' -f4)
-  LAG=$(printf '%s' "$BODY" | grep -o '"lagSeconds":[0-9.]*' | head -1 | cut -d: -f2)
+  # A JSON parser, not grep: the body nests a keeper section with statuses of
+  # its own, and grep over nested JSON is how this script once invented a
+  # failure (see the processes section).
+  HEALTH=$(printf '%s' "$BODY" | node -e '
+    let raw = "";
+    process.stdin.on("data", (d) => (raw += d));
+    process.stdin.on("end", () => {
+      let h;
+      try { h = JSON.parse(raw); } catch { return; }
+      // "-" for an empty field: tab is whitespace to `read`, so two tabs in
+      // a row would collapse and shift every field after them.
+      const one = (s) => String(s ?? "").replace(/[\t\n]+/g, " ").slice(0, 300) || "-";
+      console.log([one(h.status), Math.round(Number(h.indexed?.lagSeconds ?? 0)), one(h.message),
+        one(h.keeper?.status), one(h.keeper?.message)].join("\t"));
+    });
+  ' 2>/dev/null)
+  IFS=$'\t' read -r STATUS LAG MESSAGE KEEPER KEEPER_MESSAGE <<< "$HEALTH"
   case "$STATUS" in
-    ok) ok "indexer following head (lag ${LAG%.*}s)" ;;
+    ok) ok "indexer following head (lag ${LAG}s)" ;;
+    catching-up) ok "indexer catching up and advancing (${LAG}s behind) — a first sync, working" ;;
+    no-anchor) warn "no USD anchor yet — normal until the indexer reaches the WETH/USDG pool: $MESSAGE" ;;
     stalled)
-      bad "indexer stalled — ${LAG%.*}s behind; the site is showing numbers that old"
+      bad "indexer stalled — ${LAG}s behind; the site is showing numbers that old"
       first "runuser -u $APP_USER -- pm2 logs balast-indexer --lines 30 --nostream"
       ;;
     never-indexed)
       bad "the indexer has never written a block"
       first "runuser -u $APP_USER -- pm2 logs balast-indexer --lines 30 --nostream"
       ;;
+    keeper-overdue) ;; # reported under "keeper" below
+    misconfigured) bad "misconfigured: $MESSAGE"; first "bash $APP_DIR/deploy/set-env.sh" ;;
     *) bad "unexpected health body: ${BODY:0:160}" ;;
+  esac
+
+  # The keeper (P4), from what the chain recorded about each router. Vaults
+  # need no keeper. No router is "not needed yet", which is fine, not a warning.
+  head_ "keeper"
+  case "$KEEPER" in
+    not-needed) ok "not needed yet — no router deployed (vaults need no keeper)" ;;
+    ok) ok "$KEEPER_MESSAGE" ;;
+    unknown) warn "$KEEPER_MESSAGE" ;;
+    overdue)
+      bad "$KEEPER_MESSAGE"
+      also "runuser -u $APP_USER -- pm2 logs balast-keeper --lines 40 --nostream"
+      ;;
+    -|"") warn "this API does not report the keeper (deployed before it)" ;;
+    *) warn "keeper status \"$KEEPER\": $KEEPER_MESSAGE" ;;
   esac
 fi
 

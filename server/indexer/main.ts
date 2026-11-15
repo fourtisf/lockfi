@@ -17,7 +17,8 @@
 // server/load-env.ts — Node does not read `.env` files and neither does PM2.
 import '../load-env';
 
-import { CONTRACTS } from '../../lib/chain';
+import { CHAIN, CONTRACTS } from '../../lib/chain';
+import { deploymentFor } from '../../lib/contracts/deployments';
 import { assertChainId, getHead } from '../chain/client';
 import { findDeploymentBlock } from '../chain/deployment';
 import { env } from '../env';
@@ -26,6 +27,7 @@ import { publishTick } from '../api/bus';
 import { Poller } from './poller';
 import { defaultLogoSources } from './logo-sources';
 import { ViemLogSource } from './viem-source';
+import { contractsConfig } from './contracts-config';
 
 const USDG = process.env.USDG_ADDRESS;
 
@@ -72,6 +74,11 @@ async function main(): Promise<void> {
     }
   }
 
+  // Tidewell's own contracts (P2/P4): the vaults and the router factory in
+  // config/deployments.json. Empty there means nothing is deployed, and
+  // nothing is read for them.
+  const contracts = contractsConfig(deploymentFor(CHAIN.id), log);
+
   const poller = new Poller({
     source: new ViemLogSource(),
     usdgAddress: USDG,
@@ -85,6 +92,7 @@ async function main(): Promise<void> {
     // Swaps only for the last SWAP_WINDOW_DAYS; older ranges are read for
     // pools and liquidity alone (see poller.ts).
     swapWindowSeconds: env.swapWindowDays > 0 ? env.swapWindowDays * 86_400 : null,
+    contracts,
     log,
   });
   if (env.swapWindowDays > 0) {

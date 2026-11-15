@@ -277,17 +277,46 @@ model PoolState {
 
 // ------------------------------------------------------------------ product --
 
+/// One row per deployed vault, REBUILT from its events (indexer/contracts.ts),
+/// never incremented (§14).
+///
+/// The vault credits fees per share the moment it collects them, and any
+/// deposit, withdraw, claim or poke collects first: there is no harvest, no
+/// stream and no keeper. So there is no reward rate or harvest time here —
+/// only what was staked, what was collected, and what was paid out. Token
+/// amounts are raw units of the pool's currency0 and currency1.
 model Vault {
-  poolId         String   @id @map("pool_id")
-  address        String   @unique
-  totalStaked    Decimal  @map("total_staked") @db.Decimal(78, 0)
-  totalStakedUsd Decimal  @map("total_staked_usd") @db.Decimal(38, 18)
-  /// WETH per second out of the current 7-day window (§3.3).
-  rewardRate     Decimal  @map("reward_rate") @db.Decimal(78, 0)
-  periodFinish   DateTime @map("period_finish")
+  poolId         String    @id @map("pool_id")
+  address        String    @unique
+  /// Liquidity units staked: Deposited minus Withdrawn.
+  totalStaked    Decimal   @map("total_staked") @db.Decimal(78, 0)
+  /// The vault's full-range liquidity valued at the pool's latest price, the
+  /// same way pool TVL is (aggregate.ts). Zero while the pool is unpriced.
+  totalStakedUsd Decimal   @map("total_staked_usd") @db.Decimal(38, 18)
   stakers        Int
-  protocolFeeBps Int      @map("protocol_fee_bps")
-  updatedAt      DateTime @map("updated_at")
+  protocolFeeBps Int       @map("protocol_fee_bps")
+  /// Whether NEW deposits are open (the latest DepositsOpenSet; open at
+  /// deployment). Withdraw and claim are never gated.
+  depositsOpen   Boolean   @default(true) @map("deposits_open")
+  /// Every fee the position collected, before the protocol's cut (Σ FeesCollected).
+  feesCollected0 Decimal   @map("fees_collected0") @db.Decimal(78, 0)
+  feesCollected1 Decimal   @map("fees_collected1") @db.Decimal(78, 0)
+  /// The protocol's share of those, set aside at collection.
+  protocolCut0   Decimal   @map("protocol_cut0") @db.Decimal(78, 0)
+  protocolCut1   Decimal   @map("protocol_cut1") @db.Decimal(78, 0)
+  /// What stakers have claimed (Σ Claimed).
+  claimed0       Decimal   @map("claimed0") @db.Decimal(78, 0)
+  claimed1       Decimal   @map("claimed1") @db.Decimal(78, 0)
+  /// What has been paid to the treasury (Σ ProtocolFeesPaid).
+  protocolPaid0  Decimal   @map("protocol_paid0") @db.Decimal(78, 0)
+  protocolPaid1  Decimal   @map("protocol_paid1") @db.Decimal(78, 0)
+  /// Block time of the first Deposited event.
+  stakedSince    DateTime? @map("staked_since")
+  /// Block time of the latest FeesCollected: fees earned since then are in
+  /// the position, uncredited until the next deposit, withdraw, claim or poke.
+  lastCollectedAt DateTime? @map("last_collected_at")
+  /// Chain time of the last block whose vault events were read.
+  updatedAt      DateTime  @map("updated_at")
 
   pool   Pool    @relation(fields: [poolId], references: [id], onDelete: Cascade)
   stakes Stake[]
@@ -295,12 +324,16 @@ model Vault {
   @@map("vaults")
 }
 
+/// A wallet's shares in one vault and what it has claimed, rebuilt from the
+/// vault's events. A wallet that withdrew but claimed keeps its row.
 model Stake {
-  wallet      String
-  vaultId     String   @map("vault_id")
-  shares      Decimal  @db.Decimal(78, 0)
-  claimedWeth Decimal  @map("claimed_weth") @db.Decimal(78, 0)
-  updatedAt   DateTime @map("updated_at")
+  wallet    String
+  vaultId   String   @map("vault_id")
+  shares    Decimal  @db.Decimal(78, 0)
+  /// Σ Claimed, in raw units of the pool's currency0 and currency1.
+  claimed0  Decimal  @map("claimed0") @db.Decimal(78, 0)
+  claimed1  Decimal  @map("claimed1") @db.Decimal(78, 0)
+  updatedAt DateTime @map("updated_at")
 
   vault Vault @relation(fields: [vaultId], references: [poolId], onDelete: Cascade)
 
@@ -325,6 +358,60 @@ model Position {
 
   @@index([wallet])
   @@map("positions")
+}
+
+/// Raw events from Tidewell's own contracts — the vaults, the router factory
+/// and the routers it created — keyed by log coordinates like every raw table,
+/// so re-reading a range changes nothing. `vaults` and `stakes` are REBUILT
+/// from these rows, never incremented (§14).
+model ContractEvent {
+  txHash    String   @map("tx_hash")
+  logIndex  Int      @map("log_index")
+  /// The emitting contract, lowercase.
+  contract  String
+  /// vault | router | router-factory
+  source    String
+  blockNum  BigInt   @map("block_num")
+  blockTime DateTime @map("block_time")
+  /// The event name: Deposited, FeesCollected, Claimed, RouterCreated, Observed, ...
+  kind      String
+  /// The address the event is about: a vault's share owner or claimant, a
+  /// treasury, a router's keeper, a created router. Null where there is none.
+  account   String?
+  /// Every argument. uints as decimal strings, addresses lowercase.
+  args      Json
+
+  @@id([txHash, logIndex])
+  @@index([contract, kind, blockNum])
+  @@map("contract_events")
+}
+
+/// Every keeper attempt on a router: a poke that failed or was refused, or a
+/// route (§8, P3; P4). A run that was skipped says why, so a keeper that is up
+/// but not routing is visible from /api/health rather than only in a log
+/// nobody reads. Vaults need no keeper (see Vault).
+model KeeperRun {
+  id              String   @id @default(uuid())
+  /// The router, lowercase.
+  contract        String
+  /// poke | route
+  kind            String
+  startedAt       DateTime @map("started_at")
+  finishedAt      DateTime @map("finished_at")
+  /// ok | reverted | skipped | error. `reverted` always means a transaction
+  /// was mined and reverted; a revert caught in simulation sent nothing and
+  /// is `skipped`.
+  status          String
+  txHash          String?  @map("tx_hash")
+  /// The address that signed, or would have.
+  signer          String?
+  reason          String?
+  /// The numbers behind the decision: observation age, a route's amounts
+  /// from its Routed event. uints as decimal strings.
+  details         Json?
+
+  @@index([contract, startedAt])
+  @@map("keeper_runs")
 }
 
 model RouterConfig {

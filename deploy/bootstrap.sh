@@ -215,6 +215,12 @@ INDEXER_BLOCK_RANGE=2000
 USDG_ADDRESS=
 LAUNCHPAD_HOOKS=
 V3_POOLS=
+# The keeper's key: a DEDICATED hot wallet holding only gas, never the
+# owner's or the treasury's. It pokes and routes token teams' routers; vaults
+# need no keeper. Blank, balast-keeper stays up and signs nothing; with no
+# router deployed it is not needed at all. Set it without the key touching
+# your shell history: bash deploy/set-env.sh KEEPER_PRIVATE_KEY -
+KEEPER_PRIVATE_KEY=
 ENVEOF
   chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
   chmod 600 "$APP_DIR/.env"
@@ -302,8 +308,10 @@ cat > /etc/cron.d/balast <<'CRONEOF'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Is the indexer actually indexing? §8's P3 failure mode, one phase early:
-# a dead indexer leaves the site serving old numbers as though they were live.
+# Is the indexer indexing, and the keeper keeping the routers? §8's P3
+# failure mode: a process that dies quietly while the site looks fine — a dead
+# indexer serves old numbers as though live, a dead keeper lets every router's
+# TWAP lapse. (Vaults need no keeper.)
 # Set ALERT_CMD in /etc/default/balast to have it reach a person.
 */5 * * * * root [ -r /etc/default/balast ] && . /etc/default/balast; /usr/local/bin/balast-monitor >/dev/null 2>&1
 
@@ -363,6 +371,7 @@ echo
 echo "the processes run as $APP_USER, so ask pm2 as $APP_USER:"
 echo "  runuser -u $APP_USER -- pm2 status"
 echo "  runuser -u $APP_USER -- pm2 logs balast-indexer"
+echo "  runuser -u $APP_USER -- pm2 logs balast-keeper     # idle until a router is deployed"
 echo "indexer progress:          bash $APP_DIR/deploy/data-source.sh status"
 echo "prove renewal works:       certbot renew --dry-run"
 echo "one answer if not right:   bash $APP_DIR/deploy/doctor.sh"

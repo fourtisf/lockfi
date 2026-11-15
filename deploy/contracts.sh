@@ -77,7 +77,7 @@ fi
 
 # ------------------------------------------------------------ 4. Owner, treasury
 say "addresses (public addresses only)"
-read -r -p "    OWNER — the wallet that controls vault settings (keeper, treasury, fee up to 20%; never funds): " OWNER
+read -r -p "    OWNER — the wallet that controls vault settings (treasury, fee up to 20%, new deposits; never funds): " OWNER
 is_addr "$OWNER" || { echo "not an address: $OWNER"; exit 1; }
 read -r -p "    TREASURY — where the 10% protocol fee is paid: " TREASURY
 is_addr "$TREASURY" || { echo "not an address: $TREASURY"; exit 1; }
@@ -118,7 +118,7 @@ cat <<EOF
     owner     $OWNER
     keeper    $KEEPER
     treasury  $TREASURY
-    fee       10% of harvested fees (cap 20%, fixed forever)
+    fee       10% of fees collected (cap 20%, fixed forever)
     NOT independently audited.
 EOF
 read -r -p "    Type DEPLOY to send the transactions: " answer
@@ -159,6 +159,7 @@ cat "$OUT"
 cat <<EOF
 
     Then:
-      1. send ~0.01 ETH to the keeper $KEEPER for harvest gas
+      1. send ~0.01 ETH to the keeper $KEEPER for router gas (vaults need no keeper;
+         it idles until a token team creates a router)
       2. after the site update is pushed:  bash $APP_DIR/deploy/deploy.sh
 EOF

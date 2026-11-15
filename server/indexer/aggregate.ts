@@ -67,8 +67,8 @@ export interface Bounds {
  * to a price; when that path returns nonsense the honest answer is silence,
  * not a big number.
  */
-const MAX_SANE_PRICE_USD = '1e12'; // no traded token is worth $1tn a unit
-const MAX_SANE_TOTAL_USD = '1e15'; // no pool holds a quadrillion dollars
+export const MAX_SANE_PRICE_USD = '1e12'; // no traded token is worth $1tn a unit
+export const MAX_SANE_TOTAL_USD = '1e15'; // no pool holds a quadrillion dollars
 /**
  * How far a pool's token side may outweigh the quote (WETH or USDG) behind
  * it — held now, plus all ever deposited — before its depth is treated as
@@ -78,7 +78,7 @@ const MAX_SANE_TOTAL_USD = '1e15'; // no pool holds a quadrillion dollars
 const MAX_TOKEN_TO_QUOTE = 10_000;
 
 /** Null unless the value is inside the bound. */
-function sane(expr: string, bound: string): string {
+export function sane(expr: string, bound: string): string {
   return `(CASE WHEN (${expr}) IS NOT NULL AND abs(${expr}) < ${bound}::numeric THEN (${expr}) ELSE NULL END)`;
 }
 
@@ -115,7 +115,7 @@ function checkAnchors(anchors: PriceAnchors): PriceAnchors {
  * 4e8 one way and 2.5e-9 the other — keeps its significant digits instead of
  * being divided down into numeric's minimum scale first.
  */
-function ratioSql(sqrt: string, dec0: string, dec1: string): string {
+export function ratioSql(sqrt: string, dec0: string, dec1: string): string {
   return `(
     (power(${sqrt}::numeric, 2) * power(10::numeric, GREATEST(${dec0} - ${dec1}, 0)))
     / power(2::numeric, 192)
@@ -124,6 +124,34 @@ function ratioSql(sqrt: string, dec0: string, dec1: string): string {
 }
 
 const SWAP_RATIO = ratioSql('sw.sqrt_price_x96', 't0.decimals', 't1.decimals');
+
+/**
+ * What liquidity `l` in the range [√a, √b] holds at price √p, in raw token
+ * units, as SQL over float8 — the concentrated-liquidity formulas:
+ *
+ *   below the range: all token0, L·(√b−√a)/(√a·√b)
+ *   above it:        all token1, L·(√b−√a)
+ *   inside:          L·(√b−√p)/(√p·√b) of token0, L·(√p−√a) of token1
+ *
+ * One definition for every depth figure: pool TVL here, and the value of a
+ * vault's staked full-range position (indexer/contracts.ts), so the two can
+ * never be valued by different arithmetic.
+ */
+export function positionAmount0Sql(l: string, sp: string, sa: string, sb: string): string {
+  return `CASE
+          WHEN ${sp} IS NULL OR ${sp} <= 0 THEN 0
+          WHEN ${sp} >= ${sb} THEN 0
+          ELSE ${l} * (${sb} - GREATEST(${sp}, ${sa})) / (GREATEST(${sp}, ${sa}) * ${sb})
+        END`;
+}
+
+export function positionAmount1Sql(l: string, sp: string, sa: string, sb: string): string {
+  return `CASE
+          WHEN ${sp} IS NULL OR ${sp} <= 0 THEN 0
+          WHEN ${sp} <= ${sa} THEN 0
+          ELSE ${l} * (LEAST(${sp}, ${sb}) - ${sa})
+        END`;
+}
 
 /**
  * Which side of a pool is the TOKEN and which is the QUOTE.
@@ -461,16 +489,8 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
     --   inside:          L·(√b−√p)/(√p·√b) of token0, L·(√p−√a) of token1
     reserves AS (
       SELECT r.pool_id,
-        SUM(CASE
-          WHEN cp.sp IS NULL OR cp.sp <= 0 THEN 0
-          WHEN cp.sp >= rb.sb THEN 0
-          ELSE r.l::float8 * (rb.sb - GREATEST(cp.sp, rb.sa)) / (GREATEST(cp.sp, rb.sa) * rb.sb)
-        END) AS r0,
-        SUM(CASE
-          WHEN cp.sp IS NULL OR cp.sp <= 0 THEN 0
-          WHEN cp.sp <= rb.sa THEN 0
-          ELSE r.l::float8 * (LEAST(cp.sp, rb.sb) - rb.sa)
-        END) AS r1,
+        SUM(${positionAmount0Sql('r.l::float8', 'cp.sp', 'rb.sa', 'rb.sb')}) AS r0,
+        SUM(${positionAmount1Sql('r.l::float8', 'cp.sp', 'rb.sa', 'rb.sb')}) AS r1,
         bool_or(r.l < 0) AS missing
       FROM ranges r
       CROSS JOIN LATERAL (

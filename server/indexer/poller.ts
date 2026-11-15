@@ -37,6 +37,7 @@ import {
 import { resolveUsdg } from './anchor';
 import { planIngest } from './ingest';
 import { refreshLogos } from './logos';
+import { ContractIndexer, type ContractsConfig } from './contracts';
 import { sweepLogos, type LogoSource } from './logo-sources';
 
 /**
@@ -231,6 +232,16 @@ export interface PollerOptions {
    * them, a test does not, so no test ever reaches the network.
    */
   logoSources?: LogoSource[];
+  /**
+   * Tidewell's own contracts: deployed vaults and the router factory
+   * (contracts.ts). Read every pass on cursors of their own, so stakes,
+   * claims and a router's last observation are current even while pools are
+   * still being backfilled.
+   * Absent or empty: nothing is read and nothing is queried.
+   */
+  contracts?: ContractsConfig;
+  /** Least milliseconds between contract passes once they reach head. Tests pass 0. */
+  contractEveryMs?: number;
   log?: (message: string) => void;
 }
 
@@ -290,6 +301,7 @@ export class Poller {
   private lastListAt = 0;
   /** Pools stored before native ETH was understood get corrected once a run. */
   private nativeAdopted = false;
+  private readonly contracts: ContractIndexer | null;
 
   constructor(options: PollerOptions) {
     this.source = options.source;
@@ -309,6 +321,39 @@ export class Poller {
     this.tokenReader = options.tokenReader;
     this.logoSources = options.logoSources ?? null;
     this.log = options.log ?? (() => {});
+    const contracts = options.contracts;
+    this.contracts =
+      contracts && (contracts.vaults.length > 0 || contracts.routerFactory)
+        ? new ContractIndexer({
+            source: this.source,
+            config: contracts,
+            reorgDepth: this.reorgDepth,
+            startRange: this.maxRange,
+            everyMs: options.contractEveryMs ?? 5_000,
+            log: this.log,
+          })
+        : null;
+  }
+
+  /**
+   * Read Tidewell's contracts to head. Never fails the pass: a vault's events
+   * being a pass late is far smaller than every pool's data stopping, and
+   * the contract cursors do not move on a failure, so nothing is skipped.
+   */
+  private async indexContracts(head: { number: bigint; timestamp: Date }): Promise<void> {
+    if (!this.contracts?.due()) return;
+    try {
+      const anchors = this.contracts.hasVaults ? await this.anchors() : null;
+      const result = await this.contracts.pass(head, anchors);
+      if (result && result.written > 0) {
+        this.log(
+          `  contracts: blocks ${result.fromBlock}-${result.toBlock}, +${result.written} event(s)` +
+            (this.contracts.hasVaults ? `, ${result.vaultsWritten} vault(s) rebuilt` : ''),
+        );
+      }
+    } catch (error) {
+      this.log(`  contract pass failed: ${(error as Error).message.split('\n')[0]}`);
+    }
   }
 
   private async refreshList(): Promise<number> {
@@ -369,6 +414,20 @@ export class Poller {
    * which the upserts make harmless.
    */
   async runPass(): Promise<PassResult> {
+    const head = await this.source.getHeadBlock();
+    try {
+      return await this.poolPass(head);
+    } finally {
+      // After the pool pass, so a vault is valued at this pass's pool state,
+      // and strictly after it: ViemLogSource times the blocks of the logs it
+      // was last asked for, so the two reads must not interleave. In a
+      // `finally`, so a pool pass that fails — and is retried — does not
+      // also freeze every vault's stakes and every router's observations.
+      await this.indexContracts(head);
+    }
+  }
+
+  private async poolPass(head: { number: bigint; timestamp: Date }): Promise<PassResult> {
     // v3 pools discovered on an earlier run have to be followed again after a
     // restart, or the process would stop indexing them without saying so.
     if (!this.v3Loaded) {
@@ -376,7 +435,6 @@ export class Poller {
       this.v3Loaded = true;
     }
 
-    const head = await this.source.getHeadBlock();
     const cursor = await readCursor(POOL_MANAGER_CURSOR);
     this.maybeSweepLogos();
 
@@ -827,7 +885,9 @@ export class Poller {
     for (let i = 0; i < maxPasses; i++) {
       const result = await this.runPass();
       results.push(result);
-      if (result.caughtUp) break;
+      // Our own contracts too: a router announced in the last range is read
+      // from its creation block on the next pass.
+      if (result.caughtUp && !this.contracts?.isBehind) break;
     }
     return results;
   }

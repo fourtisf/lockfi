@@ -16,13 +16,14 @@
  * window is honest and the lag is reported separately, which is what the top
  * bar shows.
  *
- * Anything P1 genuinely cannot know is zero or empty, never invented. There
- * are no vault contracts until P2, so there are no stakes, no positions and
- * no harvest payouts — the components already have empty states for that.
+ * Anything P1 genuinely cannot know is zero or empty, never invented. Vaults
+ * come from the deployed contracts' own events and are empty until one is
+ * deployed; the snapshot carries no wallet's data, because it is one public
+ * document served identically to every visitor.
  */
 
 import { encodeAbiParameters, keccak256 } from 'viem';
-import { CONTRACTS, PROTOCOL_FEE_BPS, REWARD_WINDOW_SECONDS } from '../../lib/chain';
+import { CONTRACTS, PROTOCOL_FEE_BPS } from '../../lib/chain';
 import type {
   FeeYield,
   MarketSnapshot,
@@ -462,21 +463,32 @@ function toPool(row: PoolQueryRow): Pool {
   };
 }
 
-/** Vaults, once P2 deploys them. Until then this is empty and honest. */
+/**
+ * Deployed vaults, from the rows the indexer rebuilds out of their events
+ * (indexer/contracts.ts). With nothing deployed this is empty, and the pages
+ * say staking is not open — never an invented vault.
+ *
+ * Public and identical for every visitor: totals only, no wallet.
+ */
 async function queryVaults(): Promise<Vault[]> {
-  const rows = await prisma.vault.findMany({
-    include: { pool: { select: { id: true } } },
-  });
-  const now = Date.now();
+  const rows = await prisma.vault.findMany({ orderBy: { poolId: 'asc' } });
   return rows.map((v) => ({
     id: `vault-${v.poolId}`,
     poolId: v.poolId,
     address: v.address,
     totalStakedUsd: Number(v.totalStakedUsd),
     stakers: v.stakers,
-    rewardRate: Number(v.rewardRate) / 1e18,
-    nextHarvestInSeconds: Math.max(0, (v.periodFinish.getTime() - now) / 1000),
     protocolFeeBps: v.protocolFeeBps,
+    // The vault no longer streams, harvests or has a keeper: fees are
+    // credited per share the moment they are collected — by any deposit,
+    // withdraw, claim or poke — and claimable at once, in the pool's own two
+    // tokens. So there is no WETH reward rate (0), no harvest to count down
+    // to (0), and no harvest that could be late (null: not applicable, never
+    // "on time"). The fields stay because the Vault type has them; a
+    // non-zero value here would describe a mechanism that does not exist.
+    rewardRate: 0,
+    nextHarvestInSeconds: 0,
+    harvestLagSeconds: null,
   }));
 }
 
@@ -513,20 +525,20 @@ async function queryPortfolio(wallet: string | null): Promise<Portfolio> {
     prisma.position.findMany({ where: { wallet: wallet.toLowerCase() } }),
   ]);
 
-  const now = Date.now();
   return {
     ...empty,
-    stakes: stakes.map((s) => {
-      const remaining = Math.max(0, (s.vault.periodFinish.getTime() - now) / 1000);
-      return {
-        vaultId: `vault-${s.vaultId}`,
-        poolId: s.vaultId,
-        stakedUsd: 0,
-        earnedWeth: 0,
-        streamProgressPct: 100 - (remaining / REWARD_WINDOW_SECONDS) * 100,
-        streamRemainingSeconds: remaining,
-      };
-    }),
+    // Vaults stream nothing (fees are credited per share and claimable at
+    // once), so there is no stream progress to report: zeros, not a guess.
+    // Unclaimed fees are an on-chain read per wallet (claimable()), which the
+    // wallet layer makes; this path is never reached from the public snapshot.
+    stakes: stakes.map((s) => ({
+      vaultId: `vault-${s.vaultId}`,
+      poolId: s.vaultId,
+      stakedUsd: 0,
+      earnedWeth: 0,
+      streamProgressPct: 0,
+      streamRemainingSeconds: 0,
+    })),
     positions: positions.map((p) => ({
       tokenId: p.tokenId,
       poolId: p.poolId,
@@ -666,7 +678,10 @@ export async function buildSnapshot(
       history: featuredHistory,
     },
     router,
-    // Harvest payouts need a vault (P2). No invented feed.
+    // Each payout names the wallet it paid, and this snapshot is one public
+    // document served the same to every visitor: no wallet's data goes in it.
+    // Claimed events are indexed (contract_events) for when there is a
+    // per-wallet endpoint to serve them from. No invented feed meanwhile.
     payouts: [],
     payoutTotalUsd: 0,
     indexerLagSeconds: Math.max(0, (Date.now() - asOf.getTime()) / 1000),

@@ -4,6 +4,7 @@
 #
 #   ./deploy/set-env.sh USDG_ADDRESS 0xabc...
 #   ./deploy/set-env.sh START_BLOCK 1234567
+#   ./deploy/set-env.sh KEEPER_PRIVATE_KEY - # prompts; the key never touches argv or history
 #   ./deploy/set-env.sh                      # show the current values
 #
 # Replaces the line if the key is already there, appends it if not, and leaves
@@ -36,9 +37,16 @@ if [[ $# -eq 0 ]]; then
   exit 0
 fi
 
-[[ $# -eq 2 ]] || { echo "usage: $0 KEY VALUE"; exit 1; }
+[[ $# -eq 2 ]] || { echo "usage: $0 KEY VALUE   (VALUE - to type it, hidden)"; exit 1; }
 KEY=$1
 VALUE=$2
+
+# "-" reads the value from the terminal without echoing it. A private key on
+# the command line is in the shell history and, while this runs, in `ps`.
+if [[ "$VALUE" == "-" ]]; then
+  read -r -s -p "$KEY: " VALUE
+  echo
+fi
 
 [[ "$KEY" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "not a variable name: $KEY"; exit 1; }
 
@@ -67,4 +75,9 @@ mv "$TMP" "$ENV_FILE"
 echo "set $KEY"
 echo
 echo "the processes read .env at startup, so this takes effect on:"
-echo "  runuser -u $APP_USER -- pm2 restart balast-indexer balast-api --update-env"
+case "$KEY" in
+  KEEPER_PRIVATE_KEY)
+    echo "  runuser -u $APP_USER -- pm2 restart balast-keeper --update-env" ;;
+  *)
+    echo "  runuser -u $APP_USER -- pm2 restart balast-indexer balast-api --update-env" ;;
+esac
