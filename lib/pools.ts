@@ -79,3 +79,32 @@ export function byMarketCap(a: Pool, b: Pool): number {
   const tier = (p: Pool) => (mcRanked(p) ? 0 : p.marketCapUsd > 0 ? 1 : 2);
   return tier(a) - tier(b) || b.marketCapUsd - a.marketCapUsd || (a.id < b.id ? -1 : 1);
 }
+
+/**
+ * A 24h move is a day's move when its reference trade is at least this many
+ * hours before the snapshot's moment. Fewer, and it was measured from the
+ * pool's first trade inside the day, which the row marks ("+50.1% 9h").
+ */
+export const FULL_DAY_REF_HOURS = 23.5;
+
+/** True when the pool's 24h figure is measured from a trade a day ago. */
+export function fullDayMove(pool: Pool): boolean {
+  return pool.change24hPct !== null && (pool.change24hRefHours == null || pool.change24hRefHours >= FULL_DAY_REF_HOURS);
+}
+
+/**
+ * Top gainers (`1`) or top losers (`-1`) over 24h.
+ *
+ * Three tiers, so the ranking means what its name says: true 24h moves
+ * first; then moves measured since a pool's first trade inside the day — a
+ * five-hour-old launch reading +20,107% is a launch, not a day's gain, and
+ * would otherwise lead every board; then pools with no figure, which are
+ * unknown, never ranked as 0%.
+ */
+export function byChange(direction: 1 | -1): (a: Pool, b: Pool) => number {
+  const tier = (p: Pool) => (p.change24hPct === null ? 2 : fullDayMove(p) ? 0 : 1);
+  return (a, b) =>
+    tier(a) - tier(b) ||
+    direction * ((b.change24hPct ?? 0) - (a.change24hPct ?? 0)) ||
+    (a.id < b.id ? -1 : 1);
+}

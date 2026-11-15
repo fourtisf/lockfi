@@ -1,4 +1,5 @@
 import { signOf } from '@/lib/format';
+import { FULL_DAY_REF_HOURS } from '@/lib/pools';
 
 /**
  * A 24h move. Green up, red down — the only two colours a number gets (§19).
@@ -16,7 +17,7 @@ export function Change({ pct, refHours }: { pct: number | null; refHours?: numbe
   }
   // Measured from the first trade inside the day rather than from 24h ago:
   // said, with how long ago, so a launch-day move is not read as a day's.
-  const partial = refHours != null && refHours < 23.5;
+  const partial = refHours != null && refHours < FULL_DAY_REF_HOURS;
   const since = partial ? `${Math.max(1, Math.round(refHours))}h` : null;
   const title = partial
     ? `Change since this pool's first trade in the last 24h, ${since} ago — it has no trade from 24h ago to compare with`

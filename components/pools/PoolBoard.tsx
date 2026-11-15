@@ -18,7 +18,7 @@ import {
   feeYieldValue,
   yieldPct,
 } from '@/lib/yield';
-import { byMarketCap, mcRanked, MC_MAX_DEPTH_MULTIPLE, tokenRows } from '@/lib/pools';
+import { byChange, byMarketCap, mcRanked, MC_MAX_DEPTH_MULTIPLE, tokenRows } from '@/lib/pools';
 
 type Variant = 'trending' | 'established';
 
@@ -28,12 +28,20 @@ const FILTERS: { id: 'all' | Quote; label: string }[] = [
   { id: 'USDG', label: 'USDG' },
 ];
 
-type Sort = 'board' | 'mc';
+/**
+ * How a board is ranked: its own metric (§6), market cap (ALFA's default),
+ * or the 24h price move either way — top gainers and top losers, the way a
+ * trader reads a market. Gainers and losers rank the price move, never fee
+ * yield: yield is what an LP earns, not what the token did.
+ */
+type Sort = 'board' | 'mc' | 'gainers' | 'losers';
+const SORTS: readonly Sort[] = ['board', 'mc', 'gainers', 'losers'];
 
 /** The sort a viewer chose, per board. A convenience: losing it loses nothing. */
 function readSort(boardId: string): Sort {
   try {
-    return window.localStorage.getItem(`tidewell.sort.${boardId}`) === 'board' ? 'board' : 'mc';
+    const saved = window.localStorage.getItem(`tidewell.sort.${boardId}`);
+    return SORTS.includes(saved as Sort) ? (saved as Sort) : 'mc';
   } catch {
     return 'mc';
   }
@@ -78,6 +86,17 @@ export function PoolBoard({
     writeSort(boardId, next);
   };
   const boardLabel = variant === 'trending' ? 'Volume' : 'Fee yield';
+  /** What the heading says the board is ranked by. */
+  const rankedBy =
+    sort === 'mc'
+      ? 'by market cap'
+      : sort === 'gainers'
+        ? 'top gainers 24h'
+        : sort === 'losers'
+          ? 'top losers 24h'
+          : variant === 'trending'
+            ? 'by volume'
+            : 'by fee yield';
   const reduced = useReducedMotion();
   const register = useFlip(!reduced);
 
@@ -113,6 +132,12 @@ export function PoolBoard({
       // Highest market cap first, with thin pools' figures kept from leading.
       return board.sort((a, b) => byMarketCap(a.pool, b.pool));
     }
+    if (sort === 'gainers' || sort === 'losers') {
+      // The 24h price move, up or down (lib/pools.ts byChange): true 24h
+      // moves before since-launch ones, unknown last.
+      const order = byChange(sort === 'gainers' ? 1 : -1);
+      return board.sort((a, b) => order(a.pool, b.pool));
+    }
     if (variant === 'trending') {
       // Volume ranks Trending, and only Trending. Everything else ranks on
       // fee yield (§1) — volume is trivially washed.
@@ -142,14 +167,14 @@ export function PoolBoard({
           {title}
           {variant === 'trending' ? (
             <span className="muted" title="Tokens with at least $100 traded in the last 24 hours.">
-              24h · {sort === 'mc' ? 'by market cap' : 'by volume'}
+              24h · {rankedBy}
             </span>
           ) : (
             <span
               className="muted"
               title="Pools with a full 7 days of record that earned fees in them."
             >
-              7d+ · {sort === 'mc' ? 'by market cap' : 'by fee yield'}
+              7d+ · {rankedBy}
             </span>
           )}
         </h2>
@@ -165,6 +190,22 @@ export function PoolBoard({
               title={`Highest market cap first. A figure more than ${MC_MAX_DEPTH_MULTIPLE.toLocaleString('en-US')}\u00d7 its pool's depth, or with depth unknown, is ranked after the rest: a price a few dollars can move makes it meaningless.`}
             >
               MC
+            </button>
+            <button
+              className={sort === 'gainers' ? 'on' : undefined}
+              aria-pressed={sort === 'gainers'}
+              onClick={() => setSort('gainers')}
+              title="Biggest 24h price rise first. A move measured since a pool's first trade today (marked with its age) ranks after full-day moves."
+            >
+              <span aria-hidden="true">▲ </span>Gainers
+            </button>
+            <button
+              className={sort === 'losers' ? 'on' : undefined}
+              aria-pressed={sort === 'losers'}
+              onClick={() => setSort('losers')}
+              title="Biggest 24h price fall first. A move measured since a pool's first trade today (marked with its age) ranks after full-day moves."
+            >
+              <span aria-hidden="true">▼ </span>Losers
             </button>
           </div>
           <div className="seg" role="group" aria-label={`${title} quote filter`}>
@@ -187,7 +228,11 @@ export function PoolBoard({
           <caption className="sr-only">
             {sort === 'mc'
               ? `${title}, ranked by market cap`
-              : variant === 'trending'
+              : sort === 'gainers'
+                ? `${title}, biggest 24h price rise first`
+                : sort === 'losers'
+                  ? `${title}, biggest 24h price fall first`
+                  : variant === 'trending'
                 ? `${title}, ranked by 24h volume`
                 : `${title}, ranked by fee yield over the trailing 7 days`}
           </caption>
@@ -197,7 +242,11 @@ export function PoolBoard({
               <th scope="col" className="r hide-mc" aria-sort={sort === 'mc' ? 'descending' : undefined}>
                 MC
               </th>
-              <th scope="col" className="r">
+              <th
+                scope="col"
+                className="r"
+                aria-sort={sort === 'gainers' ? 'descending' : sort === 'losers' ? 'ascending' : undefined}
+              >
                 24h
               </th>
               <th scope="col" className="r metric">

@@ -95,6 +95,29 @@ test.describe('live boards', () => {
     await expect(board.locator('.sect-h')).toContainText('by market cap');
   });
 
+  test('Gainers and Losers rank the 24h price move, up and down', async ({ page }) => {
+    await page.goto('/pools', { waitUntil: 'networkidle' });
+    const board = page.locator('#main .card').filter({ has: page.getByRole('group', { name: /Trending sort/ }) });
+    const moves = async () =>
+      (await board.locator('tbody .chg').allTextContents()).map((t) => {
+        const m = t.replace('−', '-').match(/([+-]?[\d.]+)%/);
+        // "▲ +4.8%", "▼ −2.9%": the sign is in the figure.
+        return m ? Number(m[1]) : 0;
+      });
+
+    await board.getByRole('button', { name: /Gainers/ }).click();
+    await expect(board.locator('.sect-h')).toContainText('top gainers 24h');
+    await expect(board.locator('th[aria-sort="descending"]')).toHaveText('24h');
+    const up = await moves();
+    expect(up.length).toBeGreaterThan(2);
+    expect(up).toEqual([...up].sort((a, b) => b - a));
+
+    await board.getByRole('button', { name: /Losers/ }).click();
+    await expect(board.locator('.sect-h')).toContainText('top losers 24h');
+    const down = await moves();
+    expect(down).toEqual([...down].sort((a, b) => a - b));
+  });
+
   test('row one carries the leader highlight on both boards', async ({ page }) => {
     await page.goto('/pools', { waitUntil: 'networkidle' });
     await expect(page.locator('#main tbody tr.lead')).toHaveCount(2);

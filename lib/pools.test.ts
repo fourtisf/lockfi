@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SimProvider } from './data/sim-provider';
 import type { Pool } from './data/types';
-import { byMarketCap, mcRanked, poolsOfToken, tokenRows } from './pools';
+import { byChange, byMarketCap, fullDayMove, mcRanked, poolsOfToken, tokenRows } from './pools';
 
 const base = new SimProvider().getSnapshot()!.pools[0];
 
@@ -80,5 +80,42 @@ describe('byMarketCap', () => {
   it('puts a token with no figure last and breaks ties on id', () => {
     const sorted = [mc('z', 0, 0), mc('b', 5e5, 5e3), mc('a', 5e5, 5e3)].sort(byMarketCap);
     expect(sorted.map((p) => p.id)).toEqual(['a', 'b', 'z']);
+  });
+});
+
+describe('byChange', () => {
+  const moved = (id: string, change24hPct: number | null, change24hRefHours: number | null = 24): Pool => ({
+    ...base,
+    id,
+    change24hPct,
+    change24hRefHours,
+  });
+
+  it('ranks top gainers by the 24h price move, highest first', () => {
+    const rows = [moved('a', 4.8), moved('b', -2.9), moved('c', 64.2), moved('d', 0.2)];
+    expect(rows.sort(byChange(1)).map((p) => p.id)).toEqual(['c', 'a', 'd', 'b']);
+  });
+
+  it('ranks top losers by the 24h price move, lowest first', () => {
+    const rows = [moved('a', 4.8), moved('b', -2.9), moved('c', -64.2), moved('d', 0.2)];
+    expect(rows.sort(byChange(-1)).map((p) => p.id)).toEqual(['c', 'b', 'd', 'a']);
+  });
+
+  it('puts a since-launch move after every full-day move, however large', () => {
+    // "+20107.8% 5h" is a launch, not a day's gain.
+    const rows = [moved('launch', 20_107.8, 5), moved('day', 3.1, 24.3)];
+    expect(rows.sort(byChange(1)).map((p) => p.id)).toEqual(['day', 'launch']);
+    expect(fullDayMove(moved('x', 1, 23.6))).toBe(true);
+    expect(fullDayMove(moved('x', 1, 9))).toBe(false);
+  });
+
+  it('ranks an unknown move last in both directions, never as 0%', () => {
+    const rows = () => [moved('none', null, null), moved('down', -1), moved('up', 1)];
+    expect(rows().sort(byChange(1)).map((p) => p.id)).toEqual(['up', 'down', 'none']);
+    expect(rows().sort(byChange(-1)).map((p) => p.id)).toEqual(['down', 'up', 'none']);
+  });
+
+  it('treats a simulator pool with no reference age as a full-day move', () => {
+    expect(fullDayMove({ ...base, change24hPct: 2, change24hRefHours: undefined })).toBe(true);
   });
 });
