@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePools } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { Change } from '@/components/ui/Change';
@@ -18,7 +18,7 @@ import {
   feeYieldValue,
   yieldPct,
 } from '@/lib/yield';
-import { tokenRows } from '@/lib/pools';
+import { byMarketCap, mcRanked, MC_RANK_MIN_DEPTH_USD, tokenRows } from '@/lib/pools';
 
 type Variant = 'trending' | 'established';
 
@@ -27,6 +27,24 @@ const FILTERS: { id: 'all' | Quote; label: string }[] = [
   { id: 'ETH', label: 'ETH' },
   { id: 'USDG', label: 'USDG' },
 ];
+
+type Sort = 'board' | 'mc';
+
+/** The sort a viewer chose, per board. A convenience: losing it loses nothing. */
+function readSort(boardId: string): Sort {
+  try {
+    return window.localStorage.getItem(`tidewell.sort.${boardId}`) === 'mc' ? 'mc' : 'board';
+  } catch {
+    return 'board';
+  }
+}
+function writeSort(boardId: string, sort: Sort): void {
+  try {
+    window.localStorage.setItem(`tidewell.sort.${boardId}`, sort);
+  } catch {
+    /* private window or blocked storage: the choice lasts this visit only */
+  }
+}
 
 /** Widest depth bar in the Established board, so the bars stay comparable. */
 const DEPTH_BAR_MAX = 6.5e6;
@@ -43,6 +61,17 @@ export function PoolBoard({
   const pools = usePools();
   const { query, openStake } = useUi();
   const [filter, setFilter] = useState<'all' | Quote>('all');
+  // Each board keeps its own ranking by default (§6: volume for Trending, fee
+  // yield for Established — §1). Market cap is a choice the viewer makes,
+  // remembered in this browser. Read after mount so the server's HTML and
+  // the first client render agree.
+  const [sort, setSortState] = useState<Sort>('board');
+  useEffect(() => setSortState(readSort(boardId)), [boardId]);
+  const setSort = (next: Sort) => {
+    setSortState(next);
+    writeSort(boardId, next);
+  };
+  const boardLabel = variant === 'trending' ? 'Volume' : 'Fee yield';
   const reduced = useReducedMotion();
   const register = useFlip(!reduced);
 
@@ -57,17 +86,22 @@ export function PoolBoard({
           p.token.name.toLowerCase().includes(q),
       );
 
+    // One row per token: its deepest pool in this view (lib/pools.ts).
+    // §10 assumption: a pool joins Established once it has a real 7d record.
+    const board = tokenRows(
+      variant === 'trending' ? matching : matching.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS),
+    );
+    if (sort === 'mc') {
+      // Highest market cap first, with thin pools' figures kept from leading.
+      return board.sort((a, b) => byMarketCap(a.pool, b.pool));
+    }
     if (variant === 'trending') {
       // Volume ranks Trending, and only Trending. Everything else ranks on
-      // fee yield (§1) — volume is trivially washed. One row per token: its
-      // deepest pool in this view (lib/pools.ts).
-      return tokenRows(matching).sort((a, b) => b.pool.volume24hUsd - a.pool.volume24hUsd);
+      // fee yield (§1) — volume is trivially washed.
+      return board.sort((a, b) => b.pool.volume24hUsd - a.pool.volume24hUsd);
     }
-    return tokenRows(
-      // §10 assumption: a pool joins Established once it has a real 7d record.
-      matching.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS),
-    ).sort((a, b) => yieldPct(b.pool.feeYield) - yieldPct(a.pool.feeYield));
-  }, [pools, filter, query, variant]);
+    return board.sort((a, b) => yieldPct(b.pool.feeYield) - yieldPct(a.pool.feeYield));
+  }, [pools, filter, query, variant, sort]);
 
   // An empty board has four different causes, and the live site meets all of
   // them for real. "Try a ticker" was the answer to every one, including a
@@ -87,47 +121,64 @@ export function PoolBoard({
         <h2 className="sect-h">
           {title}
           {variant === 'trending' ? (
-            <span className="muted">by volume</span>
+            <span className="muted">{sort === 'mc' ? 'by market cap' : 'by volume'}</span>
           ) : (
             <span
               className="muted"
               title="A pool needs a full 7 days of fees before its yield is worth ranking."
             >
-              7d+ · by fee yield
+              7d+ · {sort === 'mc' ? 'by market cap' : 'by fee yield'}
             </span>
           )}
         </h2>
-        <div className="seg" role="group" aria-label={`${title} quote filter`}>
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              className={filter === f.id ? 'on' : undefined}
-              aria-pressed={filter === f.id}
-              onClick={() => setFilter(f.id)}
-            >
-              {f.label}
+        <div className="board-ctl">
+          <div className="seg" role="group" aria-label={`${title} sort`}>
+            <button className={sort === 'board' ? 'on' : undefined} aria-pressed={sort === 'board'} onClick={() => setSort('board')}>
+              {boardLabel}
             </button>
-          ))}
+            <button
+              className={sort === 'mc' ? 'on' : undefined}
+              aria-pressed={sort === 'mc'}
+              onClick={() => setSort('mc')}
+              title={`Highest market cap first. A pool with under ${usd(MC_RANK_MIN_DEPTH_USD)} of depth is ranked after the rest: a price that a few dollars can move makes its market cap meaningless.`}
+            >
+              MC
+            </button>
+          </div>
+          <div className="seg" role="group" aria-label={`${title} quote filter`}>
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                className={filter === f.id ? 'on' : undefined}
+                aria-pressed={filter === f.id}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="tbl-wrap">
-        <table className="tbl">
+        <table className={sort === 'mc' ? 'tbl by-mc' : 'tbl'}>
           <caption className="sr-only">
-            {variant === 'trending'
-              ? `${title}, ranked by 24h volume`
-              : `${title}, ranked by fee yield over the trailing 7 days`}
+            {sort === 'mc'
+              ? `${title}, ranked by market cap`
+              : variant === 'trending'
+                ? `${title}, ranked by 24h volume`
+                : `${title}, ranked by fee yield over the trailing 7 days`}
           </caption>
           <thead>
             <tr>
               <th scope="col">Token</th>
-              <th scope="col" className="r hide-mc">
+              <th scope="col" className="r hide-mc" aria-sort={sort === 'mc' ? 'descending' : undefined}>
                 MC
               </th>
               <th scope="col" className="r">
                 24h
               </th>
-              <th scope="col" className="r">
+              <th scope="col" className="r metric">
                 {variant === 'trending' ? 'Fees 24h' : 'Fee yield 7d'}
               </th>
               <th scope="col" className="r hide-l">
@@ -223,10 +274,13 @@ function Row({
         </button>
       </td>
       <td
-        className="r num hide-mc"
+        className={`r num hide-mc${pool.marketCapUsd > 0 && !mcRanked(pool) ? ' muted' : ''}`}
         title={
           pool.marketCapUsd <= 0
             ? 'No token supply read yet, so there is no figure to show.'
+            : !mcRanked(pool)
+              ? `Priced from a pool with ${usd(pool.tvlUsd)} of depth: a few dollars move this price, ` +
+                'so this figure is shown but never ranked above deeper pools.'
             : pool.marketCapIsFdv
               ? 'Fully diluted: total supply \u00d7 price. Circulating supply is not ' +
                 'distinguishable on chain, so locked and vested tokens are included.'
@@ -243,10 +297,10 @@ function Row({
       </FlashTd>
 
       {variant === 'trending' ? (
-        <FlashTd className="r num" text={usd(pool.fees24hUsd)} />
+        <FlashTd className="r num metric" text={usd(pool.fees24hUsd)} />
       ) : (
         <FlashTd
-          className={`r num${pool.feeYield.basis === 'insufficient' ? ' muted' : ' up'}`}
+          className={`r num metric${pool.feeYield.basis === 'insufficient' ? ' muted' : ' up'}`}
           text={yieldText}
           title={feeYieldTitle(pool.feeYield)}
         >

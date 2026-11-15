@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SimProvider } from './data/sim-provider';
 import type { Pool } from './data/types';
-import { poolsOfToken, tokenRows } from './pools';
+import { byMarketCap, mcRanked, poolsOfToken, tokenRows } from './pools';
 
 const base = new SimProvider().getSnapshot()!.pools[0];
 
@@ -47,5 +47,26 @@ describe('poolsOfToken', () => {
   it('lists every pool of the token, deepest first, and no copycat', () => {
     const all = [pool('a', REAL, 1_000), pool('x', COPYCAT, 9_000), pool('b', REAL, 3_000)];
     expect(poolsOfToken(all, all[0]).map((p) => p.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('byMarketCap', () => {
+  const mc = (id: string, marketCapUsd: number, tvlUsd: number): Pool => ({ ...base, id, marketCapUsd, tvlUsd });
+
+  it('ranks by market cap, highest first', () => {
+    const sorted = [mc('a', 3e6, 50_000), mc('b', 71e6, 9e6), mc('c', 30_000, 2_000)].sort(byMarketCap);
+    expect(sorted.map((p) => p.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('never lets a thin pool’s trillion-dollar figure lead', () => {
+    // The live board's catAI: $2.27T fully diluted, priced from a $5 pool.
+    const sorted = [mc('real', 3.9e6, 1.05e6), mc('catai', 2.27e12, 5), mc('none', 0, 80_000)].sort(byMarketCap);
+    expect(sorted.map((p) => p.id)).toEqual(['real', 'catai', 'none']);
+    expect(mcRanked(sorted[1])).toBe(false);
+  });
+
+  it('puts a token with no figure last and breaks ties on id', () => {
+    const sorted = [mc('z', 0, 0), mc('b', 5e5, 5e3), mc('a', 5e5, 5e3)].sort(byMarketCap);
+    expect(sorted.map((p) => p.id)).toEqual(['a', 'b', 'z']);
   });
 });

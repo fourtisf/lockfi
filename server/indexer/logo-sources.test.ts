@@ -214,6 +214,31 @@ describe('sweepLogos', () => {
     expect(by.PONS.logoRetryAt?.getTime()).toBe(now.getTime() + RETRY_NONE_MS);
   });
 
+  it('looks first at what traded most in the last day, not at what traded most ever', async () => {
+    // ESTR: thousands of swaps, all a month ago. PONS: a few, in the last
+    // hours — the row at the top of Trending. CASHCAT: nothing at all.
+    const pool = (id: string, token0: string) =>
+      prisma.pool.create({
+        data: {
+          id, address: id, chainId: 4663, token0, token1: WETH, feeTier: 3000, tickSpacing: 60,
+          protocol: 'v4', createdBlock: 1n, createdAt: new Date('2026-10-01T00:00:00Z'),
+        },
+      });
+    await token(WETH, 'WETH', '/tokens/WETH.png');
+    await pool('0xold', ESTR);
+    await pool('0xnew', PONS);
+    const hour = (poolId: string, at: string, swaps: number, volumeUsd: number) =>
+      prisma.poolFeeHourly.create({
+        data: { poolId, hour: new Date(at), feesToken0: 0, feesToken1: 0, feesUsd: 0, volumeUsd, swaps },
+      });
+    await hour('0xold', '2026-10-14T10:00:00Z', 5000, 900_000);
+    await hour('0xnew', '2026-11-14T10:00:00Z', 12, 40_000);
+
+    const gecko = fixedSource('geckoterminal', {});
+    await sweepLogos({ now, sources: [gecko], size: 2, registry: null });
+    expect(gecko.asked).toEqual([PONS, ESTR]);
+  });
+
   it('retries soon when a source failed, so a rate limit delays a logo instead of losing it', async () => {
     const gecko = fixedSource('geckoterminal', { [PONS]: { kind: 'error' } });
     await sweepLogos({ now, sources: [gecko] });

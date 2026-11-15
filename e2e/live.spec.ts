@@ -55,7 +55,7 @@ test.describe('live boards', () => {
             attributeFilter: ['style'],
           });
           document
-            .querySelectorAll('.seg')[0]
+            .querySelector('[aria-label$="quote filter"]')!
             .querySelectorAll('button')[1]
             .dispatchEvent(new MouseEvent('click', { bubbles: true }));
           setTimeout(() => {
@@ -65,6 +65,29 @@ test.describe('live boards', () => {
         }),
     );
     expect(transforms, 'rows jumped instead of animating').toBeGreaterThan(0);
+  });
+
+  test('a board sorts by market cap on request, and remembers it', async ({ page }) => {
+    await page.goto('/pools', { waitUntil: 'networkidle' });
+    const board = page.locator('#main .card').filter({ has: page.getByRole('group', { name: /Trending sort/ }) });
+    const mcCells = board.locator('tbody td.hide-mc');
+    const values = async () =>
+      (await mcCells.allTextContents()).map((t) => {
+        const m = t.replace(/fdv/, '').match(/\$([\d.]+)([KMBT]?)/);
+        return m ? Number(m[1]) * ({ '': 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 } as Record<string, number>)[m[2]] : 0;
+      });
+
+    await board.getByRole('button', { name: 'MC', exact: true }).click();
+    await expect(board.getByRole('button', { name: 'MC', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(board.locator('.sect-h')).toContainText('by market cap');
+    const ranked = await values();
+    expect(ranked.length).toBeGreaterThan(2);
+    expect(ranked).toEqual([...ranked].sort((a, b) => b - a));
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(board.getByRole('button', { name: 'MC', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await board.getByRole('button', { name: 'Volume', exact: true }).click();
+    await expect(board.locator('.sect-h')).toContainText('by volume');
   });
 
   test('row one carries the leader highlight on both boards', async ({ page }) => {

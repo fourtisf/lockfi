@@ -261,25 +261,36 @@ export const SWEEP_SIZE = 30;
 /**
  * The tokens most worth a logo that do not have one and are due a look.
  *
- * Never-looked-at first, then by how much they trade — the rows people see
- * at the top of the boards get their logos before a dust token's.
+ * Never-looked-at first, then by what they traded in the last 24 hours of
+ * indexed time, then by all-time swaps. Recent volume is what puts a row at
+ * the top of the boards, so those rows get their logos first; ordering by
+ * all-time swaps alone left a token four hours old and third on Trending
+ * waiting behind hundreds of quiet old ones.
  */
 async function dueTokens(now: Date, limit: number): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ address: string }[]>`
+    WITH head AS (SELECT MAX(hour) AS h FROM pool_fee_hourly),
+    sides AS (
+      SELECT id, token0 AS address FROM pools
+      UNION ALL
+      SELECT id, token1 AS address FROM pools
+    ),
+    activity AS (
+      SELECT s.address,
+             SUM(f.swaps)::bigint AS swaps,
+             SUM(CASE WHEN f.hour > head.h - interval '24 hours' THEN f.volume_usd ELSE 0 END) AS recent
+      FROM sides s
+      JOIN pool_fee_hourly f ON f.pool_id = s.id
+      CROSS JOIN head
+      GROUP BY s.address
+    )
     SELECT t.address
     FROM tokens t
-    LEFT JOIN (
-      SELECT p.token0 AS address, SUM(f.swaps)::bigint AS swaps
-        FROM pools p JOIN pool_fee_hourly f ON f.pool_id = p.id GROUP BY p.token0
-      UNION ALL
-      SELECT p.token1 AS address, SUM(f.swaps)::bigint AS swaps
-        FROM pools p JOIN pool_fee_hourly f ON f.pool_id = p.id GROUP BY p.token1
-    ) activity ON activity.address = t.address
+    LEFT JOIN activity a ON a.address = t.address
     WHERE t.logo_url IS NULL
       AND t.logo_source IS DISTINCT FROM 'impostor'
       AND (t.logo_retry_at IS NULL OR t.logo_retry_at <= ${now})
-    GROUP BY t.address, t.logo_retry_at
-    ORDER BY (t.logo_retry_at IS NOT NULL), COALESCE(SUM(activity.swaps), 0) DESC, t.address
+    ORDER BY (t.logo_retry_at IS NOT NULL), COALESCE(a.recent, 0) DESC, COALESCE(a.swaps, 0) DESC, t.address
     LIMIT ${limit}
   `;
   return rows.map((r) => r.address.toLowerCase());

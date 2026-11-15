@@ -37,8 +37,12 @@ import { planIngest } from './ingest';
 import { refreshLogos } from './logos';
 import { sweepLogos, type LogoSource } from './logo-sources';
 
-/** How often the logo sweep may run. GeckoTerminal rate-limits a burst. */
-const LOGO_SWEEP_MS = 30_000;
+/**
+ * How often the logo sweep may run: one GeckoTerminal call each, which stays
+ * well inside its burst limit. Every 30s took most of an hour to get through
+ * a first sync's two thousand tokens once; 15s halves that.
+ */
+const LOGO_SWEEP_MS = 15_000;
 /**
  * How often, while backfilling, the steps whose cost grows with the WHOLE
  * dataset run: pool state (every pool's last swap, every flow hour), launchpad
@@ -220,7 +224,7 @@ export class Poller {
   }
 
   /**
-   * Fill in missing logos, at most every 30 seconds, in the background.
+   * Fill in missing logos, at most every 15 seconds, in the background.
    *
    * Never awaited by the pass: a logo is decoration, and a slow or
    * rate-limited image service must not delay one block of indexing. Never

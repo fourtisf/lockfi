@@ -20,6 +20,10 @@
  *     HTML page; FITMONEY's metadata has none. Only bytes that ARE an image
  *     (PNG, JPEG, GIF, WebP, by their magic numbers) are kept. SVG is not:
  *     served from our origin it could carry script.
+ *   - A page is not an image, but it can name one. shockR's Imgur page
+ *     carries `og:image` — the picture the creator uploaded — so a declared
+ *     page is followed to the image it declares, once, under the same
+ *     stranger-link rules. A page naming another page is not followed.
  *   - PONS's is 2.4 MB. Every image is shrunk to a 128px WebP badge.
  *
  * The URL comes from a token's creator, so fetching it is fetching a
@@ -182,6 +186,57 @@ function imageFromMetadata(bytes: Buffer): string | null {
   return null;
 }
 
+const HTML_ENTITIES: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'", '#x27': "'", '#x2F': '/', '#47': '/' };
+
+/** An attribute's value from one tag, entities decoded. */
+function attr(tag: string, name: string): string | null {
+  const m = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
+  const raw = m ? (m[1] ?? m[2] ?? m[3]) : null;
+  return raw === null ? null : raw.replace(/&(#?[a-z0-9]+);/gi, (all, e: string) => HTML_ENTITIES[e] ?? HTML_ENTITIES[e.toLowerCase()] ?? all).trim();
+}
+
+/**
+ * The image an HTML page declares for itself — `og:image`, then
+ * `twitter:image`, then `<link rel="image_src">` — as an absolute URL, or
+ * null when the bytes are not a page or it names none.
+ */
+export function imageFromPage(bytes: Buffer, pageUrl: string): string | null {
+  const head = bytes.subarray(0, 256 * 1024).toString('utf8');
+  if (!/<(!doctype html|html|head|meta)\b/i.test(head)) return null;
+  const found = new Map<string, string>();
+  for (const tag of head.match(/<(meta|link)\b[^>]*>/gi) ?? []) {
+    const key = (attr(tag, 'property') ?? attr(tag, 'name') ?? (attr(tag, 'rel') === 'image_src' ? 'image_src' : ''))?.toLowerCase();
+    const value = tag.toLowerCase().startsWith('<link') ? attr(tag, 'href') : attr(tag, 'content');
+    if (key && value && !found.has(key)) found.set(key, value);
+  }
+  for (const key of ['og:image', 'og:image:secure_url', 'og:image:url', 'twitter:image', 'twitter:image:src', 'image_src']) {
+    const value = found.get(key);
+    if (!value) continue;
+    if (/^(ipfs:|https?:)/i.test(value)) return value;
+    // Relative: only meaningful against a page that has a web address.
+    if (/^https?:/i.test(pageUrl)) {
+      try {
+        return new URL(value, pageUrl).toString();
+      } catch {
+        /* unusable: try the next */
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * An image's bytes from a reference: the image itself, or — for a page —
+ * the image the page declares, one hop and no further.
+ */
+async function fetchImage(ref: string, fetchBody: FetchBody, hops = 1): Promise<{ bytes: Buffer; from: string } | 'missing' | 'unreachable'> {
+  const fetched = await fetchRef(ref, fetchBody);
+  if (typeof fetched === 'string') return fetched;
+  if (sniff(fetched.bytes)) return { bytes: fetched.bytes, from: ref };
+  const named = hops > 0 ? imageFromPage(fetched.bytes, ref) : null;
+  return named ? fetchImage(named, fetchBody, hops - 1) : 'missing';
+}
+
 /** A logo badge: the image shrunk and re-encoded, or null if it is not an image. */
 export async function toBadge(bytes: Buffer): Promise<Buffer | null> {
   if (!sniff(bytes)) return null;
@@ -215,8 +270,8 @@ async function resolveOne(address: string, read: ReadString, fetchBody: FetchBod
     const meta = await fetchRef(uri, fetchBody);
     if (meta === 'unreachable') failed = true;
     else if (meta !== 'missing') {
-      // Some creators point tokenURI straight at the image.
-      if (sniff(meta.bytes)) candidates.push(uri);
+      // Some creators point tokenURI straight at the image, or at a page.
+      if (sniff(meta.bytes) || imageFromPage(meta.bytes, uri)) candidates.push(uri);
       else {
         const image = imageFromMetadata(meta.bytes);
         if (image) candidates.push(image);
@@ -225,7 +280,7 @@ async function resolveOne(address: string, read: ReadString, fetchBody: FetchBod
   }
 
   for (const ref of candidates) {
-    const fetched = await fetchRef(ref, fetchBody);
+    const fetched = await fetchImage(ref, fetchBody);
     if (fetched === 'unreachable') {
       failed = true;
       continue;
@@ -233,10 +288,11 @@ async function resolveOne(address: string, read: ReadString, fetchBody: FetchBod
     if (fetched === 'missing') continue;
     const badge = await toBadge(fetched.bytes);
     if (!badge) continue;
+    const origin = fetched.from.slice(0, 512);
     await prisma.tokenLogo.upsert({
       where: { address },
-      create: { address, contentType: 'image/webp', bytes: badge, origin: ref.slice(0, 512), fetchedAt: new Date() },
-      update: { contentType: 'image/webp', bytes: badge, origin: ref.slice(0, 512), fetchedAt: new Date() },
+      create: { address, contentType: 'image/webp', bytes: badge, origin, fetchedAt: new Date() },
+      update: { contentType: 'image/webp', bytes: badge, origin, fetchedAt: new Date() },
     });
     return { kind: 'found', url: storedLogoUrl(address) };
   }

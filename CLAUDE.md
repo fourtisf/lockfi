@@ -1625,6 +1625,56 @@ a person curated is never removed. The curated list is also re-read every
 five minutes now: AMD's company logo sat unapplied because the list was
 only read on passes that found a new pool.
 
+### Market cap on request, a guard that blocked itself, logos behind a page
+
+ALFA asked for the boards sorted by highest market cap, and for logos on the
+tokens still showing a monogram.
+
+**Sorting by MC is a choice, not the default.** Each board keeps its §6
+ranking (Trending by volume, Established by fee yield — §1) and gains a
+`Volume | MC` / `Fee yield | MC` control, remembered per board in the
+browser. Market cap here is supply × the pool's price, so a pool holding
+five dollars sets a price five dollars can move — the live board once showed
+a token at $2.27 trillion off exactly that. `byMarketCap` (`lib/pools.ts`)
+ranks pools with at least `MC_RANK_MIN_DEPTH_USD` ($1K) of depth first;
+thinner ones follow, their figure shown muted with a title saying why, and
+tokens with no supply read come last. Where a narrow board would drop the MC
+column, sorting by MC keeps it and drops the board's own metric instead — a
+ranking by a figure nobody can see is not one.
+
+**`deploy.sh` had not installed `nginx.conf` since its guard was added.** The guard
+grepped `ssl_certificate` out of the file without skipping comments, so the
+header prose ("ssl_certificate points at…") and the commented-out
+`tidewall.live` stanza read as directives, and every deploy refused with
+"missing: points, tidewall.live/…". The fourth diagnostic in this file to
+invent a failure. The box therefore still ran the config `bootstrap.sh`
+installed, without the `/api/logo/` location. Comments are stripped now, and
+a config `nginx -t` rejects is replaced by the one it displaced rather than
+left on disk for the next restart.
+
+**Logos: what the monograms on the board actually were.** Checked token by
+token against the chain, GeckoTerminal, DexScreener and Blockscout:
+
+- **shockR** declares an image — an Imgur *page* saved to IPFS, which the
+  sniffer rightly refused. The page carries `og:image`, the picture the
+  creator uploaded. `launchpad-logos.ts` now follows a declared page to the
+  image it names (`og:image`, then `twitter:image`, then
+  `<link rel="image_src">`), one hop, under the same stranger-link rules.
+- **SHERWOOD** on the board is one of dozens of contracts calling
+  themselves Sherwood. The one with a logo everywhere (`0xD4DC…`, a Pons
+  token) was created on 2026-08-10, after the indexer's current head. Its
+  logo arrives when the sync reaches it; the copy keeps its mark. Its −100.0%
+  is the shape of a pump and rug inside the window — $177K traded on a $30K
+  token four hours old — not a pricing fault found in the arithmetic.
+- **FITMONEY, RHDF** are Bankr launches whose metadata has no `image` at
+  all; **CASHKITTEN** is a plain ERC-20. No source has a logo for any of
+  them. They keep the address-derived mark: there is nothing true to show.
+
+The sweep also ran in the wrong order and too slowly to see. It took the
+never-looked-at tokens by all-time swaps, so a token four hours old and third
+on Trending waited behind hundreds of quiet old ones, at 30 tokens every
+30s. It now orders by the last 24 hours of indexed volume, every 15s.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

@@ -98,8 +98,14 @@ as_app pm2 reset all >/dev/null 2>&1 || true
 # a missing ssl_certificate, so installing it would leave a config on disk that
 # takes the site down at the next restart, whatever the reload said. A new
 # domain gets its certificate from deploy/switch-domain.sh first.
+#
+# Comments are stripped first. The config's header prose ("ssl_certificate
+# points at a file…") and its commented-out tidewall.live stanza both match
+# the pattern, and reading them as directives refused every install with
+# "missing: points, tidewall.live/…" — a guard that blocked the config it was
+# guarding, while nginx itself would have loaded it fine.
 missing_certs() {
-  grep -oE 'ssl_certificate(_key)?[[:space:]]+[^;]+' "$1" | awk '{print $2}' |
+  sed 's/#.*//' "$1" | { grep -oE '^[[:space:]]*ssl_certificate(_key)?[[:space:]]+[^;]+' || true; } | awk '{print $2}' |
     while read -r f; do [[ -s "$f" ]] || echo "$f"; done
 }
 if ! diff -q deploy/nginx.conf /etc/nginx/sites-available/balast >/dev/null 2>&1; then
@@ -115,13 +121,24 @@ if ! diff -q deploy/nginx.conf /etc/nginx/sites-available/balast >/dev/null 2>&1
     if ! grep -rqs 'connection_upgrade' /etc/nginx/conf.d /etc/nginx/nginx.conf; then
       install -m 644 deploy/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf
     fi
+    # Kept so a config nginx rejects is taken back off the disk: left there,
+    # it would pass nothing now and take the site down at the next restart.
+    cp -a /etc/nginx/sites-available/balast /etc/nginx/sites-available/balast.previous 2>/dev/null || true
     install -m 644 deploy/nginx.conf /etc/nginx/sites-available/balast
     # The old domain's HTTPS redirect, while its certificate is still here.
     if [[ -z "$(missing_certs deploy/nginx-legacy.conf)" ]]; then
       install -m 644 deploy/nginx-legacy.conf /etc/nginx/sites-available/balast-legacy
       ln -sf /etc/nginx/sites-available/balast-legacy /etc/nginx/sites-enabled/balast-legacy
     fi
-    nginx -t && systemctl reload nginx
+    if nginx -t; then
+      systemctl reload nginx
+      echo "==> nginx config installed"
+    else
+      echo "==> nginx rejected the new config; the previous one is restored"
+      [[ -f /etc/nginx/sites-available/balast.previous ]] &&
+        cp -a /etc/nginx/sites-available/balast.previous /etc/nginx/sites-available/balast
+      nginx -t && systemctl reload nginx
+    fi
   fi
 fi
 

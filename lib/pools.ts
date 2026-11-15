@@ -48,3 +48,28 @@ export function poolsOfToken(pools: Pool[], pool: Pool): Pool[] {
   const key = pool.token.address.toLowerCase();
   return pools.filter((p) => p.token.address.toLowerCase() === key).sort(deeper);
 }
+
+/**
+ * Depth a pool needs before its market cap is ranked.
+ *
+ * Market cap here is supply × the pool's price, and a pool holding five
+ * dollars sets a price five dollars can move: the live board once showed a
+ * token at $2.27 trillion off exactly that. Below this depth the figure is
+ * still shown — it is arithmetic, not a secret — but it is not allowed to
+ * lead a ranking.
+ */
+export const MC_RANK_MIN_DEPTH_USD = 1_000;
+
+/** Whether a pool is deep enough for its market cap to be ranked. */
+export function mcRanked(pool: Pool): boolean {
+  return pool.marketCapUsd > 0 && pool.tvlUsd >= MC_RANK_MIN_DEPTH_USD;
+}
+
+/**
+ * Highest market cap first: ranked pools by market cap, then the thin ones
+ * by market cap, then those with no figure at all.
+ */
+export function byMarketCap(a: Pool, b: Pool): number {
+  const tier = (p: Pool) => (mcRanked(p) ? 0 : p.marketCapUsd > 0 ? 1 : 2);
+  return tier(a) - tier(b) || b.marketCapUsd - a.marketCapUsd || (a.id < b.id ? -1 : 1);
+}
