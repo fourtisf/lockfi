@@ -146,6 +146,95 @@ describe('the swap window', () => {
     expect(after).toEqual(before);
   });
 
+  it('treats a token side the quote side cannot back as unknown depth', async () => {
+    // A pool's token side is valued at a price its quote side set. Single-
+    // sided positions worth ten thousand times the WETH beside them are a
+    // figure about the last trade, not about the pool.
+    await resetDatabase();
+    await new Poller({ source: new FixtureLogSource(chain), usdgAddress: USDG, startBlock: 0n,
+      blockRange: RANGE, maxBlockRange: RANGE, tokenReader: fixtureTokenReader }).syncToHead();
+    const { rebuildPoolState } = await import('./aggregate');
+    const { findAnchorPool } = await import('./discovery');
+    const { CONTRACTS } = await import('../../lib/chain');
+    const weth = CONTRACTS.weth.toLowerCase();
+    const rebuild = async () => rebuildPoolState({
+      weth, usdg: USDG.toLowerCase(), wethDecimals: 18, usdgDecimals: 6,
+      anchorPoolId: await findAnchorPool(USDG),
+    });
+    const tvls = async () => Object.fromEntries((await prisma.$queryRaw<{ pool_id: string; tvl: number }[]>`
+      SELECT pool_id, tvl_usd::float8 AS tvl FROM pool_state
+    `).map((r) => [r.pool_id, r.tvl]));
+
+    const target = (await prisma.$queryRaw<{ id: string; token0: string; token1: string; spacing: number;
+      tick: number; liquidity: string }[]>`
+      SELECT p.id, lower(p.token0) AS token0, lower(p.token1) AS token1, p.tick_spacing AS spacing,
+             ps.tick, ps.liquidity::text AS liquidity
+      FROM pools p JOIN pool_state ps ON ps.pool_id = p.id
+      WHERE ps.tvl_usd > 0 AND ps.liquidity > 0
+        AND (lower(p.token1) = ${weth}) <> (lower(p.token0) = ${weth})
+        AND lower(p.token0) <> ${USDG.toLowerCase()} AND lower(p.token1) <> ${USDG.toLowerCase()}
+      ORDER BY p.id LIMIT 1
+    `)[0];
+    expect(target).toBeDefined();
+    // No supply, so the supply guard cannot be what catches it.
+    const token = target.token1 === weth ? target.token0 : target.token1;
+    await prisma.$executeRaw`UPDATE tokens SET total_supply = NULL WHERE lower(address) = ${token}`;
+    await rebuild();
+    const before = await tvls();
+
+    // Not to be confused with a pool whose price traded out of its range:
+    // it holds only the token, rightly, and is still counted — its LPs put
+    // in both sides once. The fixture has one: its price is in no open range.
+    const outOfRange = await prisma.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n
+      FROM pool_state ps JOIN pools p ON p.id = ps.pool_id
+      WHERE ps.tvl_usd > 0
+        AND lower(p.token0) <> ${USDG.toLowerCase()} AND lower(p.token1) <> ${USDG.toLowerCase()}
+        AND NOT EXISTS (
+          SELECT 1 FROM (
+            SELECT tick_lower, tick_upper FROM liquidity_events le
+            WHERE le.pool_id = ps.pool_id GROUP BY 1, 2 HAVING SUM(liquidity_delta) > 0
+          ) r
+          WHERE ps.tick >= r.tick_lower AND ps.tick < r.tick_upper
+        )
+    `;
+    expect(outOfRange[0].n).toBeGreaterThan(0);
+
+    // A range holding only the token side: above the price when the token is
+    // token0, below it when it is token1.
+    const s = target.spacing;
+    const edge = Math.floor(887272 / s) * s;
+    const [tickLower, tickUpper] = target.token1 === weth
+      ? [(Math.floor(target.tick / s) + 1) * s, edge]
+      : [-edge, Math.floor(target.tick / s) * s];
+    const lastSwap = (await prisma.swapEvent.aggregate({ _max: { blockNum: true } }))._max.blockNum!;
+    let n = 0;
+    const addPosition = (liquidity: bigint) => prisma.liquidityEvent.create({
+      data: {
+        txHash: '0x' + 'e'.repeat(63) + String(n), logIndex: n++, poolId: target.id,
+        blockNum: lastSwap, blockTime: new Date(), tickLower, tickUpper,
+        liquidityDelta: liquidity.toString(), amount0: 0, amount1: 0, owner: '0x0',
+      },
+    });
+
+    // As much again as the pool's active liquidity: counted, the pool deepens.
+    const active = BigInt(target.liquidity);
+    await addPosition(active);
+    await rebuild();
+    const counted = await tvls();
+    expect(counted[target.id]).toBeGreaterThan(before[target.id]);
+
+    // A hundred thousand times it — about a trillion dollars, far past the
+    // quote behind it and still under the $1 quadrillion sanity bound, so
+    // nothing but this rule can catch it: unknown, an em dash.
+    await addPosition(active * 100_000n);
+    await rebuild();
+    const after = await tvls();
+    expect(after[target.id]).toBe(0);
+    // Nothing else moved.
+    for (const id of Object.keys(before)) if (id !== target.id) expect(after[id]).toBe(before[id]);
+  });
+
   it('asks for structure by topic, not for every log', () => {
     expect(new Set(STRUCTURE_TOPICS).size).toBe(5);
     // v4 Initialize and ModifyLiquidity, by their real selectors.

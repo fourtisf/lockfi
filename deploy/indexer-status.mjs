@@ -159,6 +159,41 @@ async function measured(first) {
   return true;
 }
 
+const usd = (v) =>
+  v >= 1e12 ? `$${(v / 1e12).toFixed(2)}T` : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B`
+  : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+
+/**
+ * The deepest pools the site is showing, and what they add up to. A TVL in
+ * the trillions was on the live site for hours with nothing on the box to say
+ * which pool made it; this names it, with the address to look up.
+ */
+export function deepest(snapshot, count = 3) {
+  const pools = Array.isArray(snapshot?.pools) ? snapshot.pools : [];
+  const total = pools.reduce((a, p) => a + (Number(p.tvlUsd) || 0), 0);
+  const top = [...pools]
+    .filter((p) => Number(p.tvlUsd) > 0)
+    .sort((a, b) => Number(b.tvlUsd) - Number(a.tvlUsd))
+    .slice(0, count);
+  return { total, count: pools.length, top };
+}
+
+async function depthReport() {
+  try {
+    const response = await fetch(`${API}/api/snapshot`, { signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) return;
+    const { total, count, top } = deepest(await response.json());
+    if (!count) return;
+    console.log(`  TVL        ${usd(total)} across ${n(count)} pools shown`);
+    for (const p of top) {
+      const share = total > 0 ? ` (${((p.tvlUsd / total) * 100).toFixed(0)}%)` : '';
+      console.log(`             ${usd(p.tvlUsd)}${share}  ${p.token?.symbol ?? '?'}/${p.quote}  ${p.address}`);
+    }
+  } catch {
+    // A report, not a check: a slow snapshot is reported elsewhere.
+  }
+}
+
 async function main() {
   const h = await health();
   const text = tail(LOG);
@@ -229,6 +264,8 @@ async function main() {
   } else {
     console.log('  pace       not measurable yet (needs a few minutes of progress lines)');
   }
+
+  await depthReport();
 
   console.log('');
   console.log('With DATA_SOURCE=live the site shows');

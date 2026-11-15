@@ -69,6 +69,13 @@ export interface Bounds {
  */
 const MAX_SANE_PRICE_USD = '1e12'; // no traded token is worth $1tn a unit
 const MAX_SANE_TOTAL_USD = '1e15'; // no pool holds a quadrillion dollars
+/**
+ * How far a pool's token side may outweigh the quote (WETH or USDG) behind
+ * it — held now, plus all ever deposited — before its depth is treated as
+ * unknown. The same multiple lib/pools.ts uses to keep a valuation out of
+ * the market-cap ranking.
+ */
+const MAX_TOKEN_TO_QUOTE = 10_000;
 
 /** Null unless the value is inside the bound. */
 function sane(expr: string, bound: string): string {
@@ -425,6 +432,18 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       HAVING SUM(liquidity_delta) <> 0
     ),
 
+    -- Everything LPs have ever deposited, per token, in raw units: the
+    -- amounts each addition carried (removals are negative and left out).
+    supplied AS (
+      SELECT pool_id,
+             SUM(GREATEST(amount0, 0)) AS in0,
+             SUM(GREATEST(amount1, 0)) AS in1
+      FROM liquidity_events, horizon
+      WHERE block_num <= horizon.block
+        AND pool_id IN (SELECT pool_id FROM last_swap)
+      GROUP BY pool_id
+    ),
+
     -- The price each pool's positions are valued at: the latest swap's, or
     -- the price it was initialised at if it has not traded.
     -- Only pools that have traded: a pool with no swap read is never shown
@@ -472,6 +491,8 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
         COALESCE(r.r0, 0)::numeric AS r0,
         COALESCE(r.r1, 0)::numeric AS r1,
         COALESCE(r.missing, false) AS missing,
+        COALESCE(sp.in0, 0) AS in0,
+        COALESCE(sp.in1, 0) AS in1,
         t0.decimals AS dec0,
         t1.decimals AS dec1,
         t0.address  AS addr0,
@@ -487,6 +508,7 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
       JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
       LEFT JOIN reserves  r  ON r.pool_id  = p.id
+      LEFT JOIN supplied  sp ON sp.pool_id = p.id
       -- Not a pool whose token was recorded without being read (decimals -1,
       -- discovery.ts): nothing can be valued in it, and it has not traded.
       WHERE t0.decimals >= 0 AND t1.decimals >= 0
@@ -536,9 +558,26 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       -- A pool cannot hold more of a token than exists. Positions implying
       -- it are not a pool's real holdings — a hook's own bookkeeping, or
       -- liquidity we saw without what offset it — so its depth is unknown.
+      --
+      -- And a token side no real quote stands behind. The token side is
+      -- valued at the pool's own price, and a creator chooses the opening
+      -- price: a billion tokens deposited alone at a price nobody paid, one
+      -- dust swap, and every input is real while the product is nobody's
+      -- depth — the shape of the $1.76 trillion the live site showed for
+      -- TVL. So the token side may not outweigh ten thousand times the quote
+      -- (WETH, USDG) the pool holds now plus all the quote LPs ever put in.
+      -- Not the quote now alone: a pool whose price traded out of its range
+      -- holds only the token, rightly — its LPs deposited both sides once.
+      -- Unknown, not the quote alone: the same em dash as the cases above.
       CASE WHEN missing OR r0 < 0 OR r1 < 0
              OR (supply0 IS NOT NULL AND supply0 > 0 AND r0 > supply0 * 1.000001)
              OR (supply1 IS NOT NULL AND supply1 > 0 AND r1 > supply1 * 1.000001)
+             OR (quote0_usd IS NOT NULL AND quote1_usd IS NULL
+                 AND COALESCE(r1 / power(10::numeric, dec1) * price1_usd, 0)
+                     > ${MAX_TOKEN_TO_QUOTE} * COALESCE((r0 + in0) / power(10::numeric, dec0) * quote0_usd, 0))
+             OR (quote1_usd IS NOT NULL AND quote0_usd IS NULL
+                 AND COALESCE(r0 / power(10::numeric, dec0) * price0_usd, 0)
+                     > ${MAX_TOKEN_TO_QUOTE} * COALESCE((r1 + in1) / power(10::numeric, dec1) * quote1_usd, 0))
            THEN 0 ELSE
         GREATEST(COALESCE(${sane(
           `COALESCE(r0 / power(10::numeric, dec0) * COALESCE(price0_usd, 0), 0)

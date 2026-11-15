@@ -1942,6 +1942,34 @@ does that job.
 `build-brand-png.mjs` takes name filters now (`… x-header-tide`), so one
 asset renders without re-rendering sixty.
 
+### $1.76 trillion, still: a price nobody paid
+
+The horizon fix made positions and price come from the same moment, and the
+top bar still read $1,759,545,907,070 — moving by a few thousand dollars
+between rebuilds, so the rebuild was running and some pool really did value
+at that. Every input can be real and the product still nobody's depth: a
+creator chooses a pool's opening price, deposits a billion tokens alone, and
+one dust swap puts the pool on the board with the token side valued at a
+price no trade ever paid.
+
+`rebuildPoolState` now treats a pool's depth as unknown (zero, an em dash)
+when its token side is worth more than `MAX_TOKEN_TO_QUOTE` (10,000×, the
+same multiple as the MC ranking) the quote behind it — the WETH or USDG it
+holds now **plus all the quote LPs ever deposited** (`supplied`, from the
+liquidity events' own amounts). The first version compared against the quote
+held now alone, and the snapshot suite caught it zeroing a legitimate pool:
+one whose price had traded out of its range, holding only the token, as it
+should. Its LPs had put in both sides once; a single-sided launch never did.
+`window.test.ts` holds both: the out-of-range pool counted, and a position
+about a trillion dollars past its quote — under the $1 quadrillion sanity
+bound, so nothing else catches it — read as unknown. With the rule disabled
+that test reads $1.4 trillion.
+
+Not verified against the box: the pool behind the live figure was not
+identifiable from here. So `indexer-status.mjs` now prints the snapshot's
+TVL and its three deepest pools with their share and address. If a figure is
+absurd again, the report names the pool.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in
