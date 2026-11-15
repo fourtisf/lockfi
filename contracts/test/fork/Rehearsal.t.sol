@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
-import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
@@ -170,5 +170,31 @@ contract RehearsalTest is Test {
         assertGt(liquidity, 0);
         assertEq(r.routedLiquidity(), liquidity);
         assertLt(r.unroutedWeth(), 0.05 ether);
+    }
+
+    /// The chain's deepest ETH/USDG pool by TVL at deploy time: native ETH,
+    /// fee 460 (0.046%), tick spacing 9, no hook — unusual numbers, so the
+    /// vault is rehearsed on it too before it is deployed there.
+    function test_rehearsal_secondEthUsdgPool_fee460_spacing9() public {
+        if (!forked) return vm.skip(true);
+        PoolKey memory k = PoolKey(Currency.wrap(address(0)), Currency.wrap(USDG), 460, 9, IHooks(address(0)));
+        assertEq(PoolId.unwrap(k.toId()), 0x54f7883914619af9105355bf83ed678bcf9f63560218ac61c9963b9503d0ba32);
+        TidewellVault v = new TidewellVault(PM, k, address(this), treasury, 2000, 1000);
+        vm.prank(user);
+        uint128 shares = zap.zapStake{value: 1 ether}(v, address(0), 1 ether, 0.4996 ether, 1, block.timestamp);
+        assertGt(shares, 0);
+        key = k; // so _trade uses this pool
+        for (uint256 i; i < 5; i++) {
+            _trade(true, 5 ether);
+            _trade(false, IERC20Min(USDG).balanceOf(address(this)));
+        }
+        (uint256 c0, uint256 c1) = v.claimable(user);
+        assertGt(c0 + c1, 0, "fees from the real pool");
+        vm.prank(user);
+        (uint256 out0, uint256 out1, uint256 f0, uint256 f1) = v.exit(0, 0, user, block.timestamp);
+        assertGt(out0 + out1, 0);
+        assertApproxEqAbs(f0, c0, 1);
+        assertApproxEqAbs(f1, c1, 1);
+        assertEq(v.totalSupply(), 0);
     }
 }

@@ -29,9 +29,11 @@ APP_USER=balast
 RPC="${RPC_URL:-https://rpc.mainnet.chain.robinhood.com}"
 EXPLORER_API="https://robinhoodchain.blockscout.com/api/"
 ACCOUNT=tidewell-deployer
-# The first vault: native ETH / USDG, 0.05% — the chain's deepest hookless
-# ETH/USDG pool (CLAUDE.md §20).
-VAULT_POOLS="${VAULT_POOLS:-0x0000000000000000000000000000000000000000:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168:500:10}"
+# The first vaults: the two native ETH / USDG pools with the most depth, both
+# hookless and both rehearsed on a fork (CLAUDE.md §20):
+#   fee 460 (0.046%), spacing 9   pool 0x54f78839…  the deepest by the indexer's TVL
+#   fee 500 (0.05%),  spacing 10  pool 0x387bf619…
+VAULT_POOLS="${VAULT_POOLS:-0x0000000000000000000000000000000000000000:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168:460:9,0x0000000000000000000000000000000000000000:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168:500:10}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }
 say() { printf '\n==> %s\n' "$*"; }
@@ -114,7 +116,7 @@ cat <<EOF
 
     About to deploy to Robinhood Chain MAINNET (chainId 4663):
       TidewellZap, TidewellShaper, TidewellRouterFactory,
-      TidewellVault for ETH/USDG 0.05%
+      TidewellVault for ETH/USDG 0.046% and for ETH/USDG 0.05%
     owner     $OWNER
     keeper    $KEEPER
     treasury  $TREASURY
