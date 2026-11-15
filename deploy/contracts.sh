@@ -12,9 +12,9 @@
 #      /var/www/balast/.env (mode 600). The key never leaves this machine.
 #   4. Asks for the OWNER and TREASURY addresses (your own wallets — public
 #      addresses only, never a private key).
-#   5. Imports the DEPLOYER wallet into an encrypted Foundry keystore: you type
-#      its private key into a hidden prompt and choose a password. Use a fresh
-#      wallet holding only ~0.002 ETH for gas; it has no role after deploying.
+#   5. Imports the DEPLOYER wallet into a Foundry keystore (no password): you
+#      paste its private key into a hidden prompt. Use a fresh wallet holding
+#      only ~0.002 ETH for gas; it has no role after deploying.
 #   6. Simulates the deployment against mainnet and shows the cost.
 #   7. Deploys only after you type DEPLOY (verifying the source on the
 #      explorer), checks every address holds code on chain, and prints the
@@ -93,24 +93,43 @@ is_addr "$TREASURY" || { echo "not an address: $TREASURY"; exit 1; }
 # ------------------------------------------------------------ 5. Deployer
 # A key saved to a file by the one-line generator (see the README) is used
 # from there, so nothing has to be copied out of a terminal — tmux makes that
-# hard. Otherwise the key is typed or pasted into a hidden prompt.
+# hard. Otherwise the key is pasted into a hidden prompt.
+#
+# The keystore has an EMPTY password, by ALFA's choice: the deployer is a
+# throwaway holding only gas, it has no role once the contracts exist, and the
+# file is readable by root alone. A password here only added three prompts.
 KEY_FILE="${DEPLOYER_KEY_FILE:-/root/tidewell-deployer.txt}"
-# The keystore file itself, not `cast wallet list`, whose format varies.
-if [[ ! -f "$HOME/.foundry/keystores/$ACCOUNT" ]]; then
+KEYSTORE="$HOME/.foundry/keystores/$ACCOUNT"
+# A keystore left by an earlier run with a password: the empty one cannot open
+# it, so it is replaced. It only ever held the throwaway deployer.
+if [[ -f "$KEYSTORE" ]] && ! cast wallet address --account "$ACCOUNT" --password "" >/dev/null 2>&1; then
+  say "an earlier deployer keystore has a password; replacing it with one that has none"
+  rm -f "$KEYSTORE"
+fi
+if [[ ! -f "$KEYSTORE" ]]; then
   if [[ -f "$KEY_FILE" ]]; then
     key=$(grep -oE '0x[0-9a-fA-F]{64}' "$KEY_FILE" | head -1 || true)
     [[ -n "$key" ]] || { echo "no private key found in $KEY_FILE"; exit 1; }
-    say "importing the deployer wallet from $KEY_FILE (choose a password to encrypt it)"
-    cast wallet import "$ACCOUNT" --private-key "$key"
-    unset key
+    say "importing the deployer wallet from $KEY_FILE"
   else
-    say "importing the deployer wallet (hidden prompt; stored encrypted in $HOME/.foundry/keystores)"
-    cast wallet import "$ACCOUNT" --interactive
+    say "deployer wallet"
+    read -r -s -p "    Paste the DEPLOYER's private key (hidden, then Enter): " key
+    echo
+    key="${key//[[:space:]]/}"
+    [[ "$key" =~ ^(0x)?[0-9a-fA-F]{64}$ ]] || { echo "    that is not a private key (64 hex characters)"; exit 1; }
+    [[ "$key" == 0x* ]] || key="0x$key"
   fi
+  cast wallet import "$ACCOUNT" --private-key "$key" --unsafe-password "" >/dev/null
+  unset key
 fi
-DEPLOYER=$(cast wallet address --account "$ACCOUNT")
+DEPLOYER=$(cast wallet address --account "$ACCOUNT" --password "")
 balance=$(cast balance --rpc-url "$RPC" "$DEPLOYER" --ether)
 echo "    deployer: $DEPLOYER  balance: $balance ETH"
+if [[ "$(cast balance --rpc-url "$RPC" "$DEPLOYER")" == "0" ]]; then
+  echo "    This wallet has no ETH for gas. Either send it ~0.002 ETH, or this is the"
+  echo "    wrong key: rm $KEYSTORE and run this script again."
+  exit 1
+fi
 
 export OWNER KEEPER TREASURY VAULT_POOLS
 export PROTOCOL_FEE_BPS=1000 PROTOCOL_FEE_CAP_BPS=2000
@@ -150,7 +169,7 @@ say "deploying"
 # Not retried: a broadcast is not idempotent. Source verification on the
 # explorer rides along; if only verification fails, the deployment stands.
 set +e
-forge script script/Deploy.s.sol --rpc-url "$RPC" --account "$ACCOUNT" --sender "$DEPLOYER" --broadcast --slow \
+forge script script/Deploy.s.sol --rpc-url "$RPC" --account "$ACCOUNT" --password "" --sender "$DEPLOYER" --broadcast --slow \
   --verify --verifier blockscout --verifier-url "$EXPLORER_API"
 status=$?
 set -e

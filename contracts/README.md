@@ -84,8 +84,8 @@ unaudited deployment is recorded as such and shown on the site.
 
 The guided way, on the server: `bash /var/www/balast/deploy/contracts.sh`
 (installs Foundry, builds, creates the keeper wallet on the box, asks for the
-owner and treasury addresses, imports a throwaway deployer into an encrypted
-keystore, simulates, deploys on `DEPLOY`, and checks every address holds code
+owner and treasury addresses, imports a throwaway deployer into a keystore
+with no password, simulates, deploys on `DEPLOY`, and checks every address holds code
 before printing them). By hand:
 
 ```bash
