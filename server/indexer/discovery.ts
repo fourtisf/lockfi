@@ -140,11 +140,55 @@ export async function readToken(address: string): Promise<TokenFacts> {
  *  decimals included — and decimals are an input to every price. */
 export type TokenReader = (address: string) => Promise<TokenFacts>;
 
+/** Decimals of a token recorded but not yet read (`ensureTokens` lazy). */
+export const PENDING_DECIMALS = -1;
+
+/**
+ * Read the real facts of any of these tokens recorded lazily. Called for the
+ * tokens of every pool a swap touches, before the swap is valued.
+ */
+export async function hydrateTokens(addresses: Iterable<string>, read: TokenReader = readToken): Promise<number> {
+  const wanted = [...new Set([...addresses].map((a) => a.toLowerCase()))];
+  if (wanted.length === 0) return 0;
+  const pending = await prisma.token.findMany({
+    where: { address: { in: wanted }, decimals: PENDING_DECIMALS },
+    select: { address: true },
+  });
+  const now = new Date();
+  for (let i = 0; i < pending.length; i += 10) {
+    const facts = await Promise.all(pending.slice(i, i + 10).map((t) => read(t.address)));
+    for (const f of facts) {
+      await prisma.token.update({
+        where: { address: f.address },
+        data: {
+          symbol: f.symbol,
+          name: f.name,
+          decimals: f.decimals,
+          totalSupply: f.totalSupply ? new Prisma.Decimal(f.totalSupply.toString()) : null,
+          supplyReadAt: f.totalSupply ? now : null,
+        },
+      });
+    }
+  }
+  return pending.length;
+}
+
 /** Upsert tokens we have not seen. Existing rows are left alone. */
 export async function ensureTokens(
   addresses: Iterable<string>,
   seenAt: Date,
   read: TokenReader = readToken,
+  options: {
+    /**
+     * Record the address and nothing else: symbol and name empty, decimals
+     * -1. For pools found in ranges older than the swap window, most of which
+     * are launches that never traded again — reading four facts off each of
+     * hundreds of thousands of contracts was most of a structure pass. A
+     * token is read for real (`hydrateTokens`) the first time a swap needs
+     * it, and nothing prices a token whose decimals are unknown.
+     */
+    lazy?: boolean;
+  } = {},
 ): Promise<number> {
   const wanted = [...new Set([...addresses].map((a) => a.toLowerCase()))];
   if (wanted.length === 0) return 0;
@@ -155,6 +199,22 @@ export async function ensureTokens(
   });
   const known = new Set(existing.map((t) => t.address.toLowerCase()));
   const missing = wanted.filter((a) => !known.has(a));
+
+  if (options.lazy) {
+    await prisma.token.createMany({
+      data: missing.map((address) => ({
+        address,
+        symbol: '',
+        name: '',
+        decimals: PENDING_DECIMALS,
+        logoColor: brandColor(address),
+        launchpad: null,
+        firstSeen: seenAt,
+      })),
+      skipDuplicates: true,
+    });
+    return missing.length;
+  }
 
   // Read ten at a time: the reads for a group go out together, which the
   // client sends as one JSON-RPC batch. One by one, a pass that met thirty new
@@ -246,7 +306,8 @@ export async function refreshSupplies(
   const cutoff = new Date(now.getTime() - maxAge * 60_000);
 
   const stale = await prisma.token.findMany({
-    where: { OR: [{ supplyReadAt: null }, { supplyReadAt: { lt: cutoff } }] },
+    // Never a token recorded lazily: its supply is read with its other facts.
+    where: { decimals: { gte: 0 }, OR: [{ supplyReadAt: null }, { supplyReadAt: { lt: cutoff } }] },
     orderBy: [{ supplyReadAt: { sort: 'asc', nulls: 'first' } }],
     take: limit,
     select: { address: true },

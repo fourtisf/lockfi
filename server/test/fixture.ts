@@ -446,16 +446,19 @@ export class FixtureLogSource implements LogSource {
     address: string | string[];
     fromBlock: bigint;
     toBlock: bigint;
+    topics?: string[];
   }): Promise<RawLog[]> {
     this.calls.push({ from: args.fromBlock, to: args.toBlock });
     const wanted = new Set(
       (Array.isArray(args.address) ? args.address : [args.address]).map((a) => a.toLowerCase()),
     );
+    const topics = args.topics ? new Set(args.topics.map((t) => t.toLowerCase())) : null;
     return this.chain.logs.filter(
       (log) =>
         wanted.has(log.address.toLowerCase()) &&
         log.blockNumber >= args.fromBlock &&
-        log.blockNumber <= args.toBlock,
+        log.blockNumber <= args.toBlock &&
+        (!topics || topics.has(String(log.topics[0]).toLowerCase())),
     );
   }
 }

@@ -15,7 +15,7 @@
  *   amounts are computed at ingest. See indexer/amounts.ts.
  */
 
-import { parseAbi } from 'viem';
+import { getAbiItem, parseAbi, toEventSelector } from 'viem';
 
 /** Uniswap v4 PoolManager (§2). One contract, every pool. */
 export const POOL_MANAGER_ABI = parseAbi([
@@ -60,3 +60,17 @@ export const ERC20_ABI = parseAbi([
   'function balanceOf(address) view returns (uint256)',
   'function totalSupply() view returns (uint256)',
 ]);
+
+/**
+ * The events that describe a pool's structure — that it exists, and what
+ * liquidity it holds — and not its trades. Ranges older than the swap window
+ * are read for these alone (poller.ts), which is about one log in three
+ * hundred on this chain.
+ */
+export const STRUCTURE_TOPICS: string[] = [
+  toEventSelector(getAbiItem({ abi: POOL_MANAGER_ABI, name: 'Initialize' })),
+  toEventSelector(getAbiItem({ abi: POOL_MANAGER_ABI, name: 'ModifyLiquidity' })),
+  toEventSelector(getAbiItem({ abi: V3_POOL_ABI, name: 'Mint' })),
+  toEventSelector(getAbiItem({ abi: V3_POOL_ABI, name: 'Burn' })),
+  toEventSelector(getAbiItem({ abi: V3_FACTORY_ABI, name: 'PoolCreated' })),
+];

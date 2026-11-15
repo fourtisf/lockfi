@@ -34,19 +34,57 @@ export class ViemLogSource implements LogSource {
     address: string | string[];
     fromBlock: bigint;
     toBlock: bigint;
+    topics?: string[];
   }) {
     const addresses = (Array.isArray(args.address) ? args.address : [args.address]).map(
       (a) => a as `0x${string}`,
     );
-    const logs = await rpc(
-      (c) =>
-        c.getLogs({
-          address: addresses.length === 1 ? addresses[0] : addresses,
-          fromBlock: args.fromBlock,
-          toBlock: args.toBlock,
-        }),
-      `getLogs(${args.fromBlock}-${args.toBlock})`,
-    );
+    type Raw = {
+      address: string;
+      topics: string[];
+      data: string;
+      blockNumber: bigint | null;
+      logIndex: number | null;
+      transactionHash: string | null;
+    };
+    let logs: Raw[];
+    if (args.topics) {
+      // viem's getLogs takes events, not raw topics; a topic filter is a plain
+      // eth_getLogs with the first topic as an OR-list.
+      const raw = await rpc(
+        (c) =>
+          c.request({
+            method: 'eth_getLogs',
+            params: [
+              {
+                address: addresses,
+                fromBlock: `0x${args.fromBlock.toString(16)}`,
+                toBlock: `0x${args.toBlock.toString(16)}`,
+                topics: [args.topics as `0x${string}`[]],
+              },
+            ],
+          }),
+        `getLogs(${args.fromBlock}-${args.toBlock}, structure)`,
+      );
+      logs = (raw as { address: string; topics: string[]; data: string; blockNumber: string | null; logIndex: string | null; transactionHash: string | null }[]).map((l) => ({
+        address: l.address,
+        topics: l.topics,
+        data: l.data,
+        blockNumber: l.blockNumber === null ? null : BigInt(l.blockNumber),
+        logIndex: l.logIndex === null ? null : Number(BigInt(l.logIndex)),
+        transactionHash: l.transactionHash,
+      }));
+    } else {
+      logs = (await rpc(
+        (c) =>
+          c.getLogs({
+            address: addresses.length === 1 ? addresses[0] : addresses,
+            fromBlock: args.fromBlock,
+            toBlock: args.toBlock,
+          }),
+        `getLogs(${args.fromBlock}-${args.toBlock})`,
+      )) as unknown as Raw[];
+    }
 
     const out = [];
     for (const log of logs) {

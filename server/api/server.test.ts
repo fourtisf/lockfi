@@ -148,6 +148,17 @@ describe('/api/snapshot', () => {
   // comes from its own client, so this file's tight rate limit stays out of
   // a test about caching.
   let client = 0;
+  // The health tests moved the cursor's chain time to now. The snapshot lists
+  // pools that traded in the trailing window before that time, and the
+  // fixture chain traded in March — so put it back where the chain is.
+  beforeAll(async () => {
+    const last = await prisma.swapEvent.aggregate({ _max: { blockTime: true } });
+    const cursor = await prisma.indexerCursor.findFirstOrThrow();
+    await prisma.indexerCursor.update({
+      where: { contract: cursor.contract },
+      data: { lastIndexedAt: last._max.blockTime! },
+    });
+  });
   const get = async () =>
     (
       await app.inject({

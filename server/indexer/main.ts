@@ -82,8 +82,14 @@ async function main(): Promise<void> {
     // curated list does not cover. Image URLs only (§4). LOGO_SOURCES=off
     // turns it off.
     logoSources: defaultLogoSources(),
+    // Swaps only for the last SWAP_WINDOW_DAYS; older ranges are read for
+    // pools and liquidity alone (see poller.ts).
+    swapWindowSeconds: env.swapWindowDays > 0 ? env.swapWindowDays * 86_400 : null,
     log,
   });
+  if (env.swapWindowDays > 0) {
+    log(`swaps indexed for the last ${env.swapWindowDays} days; older ranges: pools and liquidity only`);
+  }
 
   let backoffMs = 1_000;
   let shuttingDown = false;
@@ -113,7 +119,8 @@ async function main(): Promise<void> {
             `${behind.toLocaleString()} behind, window ${result.blockRange.toLocaleString()}): ` +
             `${result.events} events, +${result.swapsWritten} swaps, ` +
             `+${result.liquidityWritten} liquidity, +${result.poolsFound} pools, ` +
-            `+${result.tokensFound} tokens, in ${passSeconds}s`,
+            `+${result.tokensFound} tokens, in ${passSeconds}s` +
+            (result.structureOnly ? ' (older than the swap window: pools and liquidity only)' : ''),
         );
         // Tell the API something changed; it debounces before pushing (§4.4).
         await publishTick({ toBlock: result.toBlock.toString(), lagSeconds: result.lagSeconds });

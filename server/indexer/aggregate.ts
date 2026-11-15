@@ -368,12 +368,25 @@ export async function rebuildFeeHours(
 }
 
 /**
- * Step 4 — `pool_state`: the latest price, tick, liquidity and the TVL
- * derived from reserves.
+ * Step 4 — `pool_state`: the latest price, tick, liquidity and the TVL.
  *
- * Reserves come from `pool_flow_hourly`, not from the raw tables, so this is
- * a sum over a small table. The latest price comes from a `DISTINCT ON`
- * backed by the `(pool_id, block_num, log_index)` index.
+ * TVL is what the pool's liquidity positions hold at its CURRENT price:
+ * every range's net liquidity (the sum of its liquidity events) turned into
+ * token amounts with the concentrated-liquidity formulas. That needs every
+ * liquidity event the pool ever had and its latest price — and not one swap
+ * of its history, which is what lets the indexer skip swaps older than its
+ * window (`swapWindowSeconds`) and still know every pool's depth.
+ *
+ * It used to sum `pool_flow_hourly` — every signed swap and liquidity amount
+ * since creation — which made a full swap history the price of a depth
+ * figure. On this chain that history is some two hundred million events.
+ *
+ * A range whose net liquidity is negative means a removal we saw without the
+ * deposit that funded it: depth unknown, recorded as zero, so the yield is an
+ * em dash rather than a number over a divisor known to be wrong (§7).
+ *
+ * The amounts are computed in double precision: TVL is a display figure, and
+ * nothing exact (fees, `pool_fee_hourly`, §9) is derived from it.
  */
 export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
   const { weth, usdg } = checkAnchors(anchors);
@@ -393,11 +406,47 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       ORDER BY pool_id, block_num DESC, log_index DESC
     ),
 
-    -- Reserves: the staged hourly flow, summed.
+    -- Net liquidity per range: every position in a range, summed.
+    ranges AS (
+      SELECT pool_id, tick_lower, tick_upper, SUM(liquidity_delta) AS l
+      FROM liquidity_events
+      GROUP BY pool_id, tick_lower, tick_upper
+      HAVING SUM(liquidity_delta) <> 0
+    ),
+
+    -- The price each pool's positions are valued at: the latest swap's, or
+    -- the price it was initialised at if it has not traded.
+    current_price AS (
+      SELECT p.id AS pool_id,
+        (COALESCE(ls.sqrt_price_x96, p.init_sqrt_price_x96)::float8 / 2::float8 ^ 96) AS sp
+      FROM pools p
+      LEFT JOIN last_swap ls ON ls.pool_id = p.id
+    ),
+
+    -- What the positions hold, in raw token units:
+    --   below the range: all token0, L·(√b−√a)/(√a·√b)
+    --   above it:        all token1, L·(√b−√a)
+    --   inside:          L·(√b−√p)/(√p·√b) of token0, L·(√p−√a) of token1
     reserves AS (
-      SELECT pool_id, SUM(delta0) AS r0, SUM(delta1) AS r1
-      FROM pool_flow_hourly
-      GROUP BY pool_id
+      SELECT r.pool_id,
+        SUM(CASE
+          WHEN cp.sp IS NULL OR cp.sp <= 0 THEN 0
+          WHEN cp.sp >= rb.sb THEN 0
+          ELSE r.l::float8 * (rb.sb - GREATEST(cp.sp, rb.sa)) / (GREATEST(cp.sp, rb.sa) * rb.sb)
+        END) AS r0,
+        SUM(CASE
+          WHEN cp.sp IS NULL OR cp.sp <= 0 THEN 0
+          WHEN cp.sp <= rb.sa THEN 0
+          ELSE r.l::float8 * (LEAST(cp.sp, rb.sb) - rb.sa)
+        END) AS r1,
+        bool_or(r.l < 0) AS missing
+      FROM ranges r
+      CROSS JOIN LATERAL (
+        SELECT exp(r.tick_lower * ln(1.0001::float8) / 2) AS sa,
+               exp(r.tick_upper * ln(1.0001::float8) / 2) AS sb
+      ) rb
+      JOIN current_price cp ON cp.pool_id = r.pool_id
+      GROUP BY r.pool_id
     ),
 
     base AS (
@@ -407,8 +456,9 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
         COALESCE(ls.tick, 0) AS tick,
         COALESCE(ls.liquidity, 0) AS liquidity,
         COALESCE(ls.block_time, p.created_at) AS updated_at,
-        COALESCE(r.r0, 0) AS r0,
-        COALESCE(r.r1, 0) AS r1,
+        COALESCE(r.r0, 0)::numeric AS r0,
+        COALESCE(r.r1, 0)::numeric AS r1,
+        COALESCE(r.missing, false) AS missing,
         t0.decimals AS dec0,
         t1.decimals AS dec1,
         t0.address  AS addr0,
@@ -424,6 +474,9 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
       LEFT JOIN last_swap ls ON ls.pool_id = p.id
       LEFT JOIN reserves  r  ON r.pool_id  = p.id
+      -- Not a pool whose token was recorded without being read (decimals -1,
+      -- discovery.ts): nothing can be valued in it, and it has not traded.
+      WHERE t0.decimals >= 0 AND t1.decimals >= 0
     ),
 
     quoted AS (
@@ -467,7 +520,7 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       -- consequence is deliberate: a zero divisor makes the yield an em dash
       -- (§7) instead of a number divided by a divisor we know is wrong. The
       -- poller logs the skipped events so the cause is findable.
-      CASE WHEN r0 < 0 OR r1 < 0 THEN 0 ELSE
+      CASE WHEN missing OR r0 < 0 OR r1 < 0 THEN 0 ELSE
         GREATEST(COALESCE(${sane(
           `COALESCE(r0 / power(10::numeric, dec0) * COALESCE(price0_usd, 0), 0)
            + COALESCE(r1 / power(10::numeric, dec1) * COALESCE(price1_usd, 0), 0)`,

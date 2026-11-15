@@ -289,6 +289,8 @@ async function dueTokens(now: Date, limit: number): Promise<string[]> {
     LEFT JOIN activity a ON a.address = t.address
     WHERE t.logo_url IS NULL
       AND t.logo_source IS DISTINCT FROM 'impostor'
+      -- Recorded but never read: a launch that has not traded in the window.
+      AND t.decimals >= 0
       AND (t.logo_retry_at IS NULL OR t.logo_retry_at <= ${now})
     ORDER BY (t.logo_retry_at IS NOT NULL), COALESCE(a.recent, 0) DESC, COALESCE(a.swaps, 0) DESC, t.address
     LIMIT ${limit}

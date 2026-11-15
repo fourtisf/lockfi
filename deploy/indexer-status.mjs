@@ -156,6 +156,15 @@ async function main() {
     // printed for a day while nothing moved.
     console.log(`  pace       no progress lines in ${LOG} — the indexer may be hung`);
     if (trouble) console.log(`  last error ${trouble}`);
+    // Show what IS there: a report that says "no lines" without the lines
+    // sends whoever reads it to run another command to find out why.
+    const recentLines = text.split('\n').map((l) => l.trim()).filter(Boolean).slice(-6);
+    if (recentLines.length) {
+      console.log('  log tail');
+      for (const l of recentLines) console.log(`             ${l.slice(0, 200)}`);
+    } else {
+      console.log(`  log tail   (the file is empty or missing)`);
+    }
     console.log('  see:       runuser -u balast -- pm2 logs balast-indexer --lines 40 --nostream');
   } else {
     console.log('  pace       not measurable yet (needs a few minutes of progress lines)');

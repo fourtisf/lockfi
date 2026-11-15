@@ -64,6 +64,14 @@ export const env = {
    * refuses a range, so the number only has to be optimistic, not correct.
    */
   maxBlockRange: int('INDEXER_MAX_BLOCK_RANGE', 50_000),
+  /**
+   * Days of swaps to index behind head. Older ranges are read for pools and
+   * liquidity only — all depth needs — so the site reaches today in hours
+   * instead of reading some two hundred million historical swaps. Every
+   * figure on the site looks back at most seven days; eight leaves a day of
+   * margin. 0 reads every swap from START_BLOCK.
+   */
+  swapWindowDays: int('SWAP_WINDOW_DAYS', 8),
   /** Seconds between passes when already caught up to head. */
   pollIntervalMs: int('INDEXER_POLL_MS', 1_000),
 

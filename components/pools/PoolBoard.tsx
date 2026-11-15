@@ -87,11 +87,18 @@ export function PoolBoard({
           p.token.name.toLowerCase().includes(q),
       );
 
+    // Live boards list what is live. A pool nobody traded shows 0.0%, $0
+    // fees and $0 volume — true, and a wall of it buried the pools people
+    // came to see. Trending is what traded in the last 24 hours; Established
+    // is what earned fees in the last 7 days (§10: and has 7 days of record).
+    // Filtered per pool, before grouping, so a token's row is its deepest
+    // ACTIVE pool rather than a dead one that happens to be deeper.
+    const active =
+      variant === 'trending'
+        ? matching.filter((p) => p.trades24h > 0)
+        : matching.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS && p.feeHistory.some((f) => f > 0));
     // One row per token: its deepest pool in this view (lib/pools.ts).
-    // §10 assumption: a pool joins Established once it has a real 7d record.
-    const board = tokenRows(
-      variant === 'trending' ? matching : matching.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS),
-    );
+    const board = tokenRows(active);
     if (sort === 'mc') {
       // Highest market cap first, with thin pools' figures kept from leading.
       return board.sort((a, b) => byMarketCap(a.pool, b.pool));
@@ -113,8 +120,10 @@ export function PoolBoard({
       : query.trim() !== ''
         ? ['No match', 'Try a ticker, or clear the search.']
         : filter !== 'all'
-          ? [`No ${filter} pools`, 'None of the indexed pools trade against it yet.']
-          : ['No pool has a full week yet', 'Pools join this board once they have 7 days of fees.'];
+          ? [`No ${filter} pools`, 'None of the active pools trade against it.']
+          : variant === 'trending'
+            ? ['Nothing traded in the last 24 hours', 'Pools appear here as soon as they trade.']
+            : ['No pool has a full week of fees yet', 'Pools join this board once they have 7 days of fees.'];
 
   return (
     <div className="card">
@@ -122,11 +131,13 @@ export function PoolBoard({
         <h2 className="sect-h">
           {title}
           {variant === 'trending' ? (
-            <span className="muted">{sort === 'mc' ? 'by market cap' : 'by volume'}</span>
+            <span className="muted" title="Tokens that traded in the last 24 hours.">
+              24h · {sort === 'mc' ? 'by market cap' : 'by volume'}
+            </span>
           ) : (
             <span
               className="muted"
-              title="A pool needs a full 7 days of fees before its yield is worth ranking."
+              title="Pools with a full 7 days of record that earned fees in them."
             >
               7d+ · {sort === 'mc' ? 'by market cap' : 'by fee yield'}
             </span>

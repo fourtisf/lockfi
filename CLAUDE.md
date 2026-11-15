@@ -1754,6 +1754,60 @@ site's numbers need far less: trailing 7 days of swaps, plus every pool's
 Initialize and liquidity history for depth. That decision is ALFA's and is
 open below.
 
+### Realtime: swaps for eight days, structure for the rest
+
+ALFA's answer to the open question below: "data harus realtime" — the site
+must show today. The indexer had moved 58,000 blocks after the fix above,
+with 110 million to go.
+
+**`SWAP_WINDOW_DAYS` (default 8).** A range whose last block is older than
+that behind head is read for pool structure only — `eth_getLogs` filtered to
+v4 `Initialize` and `ModifyLiquidity` and v3 `PoolCreated`, `Mint` and
+`Burn` (`STRUCTURE_TOPICS`), about one log in three hundred. The window
+itself is read in full, exactly as before. Every figure on the site looks
+back at most seven days; the eighth is margin for the pass that straddles
+the edge. 0 restores reading every swap, which §9's criterion is stated
+against, and every replay test runs that way.
+
+**TVL from positions, not from summed flows** (`rebuildPoolState`). Depth
+used to be every signed swap and liquidity amount since a pool's creation,
+summed — so knowing a pool's depth required its entire swap history. It is
+now what the pool's liquidity holds at its latest price: each range's net
+liquidity, turned into token amounts with the concentrated-liquidity
+formulas. That needs every liquidity event and one price, and no history of
+trades. A range with negative net liquidity is a removal without its deposit:
+depth unknown, zero, em dash, as before. Double precision, because TVL is a
+display figure and nothing exact is derived from it. `window.test.ts` holds
+that a windowed sync produces the same pools, the same liquidity, the same
+`pool_state` and byte-identical fee hours inside the window as a full read.
+
+**Tokens recorded, not read.** Structure passes met five or six hundred new
+pools per 50,000 blocks — over a million launches across the chain, most of
+which never traded again — and reading four facts off each was most of a
+pass (50 s). They are recorded with decimals −1 and read the first time a
+swap touches their pool (`hydrateTokens`); nothing values, prices, looks up
+a logo for or reads the supply of a token whose decimals are unknown.
+Structure events are dated by interpolating between the pass's two ends:
+what they date — a pool's creation months ago — needs days, not seconds.
+
+**Only live pools on the boards and in the snapshot.** A pool nobody traded
+shows 0.0%, $0, $0 — true, and ALFA's screenshot was a wall of it. Trending
+lists what traded in the last 24 hours, Established what earned fees in the
+last 7 days with 7 days of record, and the snapshot values only pools that
+traded in the window (`pools_live`), because valuing a million dead launches
+on every snapshot would take minutes. Filtered per pool before grouping, so a
+token's row is its deepest active pool.
+
+Measured on the real chain from block 4,466,000: structure passes at 50,000
+blocks in about 2.5 seconds, against 52 seconds before lazy tokens. Roughly
+an hour and a half to cross the rest of history, then the eight-day window in
+full — **while it crosses history the boards are nearly empty**, because the
+cursor's chain time is months ago and nothing in its trailing window was
+read; they fill as the window phase reaches today.
+
+The status report also prints the log's last lines when it finds no progress
+lines, instead of only saying so.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside
@@ -1773,10 +1827,6 @@ asset renders without re-rendering sixty.
 
 ### Still open
 
-- **How far back to index swaps.** All of history (days through public
-  endpoints, tens of GB) or pools and liquidity from the start with swaps for
-  the last 8 days only (current within hours, every number on the site
-  unchanged). See *A day stuck at block 4,408,335*.
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in
   `deploy/nginx.conf`, commented out.
 - **The token**: unchanged from §13 — the recommendation is still to ship

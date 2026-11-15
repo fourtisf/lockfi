@@ -120,6 +120,18 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
         $1::timestamp - (${YIELD_WINDOW_HOURS} * interval '1 hour') AS since_window
     ),
 
+    -- Only pools that traded in the trailing window. The boards list nothing
+    -- else (a pool nobody traded shows 0.0%, $0, $0), and on this chain the
+    -- rest is hundreds of thousands of launches that never traded twice:
+    -- valuing every one of them on every snapshot would take minutes.
+    pools_live AS (
+      SELECT p.* FROM pools p
+      WHERE p.id IN (
+        SELECT f.pool_id FROM pool_fee_hourly f, params pr
+        WHERE f.hour >= pr.since_window AND f.swaps > 0
+      )
+    ),
+
     -- The anchor's price at two moments, for an honest 24h change (§4.3).
     anchor_pool AS (
       SELECT p.id, p.token0, p.token1
@@ -150,7 +162,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
          WHERE sw.pool_id = p.id AND sw.block_time <= m.moment
          ORDER BY sw.block_num DESC, sw.log_index DESC
          LIMIT 1) AS ratio
-      FROM pools p
+      FROM pools_live p
       JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
       JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
       CROSS JOIN moments m
@@ -184,7 +196,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
           // token1 is traded: invert the ratio first.
           whenToken1: `(CASE WHEN lower(p.token0) = '${usdgLower}' THEN 1 ELSE au.weth_usd END) / NULLIF(r.ratio, 0)`,
         })} AS price_usd
-      FROM pools p
+      FROM pools_live p
       JOIN ratio_at r ON r.pool_id = p.id
       LEFT JOIN anchor_usd au ON au.moment = r.moment
     ),
@@ -200,7 +212,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
            * power(10::numeric, GREATEST(t0.decimals - t1.decimals, 0)))
           / power(2::numeric, 192)
           / power(10::numeric, GREATEST(t1.decimals - t0.decimals, 0)) AS ratio
-      FROM pools p
+      FROM pools_live p
       CROSS JOIN params pr
       JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
       JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
@@ -242,7 +254,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
         COALESCE(SUM(CASE WHEN f.hour >= pr.since_window THEN f.fees_usd END), 0) AS fees_window_usd,
         COALESCE(SUM(CASE WHEN f.hour >= pr.since_24h THEN f.volume_usd END), 0)  AS volume_24h_usd,
         COALESCE(SUM(CASE WHEN f.hour >= pr.since_24h THEN f.swaps END), 0)::int  AS trades_24h
-      FROM pools p
+      FROM pools_live p
       CROSS JOIN params pr
       LEFT JOIN pool_fee_hourly f ON f.pool_id = p.id AND f.hour >= pr.since_window
       GROUP BY p.id
@@ -252,7 +264,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
     spark AS (
       SELECT p.id AS pool_id,
         array_agg(COALESCE(b.total, 0)::float8 ORDER BY b.bucket) AS spark
-      FROM pools p
+      FROM pools_live p
       CROSS JOIN params pr
       CROSS JOIN LATERAL (
         SELECT g.bucket,
@@ -327,7 +339,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       END::float8 AS fee_yield_pct,
 
       s.spark
-    FROM pools p
+    FROM pools_live p
     CROSS JOIN params pr
     JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
     JOIN tokens t1 ON lower(t1.address) = lower(p.token1)

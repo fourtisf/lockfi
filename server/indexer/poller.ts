@@ -13,13 +13,15 @@
  */
 
 import { CHAIN, CONTRACTS } from '../../lib/chain';
-import { POOL_MANAGER_ABI, V3_POOL_ABI } from '../chain/abi';
+import { POOL_MANAGER_ABI, STRUCTURE_TOPICS, V3_POOL_ABI } from '../chain/abi';
+import { prisma } from '../db';
 import { env } from '../env';
 import type { PriceAnchors } from './aggregate';
 import { rebuildAggregates } from './aggregate';
 import {
   classifyPools,
   ensureTokens,
+  hydrateTokens,
   findAnchorPool,
   refreshSupplies,
   type TokenReader,
@@ -118,6 +120,8 @@ export interface LogSource {
     address: string | string[];
     fromBlock: bigint;
     toBlock: bigint;
+    /** Only logs whose first topic is one of these. Absent: every log. */
+    topics?: string[];
   }): Promise<
     {
       address: string;
@@ -147,6 +151,8 @@ export interface PassResult {
   blockRange: number;
   /** The endpoint refused the window; nothing was read and the cursor did not move. */
   refused?: boolean;
+  /** The range was older than the swap window: pools and liquidity only. */
+  structureOnly?: boolean;
   /** Seconds between the last indexed block's time and head's. Shown in the top bar (§7). */
   lagSeconds: number;
   caughtUp: boolean;
@@ -179,6 +185,14 @@ export interface PollerOptions {
   reorgDepth?: number;
   /** Ceiling for the adaptive range. Lowered on the first refusal. */
   maxBlockRange?: number;
+  /**
+   * Swaps older than this many seconds behind head are not read: ranges that
+   * old are fetched for pool structure only — Initialize and liquidity
+   * events — which is all depth needs (TVL is valued from positions, see
+   * aggregate.ts). Null reads every swap from the start block, as §9's
+   * replay criterion is stated.
+   */
+  swapWindowSeconds?: number | null;
   /** Where token symbol/name/decimals come from. Defaults to the token contract. */
   tokenReader?: TokenReader;
   /**
@@ -219,6 +233,7 @@ export class Poller {
    */
   private maxRange: bigint;
   private readonly configuredMax: bigint;
+  private readonly swapWindowSeconds: number | null;
   /** Set by a block-span refusal: never asked above again. */
   private hardCap: bigint | null = null;
   private calmPasses = 0;
@@ -247,6 +262,7 @@ export class Poller {
     // refusal teaches the real ceiling, and one wasted call is worth hours.
     this.maxRange = BigInt(options.maxBlockRange ?? env.maxBlockRange);
     this.configuredMax = this.maxRange;
+    this.swapWindowSeconds = options.swapWindowSeconds ?? null;
     this.reorgDepth = BigInt(options.reorgDepth ?? CHAIN.reorgDepth);
     this.v3Pools = (options.v3Pools ?? []).map((a) => a.toLowerCase());
     this.v3Factory = options.v3Factory?.toLowerCase() ?? null;
@@ -369,9 +385,27 @@ export class Poller {
       ...(this.v3Factory ? [this.v3Factory] : []),
       ...this.v3Pools,
     ];
+
+    // Older than the swap window: read the pools and their liquidity, not
+    // their trades. On this chain that is the difference between some two
+    // hundred million logs and well under a million, and between the site
+    // showing today in hours or in days.
+    let structureOnly = false;
+    let toTime: Date | undefined;
+    if (this.swapWindowSeconds !== null && to < head.number) {
+      toTime = (await this.source.getBlockTimes(to, to)).get(to);
+      structureOnly =
+        toTime !== undefined && (head.timestamp.getTime() - toTime.getTime()) / 1000 > this.swapWindowSeconds;
+    }
+
     let logs;
     try {
-      logs = await this.source.getLogs({ address: addresses, fromBlock: from, toBlock: to });
+      logs = await this.source.getLogs({
+        address: addresses,
+        fromBlock: from,
+        toBlock: to,
+        ...(structureOnly ? { topics: STRUCTURE_TOPICS } : {}),
+      });
     } catch (error) {
       // Almost always the endpoint refusing the width — "logs matched by
       // query exceeds limit of 10000", "block range too large". Endpoints
@@ -414,7 +448,9 @@ export class Poller {
         refused: true,
       };
     }
-    const blockTimes = await this.source.getBlockTimes(from, to);
+    const blockTimes = structureOnly
+      ? await this.coarseTimes(logs.map((l) => l.blockNumber), from, to, toTime!)
+      : await this.source.getBlockTimes(from, to);
 
     const events: ChainEvent[] = [];
     for (const raw of logs) {
@@ -446,7 +482,7 @@ export class Poller {
       { chainId: CHAIN.id, sqrtPriceByPool: new Map(), feePipsByPool: new Map() },
     );
     const tokenAddresses = initializePlan.pools.flatMap((p) => [p.token0, p.token1]);
-    const tokensFound = await ensureTokens(tokenAddresses, head.timestamp, this.tokenReader);
+    const tokensFound = await ensureTokens(tokenAddresses, head.timestamp, this.tokenReader, { lazy: structureOnly });
     await writePools(initializePlan);
 
     // A v3 pool announced by the factory in THIS range emits everything else
@@ -495,6 +531,16 @@ export class Poller {
         `  ${skipped} event(s) for pools created before block ${this.startBlock} — ` +
           'lower START_BLOCK to include them',
       );
+    }
+
+    // A token recorded lazily in a structure pass is read the first time a
+    // swap needs it, before anything is valued in it.
+    if (!structureOnly) {
+      const swapped = [...new Set(usable.filter((e) => e.kind === 'swap').map((e) => e.poolId))];
+      if (swapped.length > 0) {
+        const rows = await prisma.pool.findMany({ where: { id: { in: swapped } }, select: { token0: true, token1: true } });
+        await hydrateTokens(rows.flatMap((r) => [r.token0, r.token1]), this.tokenReader);
+      }
     }
 
     const plan = planIngest(usable, {
@@ -604,7 +650,29 @@ export class Poller {
       lagSeconds,
       caughtUp: to >= head.number,
       blockRange: Number(to - from + 1n),
+      structureOnly,
     };
+  }
+
+  /**
+   * Times for a structure-only range: interpolated between the range's two
+   * ends rather than fetched per block. What they date — a pool's creation, a
+   * liquidity change more than a week old — needs days of precision, not
+   * seconds; per-block timestamps for half a million such events would be
+   * most of a day of rate-limited requests. Nothing exact is derived from
+   * them: fees come only from swaps, and swaps are only read inside the
+   * window, with real times.
+   */
+  private async coarseTimes(blocks: bigint[], from: bigint, to: bigint, toTime: Date): Promise<Map<bigint, Date>> {
+    const fromTime = (await this.source.getBlockTimes(from, from)).get(from) ?? toTime;
+    const span = Number(to - from) || 1;
+    const out = new Map<bigint, Date>([[to, toTime]]);
+    for (const block of blocks) {
+      const f = Number(block - from) / span;
+      const ms = fromTime.getTime() + (toTime.getTime() - fromTime.getTime()) * f;
+      out.set(block, new Date(Math.floor(ms / 1000) * 1000));
+    }
+    return out;
   }
 
   /**
