@@ -46,6 +46,11 @@ function writeSort(boardId: string, sort: Sort): void {
   }
 }
 
+/** What a pool must have traded in 24 hours to be on Trending. */
+const TRENDING_MIN_VOLUME_USD = 100;
+/** What a pool must have earned in 7 days to be on Established. */
+const ESTABLISHED_MIN_FEES_USD = 1;
+
 /** Widest depth bar in the Established board, so the bars stay comparable. */
 const DEPTH_BAR_MAX = 6.5e6;
 
@@ -93,10 +98,15 @@ export function PoolBoard({
     // is what earned fees in the last 7 days (§10: and has 7 days of record).
     // Filtered per pool, before grouping, so a token's row is its deepest
     // ACTIVE pool rather than a dead one that happens to be deeper.
+    //
+    // "Traded" means traded for real: a pool with one $0.40 swap passed a
+    // trades > 0 test and filled the board with $0 fees and $0 volume again.
     const active =
       variant === 'trending'
-        ? matching.filter((p) => p.trades24h > 0)
-        : matching.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS && p.feeHistory.some((f) => f > 0));
+        ? matching.filter((p) => p.volume24hUsd >= TRENDING_MIN_VOLUME_USD)
+        : matching.filter(
+            (p) => p.ageHours >= YIELD_WINDOW_HOURS && p.feeHistory.reduce((a, f) => a + f, 0) >= ESTABLISHED_MIN_FEES_USD,
+          );
     // One row per token: its deepest pool in this view (lib/pools.ts).
     const board = tokenRows(active);
     if (sort === 'mc') {
@@ -122,7 +132,7 @@ export function PoolBoard({
         : filter !== 'all'
           ? [`No ${filter} pools`, 'None of the active pools trade against it.']
           : variant === 'trending'
-            ? ['Nothing traded in the last 24 hours', 'Pools appear here as soon as they trade.']
+            ? ['Nothing traded in the last 24 hours', 'Pools appear here once $100 trades in a day.']
             : ['No pool has a full week of fees yet', 'Pools join this board once they have 7 days of fees.'];
 
   return (
@@ -131,7 +141,7 @@ export function PoolBoard({
         <h2 className="sect-h">
           {title}
           {variant === 'trending' ? (
-            <span className="muted" title="Tokens that traded in the last 24 hours.">
+            <span className="muted" title="Tokens with at least $100 traded in the last 24 hours.">
               24h · {sort === 'mc' ? 'by market cap' : 'by volume'}
             </span>
           ) : (

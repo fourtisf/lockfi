@@ -45,6 +45,8 @@ import { sweepLogos, type LogoSource } from './logo-sources';
  * a first sync's two thousand tokens once; 15s halves that.
  */
 const LOGO_SWEEP_MS = 15_000;
+/** Pool state during the structure phase: often enough that a fix reaches the screen. */
+const STRUCTURE_GLOBAL_EVERY_MS = 10 * 60_000;
 /**
  * How often, while backfilling, the steps whose cost grows with the WHOLE
  * dataset run: pool state (every pool's last swap, every flow hour), launchpad
@@ -593,11 +595,18 @@ export class Poller {
     // liquidity only up to the last swap read (aggregate.ts). Skipping the
     // whole step is what lets it cross 100 million blocks in an hour instead
     // of fighting the database for each one.
-    const anchors = structureOnly ? null : await this.anchors();
+    //
+    // Except pool state, every ten minutes and on the first pass after a
+    // start: skipping it entirely left whatever the previous code had written
+    // on screen for the whole structure phase — the live site kept showing a
+    // $1.76T TVL the fix for it had already made impossible, because nothing
+    // ran the fixed rebuild.
+    const caughtUpNow = to >= head.number;
+    const globalEvery = structureOnly ? STRUCTURE_GLOBAL_EVERY_MS : GLOBAL_EVERY_MS;
+    const globalDue = caughtUpNow || Date.now() - this.lastGlobalAt >= globalEvery;
+    const anchors = structureOnly && !globalDue ? null : await this.anchors();
     // Supplies first: the FDV figure in pool_state is computed from them, so
     // refreshing after the rebuild would leave it a pass behind.
-    const caughtUpNow = to >= head.number;
-    const globalDue = !structureOnly && (caughtUpNow || Date.now() - this.lastGlobalAt >= GLOBAL_EVERY_MS);
     const suppliesRefreshed = globalDue
       ? await refreshSupplies(head.timestamp, { read: this.tokenReader })
       : 0;

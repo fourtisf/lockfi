@@ -1842,6 +1842,23 @@ maximum. Measured on the real chain: 37,000 blocks a second, flat.
 box `/var/log/balast/indexer.out.log` did not exist, and the report said "no
 progress lines" while the indexer was moving.
 
+### The fix that never ran, and $0.40 counted as trading
+
+After that deploy the 24h figures were real ($545K fees, $47M volume) and
+the TVL still read $1.76 trillion. The horizon fix was right and had not
+run: the same commit made structure passes skip aggregation, `pool_state`
+included, so the garbage the previous code had written stayed on screen for
+the whole structure phase. Pool state is now rebuilt on the first pass after
+a start and every ten minutes during the structure phase. A performance
+change that also stops a correction from being applied is not only a
+performance change.
+
+And the boards still had rows reading $0 fees, $0 volume: syrupUSDG and MU
+had traded — a swap worth well under a dollar passes `trades24h > 0`. Trending
+now asks for $100 traded in 24 hours and Established for $1 of fees in 7
+days. A 0.0% that remains on a row with real volume is a price that did not
+move — a stable yield token does exactly that — and is shown as such.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside
