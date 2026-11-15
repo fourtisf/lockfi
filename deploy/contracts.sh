@@ -85,9 +85,21 @@ read -r -p "    TREASURY — where the 10% protocol fee is paid: " TREASURY
 is_addr "$TREASURY" || { echo "not an address: $TREASURY"; exit 1; }
 
 # ------------------------------------------------------------ 5. Deployer
+# A key saved to a file by the one-line generator (see the README) is used
+# from there, so nothing has to be copied out of a terminal — tmux makes that
+# hard. Otherwise the key is typed or pasted into a hidden prompt.
+KEY_FILE="${DEPLOYER_KEY_FILE:-/root/tidewell-deployer.txt}"
 if ! cast wallet list 2>/dev/null | grep -q "^$ACCOUNT"; then
-  say "importing the deployer wallet (hidden prompt; stored encrypted in $HOME/.foundry/keystores)"
-  cast wallet import "$ACCOUNT" --interactive
+  if [[ -f "$KEY_FILE" ]]; then
+    key=$(grep -oE '0x[0-9a-fA-F]{64}' "$KEY_FILE" | head -1 || true)
+    [[ -n "$key" ]] || { echo "no private key found in $KEY_FILE"; exit 1; }
+    say "importing the deployer wallet from $KEY_FILE (choose a password to encrypt it)"
+    cast wallet import "$ACCOUNT" --private-key "$key"
+    unset key
+  else
+    say "importing the deployer wallet (hidden prompt; stored encrypted in $HOME/.foundry/keystores)"
+    cast wallet import "$ACCOUNT" --interactive
+  fi
 fi
 DEPLOYER=$(cast wallet address --account "$ACCOUNT")
 balance=$(cast balance --rpc-url "$RPC" "$DEPLOYER" --ether)
@@ -161,6 +173,7 @@ cat "$OUT"
 cat <<EOF
 
     Then:
+      0. once the deployer key is saved on your own computer: shred -u $KEY_FILE
       1. send ~0.01 ETH to the keeper $KEEPER for router gas (vaults need no keeper;
          it idles until a token team creates a router)
       2. after the site update is pushed:  bash $APP_DIR/deploy/deploy.sh
