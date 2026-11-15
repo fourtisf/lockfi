@@ -6,6 +6,7 @@ import { WalletProvider } from '@/components/providers/WalletProvider';
 import { Footer } from '@/components/shell/Footer';
 import { TabBar } from '@/components/shell/Nav';
 import { StakeDrawer } from '@/components/shell/StakeDrawer';
+import { StaleBanner } from '@/components/shell/StaleBanner';
 import { TopBar } from '@/components/shell/TopBar';
 import { Toast } from '@/components/ui/Toast';
 import { initialSnapshot } from '@/lib/data/initial-snapshot';
@@ -72,6 +73,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </a>
             <TopBar />
             <main className="wrap" id="main">
+              <StaleBanner />
               {children}
               <Footer />
             </main>

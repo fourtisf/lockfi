@@ -768,3 +768,19 @@ a.ca-v:hover{color:var(--ac)}
 .dr-pool-name .pill.grey{background:var(--panel);border:1px solid var(--bd)}
 .dr-pool-name b{flex:0 1 auto;min-width:0}
 .ca-copy{display:inline-flex;align-items:center;justify-content:center;line-height:1.3;height:24px}
+
+/* §7: data a day or more old says so in a sentence, above every page. */
+.stale{margin:16px 0 14px;padding:12px 16px;border:1px solid var(--bd);border-left:3px solid var(--fg-2);border-radius:10px;background:var(--raise);font-size:13.5px;line-height:1.55;color:var(--fg-2)}
+.stale b{color:var(--fg);font-weight:700}
+
+/* The drawer's header carries the token's own move. */
+.dr-price{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;margin-top:4px;font-size:13px}
+.dr-price b{font-size:14px;font-weight:600}
+
+/* The token's other pools, folded by default. */
+details.dr-pools{margin:4px 0 18px;border:1px solid var(--bd);border-radius:10px;padding:10px 12px}
+details.dr-pools summary{cursor:pointer;font-size:13px;color:var(--fg-2);list-style:none;line-height:1.5}
+details.dr-pools summary::-webkit-details-marker{display:none}
+details.dr-pools summary .dr-pools-more{color:var(--ac);font-weight:600;white-space:nowrap}
+details.dr-pools[open] summary{margin-bottom:10px}
+details.dr-pools[open] summary .dr-pools-more{display:none}

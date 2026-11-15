@@ -8,7 +8,8 @@ import { TokenBadge } from '@/components/ui/TokenBadge';
 import { AuditNotice, SignGate } from '@/components/wallet/Wallet';
 import { useStakeForm } from '@/hooks/useStakeForm';
 import { signingStatus } from '@/lib/contracts/status';
-import { ageLabel, usd } from '@/lib/format';
+import { ageLabel, price, usd } from '@/lib/format';
+import { Change } from '@/components/ui/Change';
 import { BRAND } from '@/lib/site';
 import { DATA_SOURCE } from '@/lib/data';
 import { poolsOfToken } from '@/lib/pools';
@@ -135,6 +136,18 @@ export function StakeDrawer() {
                 <div style={{ fontSize: 12 }} className="muted">
                   {pool.token.name}
                 </div>
+                {/* The token's own move, the figure a trader looks for first:
+                    its price and 24h change, then its valuation. */}
+                <div className="dr-price">
+                  <b className="num">{pool.priceUsd > 0 ? price(pool.priceUsd) : '—'}</b>
+                  <Change pct={pool.change24hPct} refHours={pool.change24hRefHours} />
+                  <span className="muted">24h</span>
+                  {pool.marketCapUsd > 0 && (
+                    <span className="muted">
+                      · FDV <span className="num">{usd(pool.marketCapUsd)}</span>
+                    </span>
+                  )}
+                </div>
               </div>
               <button className="x" onClick={closeStake} aria-label="Close">
                 ✕
@@ -234,11 +247,15 @@ export function StakeDrawer() {
                 </div>
               )}
 
+              {/* Folded by default, as the drawer was before a token had a
+                  list: one token, its figures, and staking. The list is there
+                  for whoever wants another of the token's pools. */}
               {siblings.length > 1 && (
-                <div className="dr-pools">
-                  <div className="k">
-                    {pool.token.symbol} trades in {siblings.length} pools · deepest first
-                  </div>
+                <details className="dr-pools">
+                  <summary>
+                    Showing {pairLabel(pool)} · {feeTierLabel(pool)} fee — {pool.token.symbol} trades in{' '}
+                    {siblings.length} pools. <span className="dr-pools-more">See all</span>
+                  </summary>
                   <p className="hint dr-pools-why">
                     Anyone can open a pool for a token, with its own trading fee and its own pair
                     (ETH or USDG). Each pool is a separate market with its own liquidity — so its
@@ -283,7 +300,7 @@ export function StakeDrawer() {
                   {siblings.some((p) => p.feeYield.basis === 'estimate') && (
                     <p className="hint">&ldquo;est.&rdquo; marks a pool younger than 7 days: its yield is worked out from the hours it has, not a full week.</p>
                   )}
-                </div>
+                </details>
               )}
 
               {canStake ? (

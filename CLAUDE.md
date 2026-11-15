@@ -2317,3 +2317,30 @@ pair" list was confusing.
 ("Check lockfi" — the repository's own name, `fourtisf/lockfi`; no product by
 that name was found.)
 
+### "CASHCAT didn't go up 992%": a day four months old, read as today
+
+ALFA put GMGN beside the site: CASHCAT −2.48% in 24h and $39.9M there,
++992% and $112M here. Both right — about different days. `/api/health` read
+`lastBlock 94,415,793 · 25d behind`, and the snapshot's moment (the last swap
+read) was **8 Jul 2026**, CASHCAT's launch week, when it did move about ten
+times in a day. The 24h column was the token's price move all along; it was
+the moment that was wrong.
+
+- **`StaleBanner`** (`components/shell/StaleBanner.tsx`): with live data more
+  than six hours behind, every page opens on "These figures are from
+  8 Jul 2026, not today", with the lag and what it covers. The top bar's chip
+  said "130d behind" and the owner still read +992% as today's; §7 forbids
+  rendering stale numbers as live, and a chip was not enough to meet it.
+- **The drawer went back to Balast's shape**, at ALFA's request: the token,
+  its four figures and staking. Its header now carries the token's own move —
+  price, 24h change, FDV — the figure a trader looks for first, above fee
+  yield, which is what an LP earns and was being read as the price move. The
+  token's other pools fold into "Showing CASHCAT / ETH · 2% fee — CASHCAT
+  trades in 85 pools. See all", closed by default.
+
+What makes the figures today's is the indexer reaching head. Its structure
+pass on the box ran at about 1,000 blocks a second over the last two reports
+(block 89.6M at 22:22, 94.4M at 23:41), against ~150–400 structure logs per
+1,000 blocks measured on the chain there — the RPC is not the limit at that
+density, so the box's own per-pass timings are needed to say what is.
+
