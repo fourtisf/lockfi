@@ -1979,3 +1979,103 @@ absurd again, the report names the pool.
 - **The §12 questions**: the six-hours-per-tick simulator clock needs sign-off,
   and `/positions`' forward-looking *Est. fee yield* still needs a keep, cap or
   drop.
+
+---
+
+## 20. P2–P5: the contracts, the wallet, the keeper, and what waits on the audit
+
+ALFA, after staking on the live site would not work: "lanjutkan sampe p5" —
+carry on through P5. P2–P4 are built here. P5 is an external audit and a
+mainnet deployment signed by ALFA's keys; this section says exactly where the
+work stops and why.
+
+### The contracts (`contracts/`)
+
+A Foundry project against Uniswap v4-core and v4-periphery (submodules,
+`v4-periphery` pinned at `c6e4754`, `forge-std` v1.9.7). §3's four contracts,
+named per §19:
+
+- **`TidewellVault`** — one per pool. Stakers' liquidity sits in a single
+  **full-range** position the vault owns in the PoolManager (passive, never
+  out of range). Shares are liquidity units, so there is no exchange rate to
+  attack. Any change to the position collects every fee it has earned; those
+  are held as `pendingEthFees` / `pendingTokenFees` for the next harvest, not
+  handed to whoever triggered the change. `harvest(minEthFromTokens,
+  deadline)` (keeper only) sells the token side for ETH in the same pool,
+  wraps, sends `protocolFeeBps` to the treasury and streams the rest over 7
+  days (Synthetix). Two departures from stock Synthetix, both so nothing is
+  lost: the remainder of `reward / 7 days` and anything streamed while nobody
+  is staked go to `queuedRewards` and into the next stream; per-account
+  rewards are kept scaled by 1e18, which is what makes §3.5's "claim every
+  hour = never claim" exact rather than "within a few wei". Vaults accept
+  hookless pools with an ETH or WETH side only.
+- **`TidewellZap`** — `zapStake` (one token into a vault) and §3.1's
+  `zapMint` (one token into a v4 position NFT for the caller), with a
+  `minLiquidity` guard.
+- **`TidewellShaper`** — up to 60 weighted bins, each minted as its own
+  position NFT to the caller through the real PositionManager. Weights must
+  sum to 10,000; 61 bins revert. Shape-agnostic, per §3.2.
+- **`TidewellRouter`** (+ factory) — §3.4. Its 30-minute TWAP is its own:
+  v4 pools carry no oracle, so `poke()` records a tick accumulator, and a
+  TWAP needs six observations a minute or more apart spanning 30 minutes, so
+  one manipulated sample is never the whole average. Routes slice at
+  `maxRouteWeth`: the first test routed 5 ETH into a 31-ETH pool, the guard
+  rightly refused an 11% price move, and without slices the fees would have
+  sat there forever.
+
+**The PositionManager's address was not in the handoff.** It was read off the
+chain: `UniversalRouter.V4_POSITION_MANAGER()` →
+`0x58daec3116aae6D93017bAAea7749052E8a04fA7`, "Uniswap v4 Positions NFT",
+whose `poolManager()`, `permit2()` and `WETH9()` match §2. It is in
+`lib/chain.ts`.
+
+### What is proven
+
+- **§9's P2 criterion**: the vault invariant suite at 10,000 runs × 64 calls
+  (640,000 calls per invariant), 50 wallets depositing, withdrawing,
+  claiming, exiting, trading, harvesting, changing the fee and warping time
+  in random order — 0 reverts, all five invariants hold, and after every run
+  every wallet exits and is paid exactly `earned`.
+- **§9's P3 criterion, the on-chain half**: after 48 hours without a keeper,
+  one harvest collects exactly the fees the PoolManager's own fee growth says
+  the position earned; a second collects only what accrued since. (Not zero:
+  the harvest's own swap pays a fee to the pool, part of which lands on the
+  vault's position. The first version of the test asserted zero and was
+  wrong about the property, not the contract.)
+- **§3.5**, every line, mapped to its test in `docs/audit/README.md`. A
+  60-bin shaped mint costs 8.1M gas; ArbOS caps a transaction at 32M (the
+  block header's 2^50 is not the limit).
+- **A rehearsal on a fork of mainnet** (`test/fork/`): stake through the zap
+  into the real native ETH/USDG 0.05% pool, real swaps, harvest, seven days,
+  exit — the reward is real fees and the user is paid exactly what they
+  earned; a 5-bin shaped mint through the real PositionManager; a router
+  route. All pass.
+
+### Tooling note
+
+The sandbox cannot download native `solc` or Foundry's release binaries.
+Foundry came from npm (`@foundry-rs/forge`), and `solc` 0.8.26 runs as solc-js
+behind a 30-line wrapper (`FOUNDRY_SOLC`). Same compiler version; on a normal
+machine `forge build` fetches the native one. The PositionManager is compiled
+via-IR only for the tests' local deployment (`compilation_restrictions`).
+
+### P5: where the work stops
+
+**No mainnet vault before an external audit** (§8). That is enforced, not
+just written: `script/Deploy.s.sol` refuses chainId 4663 unless
+`TIDEWELL_AUDIT_REPORT` is set, and `scripts/apply-deployment.mjs` refuses
+to publish a 4663 deployment without one. Rehearsals use an anvil fork with
+`--chain-id 31337`, so there is no override switch to flip by mistake. Both
+were run: the script deployed everything on a fork, and the gate refused the
+real chain.
+
+`config/deployments.json` is empty, so the site still says staking is not
+open. `docs/audit/` is the package for the auditor; `contracts/README.md` is
+the runbook: rehearsal, testnet (chainId 46630 — its RPC was not reachable
+from the sandbox, so whether Uniswap v4 is deployed there is unverified), and
+mainnet after the audit.
+
+What only ALFA can do: choose and pay an auditor; confirm the 10% fee and
+the 20% cap (§10 — the cap is immutable per vault); create the owner
+multisig, the treasury and a keeper hot wallet; deploy with their own keys;
+put `KEEPER_PRIVATE_KEY` in the server's `.env`.
