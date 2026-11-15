@@ -93,14 +93,25 @@ const JOBS = [
   ['x-header-signature-gold.svg', 'x-header-signature-gold-1500.png', 1500],
   ['x-header-signature-gold.svg', 'x-header-signature-gold-3000.png', 3000],
   ['tidewell-signature-gold-showcase.svg', 'tidewell-signature-gold-showcase.png', 2400],
+  // The Tide header: premium, for the X profile.
+  ['x-header-tide-glass.svg', 'x-header-tide-glass-1500.png', 1500],
+  ['x-header-tide-glass.svg', 'x-header-tide-glass-3000.png', 3000],
+  ['x-header-tide-gold.svg', 'x-header-tide-gold-1500.png', 1500],
+  ['x-header-tide-gold.svg', 'x-header-tide-gold-3000.png', 3000],
 ];
+
+// `node scripts/build-brand-png.mjs x-header-tide` renders only the outputs
+// whose names contain one of the arguments: one asset, without re-rendering
+// sixty unchanged ones.
+const only = process.argv.slice(2);
+const selected = only.length ? JOBS.filter(([, out]) => only.some((s) => out.includes(s))) : JOBS;
 
 const browser = await chromium.launch(
   PREINSTALLED ? { executablePath: PREINSTALLED } : {},
 );
 const page = await browser.newPage({ deviceScaleFactor: 1 });
 
-for (const [src, out, width] of JOBS) {
+for (const [src, out, width] of selected) {
   const svg = readFileSync(join(BRAND, src), 'utf8');
   // Read the intrinsic ratio off the viewBox so the height follows the art.
   const [, , vbW, vbH] = svg.match(/viewBox="([^"]+)"/)[1].trim().split(/\s+/).map(Number);
@@ -127,5 +138,7 @@ for (const [src, out, width] of JOBS) {
 await browser.close();
 
 // The card the site actually serves is the one in public/.
-copyFileSync(join(BRAND, 'og-card.png'), join(BRAND, '..', 'public', 'og-card.png'));
-console.log('  public/og-card.png                    copied');
+if (selected.some(([, out]) => out === 'og-card.png')) {
+  copyFileSync(join(BRAND, 'og-card.png'), join(BRAND, '..', 'public', 'og-card.png'));
+  console.log('  public/og-card.png                    copied');
+}

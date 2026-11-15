@@ -187,6 +187,19 @@ const SIGNATURE: Asset[] = [
     ],
   },
   {
+    title: 'Tide X header',
+    use: 'The premium header: the mark\u2019s tide across the banner, rising left to right, the light lying on the water. 1500 \u00d7 500 and 3000 \u00d7 1000, under X\u2019s 5 MB limit; clear of the avatar.',
+    preview: 'x-header-tide-glass-1500.png',
+    ground: 'light',
+    wide: true,
+    files: [
+      { label: 'Glass 1500', file: 'x-header-tide-glass-1500.png' },
+      { label: 'Glass 3000', file: 'x-header-tide-glass-3000.png' },
+      { label: 'Gold 1500', file: 'x-header-tide-gold-1500.png' },
+      { label: 'Gold 3000', file: 'x-header-tide-gold-3000.png' },
+    ],
+  },
+  {
     title: 'Signature showcase',
     use: 'A hero image for launches and partner announcements.',
     preview: 'tidewell-signature-gold-showcase.png',

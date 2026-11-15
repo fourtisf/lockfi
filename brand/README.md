@@ -35,6 +35,7 @@ teal `#0B6E86`, white on the brand ground, or ink `#0C1E24`.
 | Full logo, light ground | `tidewell-lockup.svg`, `tidewell-lockup-1200.png` |
 | Full logo, brand or dark ground | `tidewell-lockup-white.svg`, `tidewell-lockup-white-1200.png` |
 | Social card | `og-card.png` (1200 × 630; copied to `public/`) |
+| X header, premium | `x-header-tide-glass-3000.png` (or `-gold-`): the mark's tide across the banner; `-1500` for smaller uploads |
 
 The social card carries no URL: no Tidewell domain is registered yet (§19).
 Add one to `scripts/build-brand.py` when there is.

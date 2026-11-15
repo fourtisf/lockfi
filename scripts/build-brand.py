@@ -435,6 +435,140 @@ def main() -> None:
             f'<path d="{h_url}" fill="{f["tag"]}" opacity=".85"/>',
             f'0 0 {HW} {HH}', HW, HH))
 
+    # ------------------------------------------------------------ the tide --
+    # The premium X header: the inside of the well at banner scale. The tide
+    # running across it is the mark's own tide line — the same cubic, repeated
+    # and stretched — with the swell behind it, half a period out of phase,
+    # and the whole sea tilted so the tide rises left to right. The light
+    # behind the lockup lies on the water as a column of glints.
+    #
+    # Laid out for where X puts things: the avatar covers the lower left on
+    # every client, so the lockup is centred and the left of the sea is only
+    # sea; nothing that has to be read sits within 60px of the top or bottom,
+    # which phones crop.
+    print('tide header')
+    TW, TH = 1500, 500
+    T_KX, T_KY = 30.0, 11.0          # the mark's wave, stretched: 396px period
+    T_SLOPE = 0.034                  # the rise across the banner, 51px
+    T_BASE = 398.0                   # the tide line's mid-height at x = 0
+
+    def tide_line(x0: float, x1: float, y: float, start_up: bool) -> str:
+        half = 6.6 * T_KX
+        d, x, up = [f'M{x0:.2f} {y:.2f}'], x0, start_up
+        while x < x1:
+            sgn = -1 if up else 1
+            d.append(f'c{2.2 * T_KX:.2f} {sgn * 2.4 * T_KY:.2f} {4.4 * T_KX:.2f} '
+                     f'{sgn * 2.4 * T_KY:.2f} {half:.2f} 0')
+            x += half
+            up = not up
+        return ' '.join(d)
+
+    def crest_y(x: float) -> float:
+        """Height of the front crest at x, tilt included: the cubic's hump is
+        exactly -3a·u(1-u), because its control points are evenly spaced."""
+        half = 6.6 * T_KX
+        local = x + half                          # the line starts half a wave left
+        i, u = divmod(local, half)
+        sgn = -1 if int(i) % 2 == 0 else 1
+        return T_BASE + sgn * 3 * 2.4 * T_KY * (u / half) * (1 - u / half) - T_SLOPE * x
+
+    t_scale = 4.6
+    t_mark = (INK1 - INK0) * t_scale
+    t_size = 32 * t_scale * 0.60
+    t_cap = t_size * cap
+    t_word_w = (ink_right - (INK1 + GAP_CAPS * cap_h)) * (t_size / size)
+    t_total = t_mark + GAP_CAPS * t_cap + t_word_w
+    tx = (TW - t_total) / 2
+    t_top = 112.0
+    t_word, _ = outline(word, 'Tidewell', t_size, t_top + t_mark / 2 + t_cap / 2,
+                        tx + t_mark + GAP_CAPS * t_cap, TRACKING_EM)
+    t_tag_font = load('Manrope', 500, 'Fees')
+    _, t_tag_r = outline(t_tag_font, 'Fees rise with the tide.', 33, 0, 0)
+    t_tag, _ = outline(t_tag_font, 'Fees rise with the tide.', 33, t_top + t_mark + 62,
+                       (TW - t_tag_r) / 2)
+    eyebrow = 'THE LIQUIDITY LAYER FOR ROBINHOOD CHAIN'
+    t_eye_font = load('Manrope', 600, 'THELIQUDAYRFOBNC')
+    # 17px: at a phone's 390px header that is still a legible 4.4px line.
+    _, t_eye_r = outline(t_eye_font, eyebrow, 17, 0, 0, 0.2)
+    t_eye, _ = outline(t_eye_font, eyebrow, 17, 88, (TW - t_eye_r) / 2, 0.2)
+    _, t_url_r = outline(url_font, URL, 25, 0, 0, 0.02)
+    t_url, _ = outline(url_font, URL, 25, TH - 38, TW - 50 - t_url_r, 0.02)
+
+    half = 6.6 * T_KX
+    front = tide_line(-half, TW + half, T_BASE, True)
+    back = tide_line(-half, TW + half, T_BASE - 1.9 * T_KY * 1.15, False)
+    lx = TW / 2                                  # the light, and its column
+
+    # Glints: the light broken on the water under it, each a tapered streak,
+    # spaced and widening with distance toward the viewer. Fixed, not random,
+    # so the file is reproducible.
+    glints = []
+    cy0 = crest_y(lx)
+    # (gap below the last, [(width, x offset), ...], opacity): broken rows,
+    # irregular, so it reads as light on moving water and not as a ladder.
+    rows = [(12, [(34, -3)], .9), (9, [(22, -26), (40, 14)], .75), (12, [(64, -2)], .6),
+            (13, [(30, -44), (52, 18)], .55), (15, [(96, 4)], .42), (16, [(44, -58), (70, 26)], .36),
+            (18, [(128, -6)], .27), (21, [(60, -74), (88, 38)], .22), (24, [(150, 8)], .15)]
+    y = cy0
+    for k, (gap, streaks, op) in enumerate(rows):
+        y += gap
+        for w, off in streaks:
+            glints.append(f'<ellipse cx="{lx + off:.1f}" cy="{y:.1f}" rx="{w / 2:g}" ry="{1.1 + k * .2:.2f}" '
+                          f'fill="url(#tgl)" opacity="{op}"/>')
+    sparks = ''.join(
+        f'<circle cx="{lx + dx:.1f}" cy="{crest_y(lx + dx) + .4:.1f}" r="{r}" fill="#FFF" opacity="{op}"/>'
+        for dx, r, op in [(-64, 1.5, .85), (-18, 2.1, 1), (31, 1.4, .8), (77, 1.7, .85)])
+
+    for fin in ('glass', 'gold'):
+        f = SIGNATURE[fin]
+        crest = f['crest']
+        defs = (
+            f'<defs>'
+            f'<linearGradient id="tw" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0" stop-color="{f["word"][0]}"/><stop offset="1" stop-color="{f["word"][1]}"/></linearGradient>'
+            f'<linearGradient id="tsea" x1="0" y1="{T_BASE - 40:g}" x2="0" y2="{TH + 40:g}" gradientUnits="userSpaceOnUse">'
+            f'<stop offset="0" stop-color="#58C9DE"/><stop offset=".16" stop-color="#2299B3"/>'
+            f'<stop offset=".5" stop-color="#0C6479"/><stop offset="1" stop-color="#04303B"/></linearGradient>'
+            f'<linearGradient id="tswell" x1="0" y1="{T_BASE - 60:g}" x2="0" y2="{TH:g}" gradientUnits="userSpaceOnUse">'
+            f'<stop offset="0" stop-color="#1B6B7B"/><stop offset="1" stop-color="#0A3A46"/></linearGradient>'
+            f'<linearGradient id="tdeep" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".42"/></linearGradient>'
+            f'<radialGradient id="tcol"><stop offset="0" stop-color="{f["glow"]}" stop-opacity=".5"/>'
+            f'<stop offset=".55" stop-color="{f["glow"]}" stop-opacity=".16"/><stop offset="1" stop-color="{f["glow"]}" stop-opacity="0"/></radialGradient>'
+            f'<linearGradient id="tgl"><stop offset="0" stop-color="{crest}" stop-opacity="0"/>'
+            f'<stop offset=".5" stop-color="{crest}"/><stop offset="1" stop-color="{crest}" stop-opacity="0"/></linearGradient>'
+            f'<clipPath id="tclip"><path transform="matrix(1 {-T_SLOPE} 0 1 0 0)" d="{front} V{TH + 120} H{-half} Z"/></clipPath>'
+            f'<filter id="tblur" x="-10%" y="-400%" width="120%" height="900%"><feGaussianBlur stdDeviation=".7"/></filter>'
+            f'<filter id="tglow" x="-5%" y="-300%" width="110%" height="700%"><feGaussianBlur stdDeviation="5"/></filter>'
+            f'<filter id="tsoft" x="-20%" y="-200%" width="140%" height="500%"><feGaussianBlur stdDeviation="1.1"/></filter>'
+            f'</defs>'
+        )
+        sea = (
+            f'<g transform="matrix(1 {-T_SLOPE} 0 1 0 0)">'
+            f'<path d="{back} V{TH + 120} H{-half} Z" fill="url(#tswell)" opacity=".9"/>'
+            f'<path d="{back}" fill="none" stroke="{crest}" stroke-width="1" opacity=".18"/>'
+            f'<path d="{front} V{TH + 120} H{-half} Z" fill="url(#tsea)"/>'
+            f'<path d="{front}" fill="none" stroke="{f["glow"]}" stroke-width="7" opacity=".55" filter="url(#tglow)"/>'
+            f'<path d="{front}" fill="none" stroke="{crest}" stroke-width="2.2" opacity=".8" filter="url(#tsoft)"/>'
+            f'<path d="{front}" fill="none" stroke="{crest}" stroke-width="1.1"/>'
+            f'</g>'
+            # The light on the water, and broken on it: kept inside the sea.
+            f'<g clip-path="url(#tclip)">'
+            f'<ellipse cx="{lx:g}" cy="{cy0 + 36:.1f}" rx="150" ry="120" fill="url(#tcol)"/>'
+            f'<g filter="url(#tblur)">' + ''.join(glints) + '</g></g>' + sparks +
+            f'<rect width="{TW}" height="{TH}" fill="url(#tdeep)"/>'
+        )
+        write(o(f'x-header-tide-{fin}.svg'), svg(
+            signature_ground('t', TW, TH, lx, t_top + t_mark / 2, f['glow'], grain=.03) +
+            f'\n  {defs}\n  {sea}\n  '
+            f'<path d="{t_eye}" fill="{f["tag"]}" opacity=".88"/>\n  '
+            f'<g transform="translate({tx - INK0 * t_scale:.2f} {t_top - INK0 * t_scale:.2f}) scale({t_scale})">'
+            f'{mark_signature(fin, "tm")}</g>\n  '
+            f'<path d="{t_word}" fill="url(#tw)"/>\n  '
+            f'<path d="{t_tag}" fill="{f["tag"]}"/>\n  '
+            f'<path d="{t_url}" fill="#FFFFFF" opacity=".9"/>',
+            f'0 0 {TW} {TH}', TW, TH))
+
     # The hero: the premium lockup on the deep-sea ground, with the tagline.
     SW, SH = 2400, 1350
     PS = 13.0

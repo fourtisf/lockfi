@@ -60,6 +60,10 @@ DOWNLOADS = [
     'x-header-signature-gold-1500.png',
     'x-header-signature-gold-3000.png',
     'tidewell-signature-gold-showcase.png',
+    'x-header-tide-glass-1500.png',
+    'x-header-tide-glass-3000.png',
+    'x-header-tide-gold-1500.png',
+    'x-header-tide-gold-3000.png',
 ]
 
 
