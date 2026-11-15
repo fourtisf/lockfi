@@ -23,3 +23,6 @@ coverage
 # Foundry
 contracts/cache
 contracts/broadcast/*/31337
+
+# Python bytecode (scripts/build-how-it-works.py imports build-brand.py)
+__pycache__/
