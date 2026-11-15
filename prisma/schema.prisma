@@ -60,6 +60,7 @@ model Token {
   firstSeen    DateTime  @map("first_seen")
 
   poolsAsToken0 Pool[] @relation("token0")
+  storedLogo    TokenLogo?
   poolsAsToken1 Pool[] @relation("token1")
 
   @@index([symbol])
@@ -230,6 +231,26 @@ model PoolFlowHourly {
  * forward rather than treating the gap as zero — a quiet hour in the anchor
  * pool is not WETH becoming worthless.
  */
+/// Logos we fetched once and serve from our own origin at /api/logo/:address.
+///
+/// Launchpad tokens declare their image on chain — Pons in logo(), Doppler in
+/// tokenURI()'s metadata — and nearly always on IPFS, which no public gateway
+/// serves reliably to browsers any more (ipfs.io answers 429 and is moving to
+/// a service worker). So the indexer fetches the image once, checks it is an
+/// image by its bytes, shrinks it to a badge, and keeps it here.
+model TokenLogo {
+  address     String   @id
+  contentType String   @map("content_type")
+  bytes       Bytes
+  /// Where it came from, for tracing a wrong logo back to its source.
+  origin      String
+  fetchedAt   DateTime @map("fetched_at")
+
+  token Token @relation(fields: [address], references: [address], onDelete: Cascade)
+
+  @@map("token_logos")
+}
+
 model WethUsdHourly {
   hour    DateTime @id
   wethUsd Decimal  @map("weth_usd") @db.Decimal(38, 18)

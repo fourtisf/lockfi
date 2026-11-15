@@ -199,7 +199,7 @@ describe('sweepLogos', () => {
     });
     const scout = fixedSource('blockscout', {});
 
-    const result = await sweepLogos({ now, sources: [gecko, dex, scout] });
+    const result = await sweepLogos({ now, sources: [gecko, dex, scout], registry: null });
 
     expect(result).toMatchObject({ looked: 3, found: 2, bySource: { geckoterminal: 1, dexscreener: 1 } });
     expect(dex.asked.sort()).toEqual([ESTR, PONS].sort());
@@ -251,6 +251,38 @@ describe('sweepLogos', () => {
     expect(await refreshLogos({ url: file, chainId: 4663 })).toBe(1);
     const pons = await prisma.token.findUniqueOrThrow({ where: { address: PONS } });
     expect(pons).toMatchObject({ logoUrl: 'https://curated.test/pons.png', logoSource: 'list' });
+  });
+
+  it('keeps every logo off a token posing as a Robinhood stock token', async () => {
+    // The registry: Robinhood's factory made AAPL and SPCX at these addresses.
+    const OFFICIAL_SPCX = '0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea';
+    const registry = {
+      addresses: new Set([OFFICIAL_SPCX, '0xaf3d76f1834a1d425780943c99ea8a608f8a93f9']),
+      tickers: new Set(['SPCX', 'AAPL', 'NVDA']),
+    };
+    const add = (address: string, symbol: string, name: string, logoUrl: string | null, logoSource: string | null) =>
+      prisma.token.create({ data: { address, symbol, name, decimals: 18, logoUrl, logoSource, firstSeen: new Date() } });
+    // The copy on the live boards: not Robinhood's, wearing the feather.
+    await add('0x9507fba0a82f6c3f2efd4215d52361db17871437', 'SPCX', 'Space Exploration Technologies Corp .Robinhood Token', 'https://g.test/feather.png', 'geckoterminal');
+    // A ticker copy with no Robinhood in its name, and no logo yet.
+    await add('0xdecf74e4aa6ff30b1612e65665aaf650bedecba3', 'NVDA', 'NVDA', null, null);
+    // The real one, and an ordinary memecoin with a short ticker.
+    await add(OFFICIAL_SPCX, 'SPCX', 'SpaceX • Robinhood Token', null, null);
+    await add('0x00000000000000000000000000000000000000ee', 'ON', 'On Something', null, null);
+    // A logo a person curated stays, whatever its name says.
+    await add('0x00000000000000000000000000000000000000ef', 'HOODON', 'Robinhood Token Index', 'https://curated.test/x.png', 'list');
+
+    const asked = fixedSource('geckoterminal', {});
+    await sweepLogos({ now, sources: [asked], registry, size: 50 });
+
+    const by = Object.fromEntries((await prisma.token.findMany()).map((t) => [t.address, t]));
+    expect(by['0x9507fba0a82f6c3f2efd4215d52361db17871437']).toMatchObject({ logoUrl: null, logoSource: 'impostor' });
+    expect(by['0xdecf74e4aa6ff30b1612e65665aaf650bedecba3'].logoSource).toBe('impostor');
+    expect(by['0x00000000000000000000000000000000000000ef']).toMatchObject({ logoUrl: 'https://curated.test/x.png', logoSource: 'list' });
+    // Neither copy was looked up; the real token and the memecoin were.
+    expect(asked.asked).not.toContain('0x9507fba0a82f6c3f2efd4215d52361db17871437');
+    expect(asked.asked).not.toContain('0xdecf74e4aa6ff30b1612e65665aaf650bedecba3');
+    expect(asked.asked).toEqual(expect.arrayContaining([OFFICIAL_SPCX, '0x00000000000000000000000000000000000000ee']));
   });
 
   it('does nothing when switched off', async () => {

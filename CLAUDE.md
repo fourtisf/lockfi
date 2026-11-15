@@ -1560,6 +1560,71 @@ push. The drawer lists all of the token's pools, deepest first, and any can
 be opened. Grouped by address, so a copycat with the same name keeps its
 own row; `pools.test.ts` holds that.
 
+### A crawling indexer, 0.0% everywhere, and logos from the launchpads
+
+ALFA: every token must have a logo — from DexScreener, CoinMarketCap,
+CoinGecko, the launchpads, anywhere — and the 24h column must move.
+
+**The indexer was crawling.** The site sat about 130 days behind for a day.
+Three steps whose cost grows with the WHOLE dataset ran on every pass:
+`rebuildPoolState` (every pool's last swap, every flow hour),
+`classifyPools` (one UPDATE per pool) and `refreshSupplies`. A first sync is
+thousands of passes, so each got slower as the tables grew. While
+backfilling they now run at most once a minute, and every pass once caught
+up; all three are recomputed from the tables, so §9's replay proof is
+unchanged. `classifyPools` is set-based. Progress lines carry the pass time.
+
+**0.0% was "unknown", displayed as "flat".** The 24h move compared with the
+price at the last trade before 24h ago, and a pool with no such trade —
+most new pools — got null, which the row mapping turned into 0. The
+reference is now that price, or failing it the first trade inside the
+window, valued at that hour's WETH/USD from `weth_usd_hourly`. Neither:
+null, rendered as an em dash, and left out of the featured average.
+`Pool.change24hPct` is `number | null`.
+
+**Logos the launchpads put on chain.** Most rows are launchpad memecoins no
+aggregator has a logo for. Their launchpads do, on chain, set at launch:
+Pons tokens (`PonsV2LauncherToken`) answer `logo()`, Doppler tokens
+(`DopplerERC20V1Factory`, used by Bankr) answer `tokenURI()` with IPFS
+metadata whose `image` is the logo. `server/indexer/launchpad-logos.ts`
+reads them first, before any aggregator — the token's own declaration,
+which nobody else can add. What the real tokens showed set the rules:
+
+- **IPFS cannot be handed to a browser.** ipfs.io, dweb.link and w3s.link
+  answer 429 (ipfs.io is moving to a service worker); Filebase answers in
+  0.4s, Pinata in 4-6s. So the indexer fetches each image once, through
+  those two, and stores it: table `token_logos`, served at
+  `/api/logo/:address` with a day's cache, `nosniff` and a sandboxing CSP,
+  exempt from the rate limit (a board is dozens of badges), and an nginx
+  location without `/api/`'s no-store.
+- **Declared is not an image.** shockR's "image" is an Imgur HTML page;
+  FITMONEY's metadata has none. Only bytes that are PNG, JPEG, GIF or WebP by
+  their magic numbers are kept — never SVG, which from our origin could
+  carry script.
+- **PONS's logo is 7806px square, 2.4 MB.** Everything is shrunk with
+  `sharp` to a 128px WebP: PONS to 2.6 KB, PINO 1.4 KB, 8CEN 1.3 KB.
+- **The URL is a stranger's.** Creator links are fetched https-only, never
+  to a loopback, private or link-local address, without redirects, capped
+  at 5 MB and 12s. Gateways are ours and trusted further.
+
+Run against the real chain and gateway: PINO, PONS and 8CEN stored, shockR,
+FITMONEY and WETH correctly not. The migration makes every logo-less token
+due again at deploy, so the new source does not wait out yesterday's
+one-day retry.
+
+**Impostors of Robinhood stock tokens get no logo.** The board showed the
+fake "SPCX … Robinhood Token" (`0x9507…`) wearing Robinhood's feather — a
+logo source carried it, because a copy's creator can register any image,
+and matching by address cannot help when the address is the copy's own.
+`config/robinhood-stocks.json` (all 212 tokens from the factory's
+`Deployed` events, written by `build-stock-logos.py`) is the registry: a
+token claiming the name ("Robinhood Token") or an official ticker of three
+letters or more, and not in it, has its logo removed and is never looked
+up. Short tickers (F, V, ON) are ordinary words and are not matched; a logo
+a person curated is never removed. The curated list is also re-read every
+five minutes now: AMD's company logo sat unapplied because the list was
+only read on passes that found a new pool.
+
 ### Still open
 
 - **Defensive registrations**: `tidewall.live` first; the stanza for it is in

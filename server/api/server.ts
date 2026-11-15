@@ -101,7 +101,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     // The websocket is one request that then stays open for hours. Counting
     // it against a per-minute budget would drop reconnects after a restart,
     // which is exactly when every client reconnects at once.
-    allowList: (request) => request.url.startsWith('/api/stream'),
+    // The stream, and logos: a board is dozens of badges in one page view,
+    // each a small cached read, and must not spend the snapshot's budget.
+    allowList: (request) => request.url.startsWith('/api/stream') || request.url.startsWith('/api/logo/'),
     keyGenerator: (request) =>
       (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
       request.ip,
@@ -324,6 +326,28 @@ export async function buildServer(): Promise<FastifyInstance> {
       });
     }
     return reply.type('application/json').send(serialise(value));
+  });
+
+  /**
+   * A logo we stored (server/indexer/launchpad-logos.ts): launchpad images
+   * fetched once from IPFS and shrunk to a badge, served from our origin so
+   * no visitor is sent to a rate-limited gateway or a stranger's host.
+   *
+   * Only ever an image: the bytes were checked and re-encoded as WebP when
+   * stored, and the headers forbid sniffing and anything active, so the URL
+   * opened on its own cannot do more than show a picture.
+   */
+  app.get<{ Params: { address: string } }>('/api/logo/:address', async (request, reply) => {
+    const address = request.params.address.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(address)) return reply.code(404).send();
+    const logo = await prisma.tokenLogo.findUnique({ where: { address } });
+    if (!logo) return reply.code(404).send();
+    return reply
+      .header('content-type', logo.contentType)
+      .header('cache-control', 'public, max-age=86400')
+      .header('x-content-type-options', 'nosniff')
+      .header('content-security-policy', "default-src 'none'; sandbox")
+      .send(Buffer.from(logo.bytes));
   });
 
   app.get('/api/stream', { websocket: true }, (connection) => {

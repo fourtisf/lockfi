@@ -185,6 +185,33 @@ describe('/api/snapshot', () => {
   });
 });
 
+describe('/api/logo/:address', () => {
+  const ADDRESS = '0x00000000000000000000000000000000000000ab';
+
+  it('serves a stored logo as an image, and only as an image, past the rate limit', async () => {
+    const sharp = (await import('sharp')).default;
+    const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#0b6e86' } }).webp().toBuffer();
+    await prisma.token.create({ data: { address: ADDRESS, symbol: 'LOGO', name: 'Logo', decimals: 18, firstSeen: new Date() } });
+    await prisma.tokenLogo.create({ data: { address: ADDRESS, contentType: 'image/webp', bytes, origin: 'ipfs://x', fetchedAt: new Date() } });
+
+    // More requests than this file's budget of four: a board is dozens of badges.
+    for (let i = 0; i < RATE_LIMIT_MAX + 2; i++) {
+      const response = await app.inject({ method: 'GET', url: `/api/logo/${ADDRESS}`, headers: { 'x-forwarded-for': '203.0.113.99' } });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('image/webp');
+      expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect(String(response.headers['content-security-policy'])).toContain('sandbox');
+      expect(response.headers['cache-control']).toContain('max-age=86400');
+      expect(response.rawPayload.equals(bytes)).toBe(true);
+    }
+  });
+
+  it('answers 404 for a token with no stored logo, and for anything that is not an address', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/logo/0x00000000000000000000000000000000000000cd' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/logo/..%2F..%2Fetc' })).statusCode).toBe(404);
+  });
+});
+
 describe('rate limiting', () => {
   it('answers 429, not 500, once the budget is spent', async () => {
     // 500 would be wrong in a way that matters: it tells a client the server

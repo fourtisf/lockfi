@@ -22,6 +22,7 @@ const TABLES = [
   'liquidity_events',
   'indexer_cursors',
   'pools',
+  'token_logos',
   'tokens',
 ];
 

@@ -33,8 +33,11 @@
  * that have no logo at all, and never replaces one.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { CHAIN } from '../../lib/chain';
 import { prisma } from '../db';
+import { launchpad } from './launchpad-logos';
 import { isSafeLogoUrl } from './logos';
 
 /** One lookup's answer for one token. */
@@ -47,7 +50,7 @@ export type LogoAnswer =
   | { kind: 'error' };
 
 export interface LogoSource {
-  name: 'geckoterminal' | 'dexscreener' | 'blockscout';
+  name: 'launchpad' | 'geckoterminal' | 'dexscreener' | 'blockscout';
   /** Addresses per call. */
   batch: number;
   lookup(addresses: string[]): Promise<Map<string, LogoAnswer>>;
@@ -184,9 +187,68 @@ export function blockscout(
   };
 }
 
-/** Priority order: CoinGecko's curation first, the explorer last. */
+/**
+ * Robinhood's stock tokens, as its factory recorded them on chain
+ * (config/robinhood-stocks.json, written by scripts/build-stock-logos.py).
+ */
+export interface StockRegistry {
+  addresses: Set<string>;
+  /** Tickers of three letters or more: short ones (F, V, ON) are ordinary words. */
+  tickers: Set<string>;
+}
+
+export function loadRegistry(
+  path = process.env.ROBINHOOD_STOCKS ?? 'config/robinhood-stocks.json',
+): StockRegistry | null {
+  const full = isAbsolute(path) ? path : resolve(process.cwd(), path);
+  if (!existsSync(full)) return null;
+  try {
+    const doc = JSON.parse(readFileSync(full, 'utf8')) as {
+      stocks?: { address?: string; symbol?: string }[];
+    };
+    const stocks = Array.isArray(doc.stocks) ? doc.stocks : [];
+    return {
+      addresses: new Set(stocks.map((s) => String(s.address).toLowerCase())),
+      tickers: new Set(
+        stocks.map((s) => String(s.symbol ?? '').toUpperCase()).filter((t) => t.length >= 3),
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take every logo off tokens that pass themselves off as Robinhood stock
+ * tokens without being in the factory's registry, and keep them off.
+ *
+ * The board showed an "SPCX … Robinhood Token" the factory never made,
+ * wearing Robinhood's feather — supplied by a logo source, because a copy's
+ * creator can register any image. Matching logos by address cannot stop
+ * that: the address is the copy's own. What can is knowing which addresses
+ * are Robinhood's. A token claiming the name ("Robinhood Token") or an
+ * official ticker of three letters or more, and not in the registry, gets
+ * no logo from any source, ever. A logo a person put in the curated list is
+ * the one exception: a human decided.
+ */
+export async function stripImpostors(registry: StockRegistry): Promise<number> {
+  return prisma.$executeRaw`
+    UPDATE tokens
+    SET logo_url = NULL, logo_source = 'impostor', logo_retry_at = NULL
+    WHERE NOT (lower(address) = ANY(${[...registry.addresses]}))
+      AND (upper(symbol) = ANY(${[...registry.tickers]}) OR name ILIKE '%robinhood%token%')
+      AND logo_source IS DISTINCT FROM 'impostor'
+      AND logo_source IS DISTINCT FROM 'list'
+  `;
+}
+
+/**
+ * Priority order. The token's own on-chain declaration first (launchpad
+ * tokens — most of the boards — and nobody else can add one), then
+ * CoinGecko's curation, then images projects registered, the explorer last.
+ */
 export function defaultLogoSources(fetchJson: FetchJson = defaultFetchJson): LogoSource[] {
-  return [geckoTerminal(fetchJson), dexScreener(fetchJson), blockscout(fetchJson)];
+  return [launchpad(), geckoTerminal(fetchJson), dexScreener(fetchJson), blockscout(fetchJson)];
 }
 
 /** No source has one: ask again in a day, in case a project registers one. */
@@ -214,6 +276,7 @@ async function dueTokens(now: Date, limit: number): Promise<string[]> {
         FROM pools p JOIN pool_fee_hourly f ON f.pool_id = p.id GROUP BY p.token1
     ) activity ON activity.address = t.address
     WHERE t.logo_url IS NULL
+      AND t.logo_source IS DISTINCT FROM 'impostor'
       AND (t.logo_retry_at IS NULL OR t.logo_retry_at <= ${now})
     GROUP BY t.address, t.logo_retry_at
     ORDER BY (t.logo_retry_at IS NOT NULL), COALESCE(SUM(activity.swaps), 0) DESC, t.address
@@ -243,6 +306,8 @@ export async function sweepLogos(
     sources?: LogoSource[];
     size?: number;
     log?: (m: string) => void;
+    /** Override for tests; null skips the impostor rule. */
+    registry?: StockRegistry | null;
   } = {},
 ): Promise<SweepResult> {
   if (process.env.LOGO_SOURCES === 'off' || CHAIN.id !== 4663) {
@@ -251,6 +316,14 @@ export async function sweepLogos(
   const now = options.now ?? new Date();
   const sources = options.sources ?? defaultLogoSources();
   const log = options.log ?? (() => {});
+
+  // Before anything is looked up: no impostor is asked about, and none keeps
+  // a logo it was given before this rule existed.
+  const registry = options.registry === undefined ? loadRegistry() : options.registry;
+  if (registry) {
+    const stripped = await stripImpostors(registry);
+    if (stripped > 0) log(`  ${stripped} impostor(s) of Robinhood stock tokens: logos removed`);
+  }
 
   const due = await dueTokens(now, options.size ?? SWEEP_SIZE);
   const result: SweepResult = { looked: due.length, found: 0, bySource: {} };

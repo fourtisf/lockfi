@@ -45,8 +45,8 @@ interface TokenList {
 }
 
 const FETCH_TIMEOUT_MS = 10_000;
-/** A logo served from our own origin, out of public/tokens/. */
-const SELF_HOSTED = /^\/tokens\/[A-Za-z0-9_.-]+\.(png|webp|svg)$/;
+/** A logo served from our own origin: a stock logo in public/tokens/, or one we stored. */
+const SELF_HOSTED = /^\/tokens\/[A-Za-z0-9_.-]+\.(png|webp|svg)$|^\/api\/logo\/0x[0-9a-f]{40}$/;
 /** The curated list in the repository, read when TOKEN_LIST_URL is unset. */
 const DEFAULT_LIST = 'config/tokens.json';
 /** Data URIs and oversized strings do not belong in a database column. */
