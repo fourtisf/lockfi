@@ -67,13 +67,19 @@ if [[ -n "$existing" ]]; then
   say "keeper wallet already in .env: $KEEPER"
 else
   say "creating the keeper wallet"
-  wallet=$(cast wallet new)
-  KEEPER=$(printf '%s\n' "$wallet" | awk '/^Address:/ {print $2}')
-  key=$(printf '%s\n' "$wallet" | awk '/^Private key:/ {print $3}')
-  is_addr "$KEEPER" && [[ "$key" =~ ^0x[0-9a-fA-F]{64}$ ]] || { echo "could not read the new wallet"; exit 1; }
+  # 32 random bytes are the key; cast only derives the address, whose output
+  # is the address alone. Parsing `cast wallet new` broke on a newer Foundry
+  # whose output format differs.
+  KEEPER=""
+  for _ in 1 2 3; do
+    key="0x$(openssl rand -hex 32)"
+    KEEPER=$(cast wallet address --private-key "$key" 2>/dev/null | tr -d '[:space:]' || true)
+    is_addr "$KEEPER" && break
+  done
+  is_addr "$KEEPER" && [[ "$key" =~ ^0x[0-9a-f]{64}$ ]] || { echo "could not create the keeper wallet"; exit 1; }
   sed -i '/^KEEPER_PRIVATE_KEY=/d' "$ENV_FILE"
   printf 'KEEPER_PRIVATE_KEY=%s\n' "$key" >> "$ENV_FILE"
-  unset key wallet
+  unset key
   echo "    keeper: $KEEPER (key written to $ENV_FILE, readable by root and $APP_USER only)"
 fi
 
@@ -89,7 +95,8 @@ is_addr "$TREASURY" || { echo "not an address: $TREASURY"; exit 1; }
 # from there, so nothing has to be copied out of a terminal — tmux makes that
 # hard. Otherwise the key is typed or pasted into a hidden prompt.
 KEY_FILE="${DEPLOYER_KEY_FILE:-/root/tidewell-deployer.txt}"
-if ! cast wallet list 2>/dev/null | grep -q "^$ACCOUNT"; then
+# The keystore file itself, not `cast wallet list`, whose format varies.
+if [[ ! -f "$HOME/.foundry/keystores/$ACCOUNT" ]]; then
   if [[ -f "$KEY_FILE" ]]; then
     key=$(grep -oE '0x[0-9a-fA-F]{64}' "$KEY_FILE" | head -1 || true)
     [[ -n "$key" ]] || { echo "no private key found in $KEY_FILE"; exit 1; }
