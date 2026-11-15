@@ -19,3 +19,7 @@ test-results
 blob-report
 .playwright
 coverage
+
+# Foundry
+contracts/cache
+contracts/broadcast/*/31337

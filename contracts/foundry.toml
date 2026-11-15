@@ -1,0 +1,37 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.26"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+bytecode_hash = "none"
+# PoolManager is deployed locally by the tests and is over EIP-170 without
+# via-IR; production uses the PoolManager already on chain.
+gas_limit = "30000000000"
+fs_permissions = [{ access = "read", path = "./" }]
+# The Uniswap PositionManager only compiles with via-IR. It is deployed by the
+# tests from its artifact; production uses the one already on chain.
+additional_compiler_profiles = [{ name = "posm", via_ir = true, optimizer_runs = 500 }]
+compilation_restrictions = [{ paths = "lib/v4-periphery/src/PositionManager.sol", via_ir = true, optimizer_runs = 500 }]
+
+[profile.default.fuzz]
+runs = 1000
+seed = "0x7d1de"
+
+[profile.default.invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+
+# §9: "the vault invariant suite passes under fuzzing with 10k runs".
+[profile.p2]
+fuzz = { runs = 10000 }
+invariant = { runs = 10000, depth = 64, fail_on_revert = false }
+
+[rpc_endpoints]
+robinhood = "https://rpc.mainnet.chain.robinhood.com"
