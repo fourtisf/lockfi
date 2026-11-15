@@ -1914,6 +1914,17 @@ is empty or missing", so nothing said why.
   fifteen seconds apart, and prints the measured pace and the time to today —
   a report that needs no log to answer the one question it exists for.
 
+With the timings on screen the box told its own story: structure passes of
+16,000–32,000 blocks in 2–5 seconds, `write` the largest part at up to 2.7
+seconds. `writePools` upserted one pool per round trip, and a pass met 300–500
+new pools; it is one `createMany` per 500 now (a pool's facts never change,
+so one already written is skipped). Measured: write 0.3–0.5 s. And an
+occasional pass waited 16 seconds for one rate-limited `getBlock` — the
+start-of-range time a structure pass needs is the previous pass's end, which
+is now reused instead of fetched. The status report, finding the log through
+PM2 at last (`indexer.out-3.log`, PM2's own suffix), estimated two hours to
+today at 33.9%.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside

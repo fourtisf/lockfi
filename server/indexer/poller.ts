@@ -274,6 +274,8 @@ export class Poller {
    * maximum, so it may grow to ten times that.
    */
   private structureMax: bigint;
+  /** The last structure pass's end, whose time starts the next one. */
+  private lastStructureEnd: { block: bigint; time: Date } | null = null;
   private readonly reorgDepth: bigint;
   private readonly log: (message: string) => void;
   private readonly tokenReader?: TokenReader;
@@ -755,7 +757,14 @@ export class Poller {
    * window, with real times.
    */
   private async coarseTimes(blocks: bigint[], from: bigint, to: bigint, toTime: Date): Promise<Map<bigint, Date>> {
-    const fromTime = (await this.source.getBlockTimes(from, from)).get(from) ?? toTime;
+    // The start of this range is the end of the last one, give or take the
+    // 32-block re-scan, and its time is already recorded: reuse it rather
+    // than ask a rate-limited endpoint again (one such wait cost 16 seconds).
+    const recorded = this.lastStructureEnd && this.lastStructureEnd.block >= from && this.lastStructureEnd.block <= from + this.reorgDepth
+      ? this.lastStructureEnd.time
+      : undefined;
+    const fromTime = recorded ?? (await this.source.getBlockTimes(from, from)).get(from) ?? toTime;
+    this.lastStructureEnd = { block: to, time: toTime };
     const span = Number(to - from) || 1;
     const out = new Map<bigint, Date>([[to, toTime]]);
     for (const block of blocks) {

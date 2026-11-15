@@ -26,10 +26,16 @@ function dec(value: bigint): Prisma.Decimal {
 }
 
 export async function writePools(plan: IngestPlan): Promise<void> {
-  for (const pool of plan.pools) {
-    await prisma.pool.upsert({
-      where: { id: pool.id },
-      create: {
+  // One INSERT per 500 pools, not one upsert per pool. On the live box a
+  // structure pass met 300-500 new pools and spent most of its time here,
+  // one round trip each. A pool's facts come from its Initialize log and
+  // never change, so a pool already written is skipped rather than rewritten:
+  // a re-scan of the same log would write the same values. `stakeable` is not
+  // written either way — discovery sets it from the pool's hook, and a
+  // re-scan must not reset it.
+  for (const batch of chunk(plan.pools)) {
+    await prisma.pool.createMany({
+      data: batch.map((pool) => ({
         id: pool.id,
         address: pool.address,
         chainId: pool.chainId,
@@ -43,19 +49,8 @@ export async function writePools(plan: IngestPlan): Promise<void> {
         createdAt: pool.createdAt,
         initSqrtPrice: dec(pool.initSqrtPrice),
         initTick: pool.initTick,
-      },
-      // A pool's immutable facts cannot change, so a replay rewrites the same
-      // values. `stakeable` is deliberately not touched: it is set by
-      // discovery from the pool's hook, and a re-scan must not reset it.
-      update: {
-        feeTier: pool.feeTier,
-        tickSpacing: pool.tickSpacing,
-        hooks: pool.hooks,
-        createdBlock: pool.createdBlock,
-        createdAt: pool.createdAt,
-        initSqrtPrice: dec(pool.initSqrtPrice),
-        initTick: pool.initTick,
-      },
+      })),
+      skipDuplicates: true,
     });
   }
 }
