@@ -67,7 +67,7 @@ test.describe('live boards', () => {
     expect(transforms, 'rows jumped instead of animating').toBeGreaterThan(0);
   });
 
-  test('a board sorts by market cap on request, and remembers it', async ({ page }) => {
+  test('boards rank by market cap first, and remember a switch to their own order', async ({ page }) => {
     await page.goto('/pools', { waitUntil: 'networkidle' });
     const board = page.locator('#main .card').filter({ has: page.getByRole('group', { name: /Trending sort/ }) });
     const mcCells = board.locator('tbody td.hide-mc');
@@ -76,18 +76,23 @@ test.describe('live boards', () => {
         const m = t.replace(/fdv/, '').match(/\$([\d.]+)([KMBT]?)/);
         return m ? Number(m[1]) * ({ '': 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 } as Record<string, number>)[m[2]] : 0;
       });
+    const mc = board.getByRole('button', { name: 'MC', exact: true });
+    const volume = board.getByRole('button', { name: 'Volume', exact: true });
 
-    await board.getByRole('button', { name: 'MC', exact: true }).click();
-    await expect(board.getByRole('button', { name: 'MC', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    // The default: highest market cap first.
+    await expect(mc).toHaveAttribute('aria-pressed', 'true');
     await expect(board.locator('.sect-h')).toContainText('by market cap');
     const ranked = await values();
     expect(ranked.length).toBeGreaterThan(2);
     expect(ranked).toEqual([...ranked].sort((a, b) => b - a));
 
-    await page.reload({ waitUntil: 'networkidle' });
-    await expect(board.getByRole('button', { name: 'MC', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await board.getByRole('button', { name: 'Volume', exact: true }).click();
+    // A switch to the board's own order survives a reload.
+    await volume.click();
     await expect(board.locator('.sect-h')).toContainText('by volume');
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(volume).toHaveAttribute('aria-pressed', 'true');
+    await mc.click();
+    await expect(board.locator('.sect-h')).toContainText('by market cap');
   });
 
   test('row one carries the leader highlight on both boards', async ({ page }) => {

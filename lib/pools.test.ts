@@ -58,6 +58,18 @@ describe('byMarketCap', () => {
     expect(sorted.map((p) => p.id)).toEqual(['b', 'a', 'c']);
   });
 
+  it('keeps small memecoins in order: a few hundred dollars of depth is still depth', () => {
+    // The live board's FITMONEY and RHDF: ~$20K fully diluted on thin pools.
+    const sorted = [mc('fit', 20_300, 300), mc('rhdf', 24_800, 450), mc('kit', 2_000, 120)].sort(byMarketCap);
+    expect(sorted.map((p) => p.id)).toEqual(['rhdf', 'fit', 'kit']);
+    expect(sorted.every(mcRanked)).toBe(true);
+  });
+
+  it('does not rank a figure whose depth is unknown', () => {
+    // Zero depth means we never saw the pool's funding mint (§14).
+    expect(mcRanked(mc('u', 50_000, 0))).toBe(false);
+  });
+
   it('never lets a thin pool’s trillion-dollar figure lead', () => {
     // The live board's catAI: $2.27T fully diluted, priced from a $5 pool.
     const sorted = [mc('real', 3.9e6, 1.05e6), mc('catai', 2.27e12, 5), mc('none', 0, 80_000)].sort(byMarketCap);

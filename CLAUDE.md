@@ -1675,6 +1675,25 @@ never-looked-at tokens by all-time swaps, so a token four hours old and third
 on Trending waited behind hundreds of quiet old ones, at 30 tokens every
 30s. It now orders by the last 24 hours of indexed volume, every 15s.
 
+### Highest FDV first, by default
+
+ALFA asked again, after the toggle shipped, for the boards to open sorted by
+FDV from highest to lowest. **That is now the default on both boards — ALFA's
+call, over §1's "every ranking defaults to fee yield".** Each board's own
+order (volume, fee yield) is the other half of the same control, and a
+viewer who picks it keeps it.
+
+The $1K depth floor went with it. On the live board it sent most memecoins
+below the line — SHERWOOD, FITMONEY, RHDF, shockR, 8CEN all muted — so
+"highest to lowest" stopped reading as one. The rule is a ratio now
+(`MC_MAX_DEPTH_MULTIPLE`, 10,000×): a valuation more than ten thousand times
+its pool's whole depth, or with depth unknown, follows the others. $20K on a
+$300 pool is 67× and ranks; the $2.27T on $5 was 450 billion× and does not.
+
+A migration makes every logo-less token due again, so tokens the launchpad
+source had already answered "none" for — shockR among them — are asked again
+with the page-following it gained, instead of waiting out a day.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside

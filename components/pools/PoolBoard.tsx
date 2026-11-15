@@ -18,7 +18,7 @@ import {
   feeYieldValue,
   yieldPct,
 } from '@/lib/yield';
-import { byMarketCap, mcRanked, MC_RANK_MIN_DEPTH_USD, tokenRows } from '@/lib/pools';
+import { byMarketCap, mcRanked, MC_MAX_DEPTH_MULTIPLE, tokenRows } from '@/lib/pools';
 
 type Variant = 'trending' | 'established';
 
@@ -33,9 +33,9 @@ type Sort = 'board' | 'mc';
 /** The sort a viewer chose, per board. A convenience: losing it loses nothing. */
 function readSort(boardId: string): Sort {
   try {
-    return window.localStorage.getItem(`tidewell.sort.${boardId}`) === 'mc' ? 'mc' : 'board';
+    return window.localStorage.getItem(`tidewell.sort.${boardId}`) === 'board' ? 'board' : 'mc';
   } catch {
-    return 'board';
+    return 'mc';
   }
 }
 function writeSort(boardId: string, sort: Sort): void {
@@ -61,11 +61,12 @@ export function PoolBoard({
   const pools = usePools();
   const { query, openStake } = useUi();
   const [filter, setFilter] = useState<'all' | Quote>('all');
-  // Each board keeps its own ranking by default (§6: volume for Trending, fee
-  // yield for Established — §1). Market cap is a choice the viewer makes,
-  // remembered in this browser. Read after mount so the server's HTML and
-  // the first client render agree.
-  const [sort, setSortState] = useState<Sort>('board');
+  // Highest market cap first, by default: ALFA's call, asked for twice, over
+  // §1's "every ranking defaults to fee yield". Each board's own ranking
+  // (§6: volume for Trending, fee yield for Established) is one click away,
+  // and a viewer's choice is remembered in this browser. Read after mount so
+  // the server's HTML and the first client render agree.
+  const [sort, setSortState] = useState<Sort>('mc');
   useEffect(() => setSortState(readSort(boardId)), [boardId]);
   const setSort = (next: Sort) => {
     setSortState(next);
@@ -140,7 +141,7 @@ export function PoolBoard({
               className={sort === 'mc' ? 'on' : undefined}
               aria-pressed={sort === 'mc'}
               onClick={() => setSort('mc')}
-              title={`Highest market cap first. A pool with under ${usd(MC_RANK_MIN_DEPTH_USD)} of depth is ranked after the rest: a price that a few dollars can move makes its market cap meaningless.`}
+              title={`Highest market cap first. A figure more than ${MC_MAX_DEPTH_MULTIPLE.toLocaleString('en-US')}\u00d7 its pool's depth, or with depth unknown, is ranked after the rest: a price a few dollars can move makes it meaningless.`}
             >
               MC
             </button>
@@ -279,8 +280,10 @@ function Row({
           pool.marketCapUsd <= 0
             ? 'No token supply read yet, so there is no figure to show.'
             : !mcRanked(pool)
-              ? `Priced from a pool with ${usd(pool.tvlUsd)} of depth: a few dollars move this price, ` +
-                'so this figure is shown but never ranked above deeper pools.'
+              ? pool.tvlUsd > 0
+                ? `Priced from a pool with only ${usd(pool.tvlUsd)} of depth: a few dollars move this price, ` +
+                  'so this figure is shown but not ranked with the others.'
+                : 'The depth of the pool behind this price is unknown, so this figure is shown but not ranked with the others.'
             : pool.marketCapIsFdv
               ? 'Fully diluted: total supply \u00d7 price. Circulating supply is not ' +
                 'distinguishable on chain, so locked and vested tokens are included.'

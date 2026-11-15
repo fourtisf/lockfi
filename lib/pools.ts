@@ -50,24 +50,30 @@ export function poolsOfToken(pools: Pool[], pool: Pool): Pool[] {
 }
 
 /**
- * Depth a pool needs before its market cap is ranked.
+ * How far a market cap may outrun the pool that prices it and still be ranked.
  *
  * Market cap here is supply × the pool's price, and a pool holding five
  * dollars sets a price five dollars can move: the live board once showed a
- * token at $2.27 trillion off exactly that. Below this depth the figure is
- * still shown — it is arithmetic, not a secret — but it is not allowed to
- * lead a ranking.
+ * token at $2.27 trillion off exactly that. A valuation more than this many
+ * times the pool's whole depth is not ranked among the others — it is still
+ * shown, it is arithmetic, but it follows them. Small memecoins with a few
+ * hundred dollars of depth stay in order: $20K on $300 is 67×. The $2.27T on
+ * $5 was 450 billion×.
+ *
+ * A first version required $1K of depth outright. On the live board that sent
+ * most memecoins below the line, and the "highest to lowest" ALFA asked for
+ * stopped reading as one.
  */
-export const MC_RANK_MIN_DEPTH_USD = 1_000;
+export const MC_MAX_DEPTH_MULTIPLE = 10_000;
 
-/** Whether a pool is deep enough for its market cap to be ranked. */
+/** Whether a pool's market cap is backed by enough depth to be ranked. */
 export function mcRanked(pool: Pool): boolean {
-  return pool.marketCapUsd > 0 && pool.tvlUsd >= MC_RANK_MIN_DEPTH_USD;
+  return pool.marketCapUsd > 0 && pool.tvlUsd > 0 && pool.marketCapUsd <= pool.tvlUsd * MC_MAX_DEPTH_MULTIPLE;
 }
 
 /**
- * Highest market cap first: ranked pools by market cap, then the thin ones
- * by market cap, then those with no figure at all.
+ * Highest market cap first: ranked pools by market cap, then the ones whose
+ * depth cannot carry their figure, then those with no figure at all.
  */
 export function byMarketCap(a: Pool, b: Pool): number {
   const tier = (p: Pool) => (mcRanked(p) ? 0 : p.marketCapUsd > 0 ? 1 : 2);
