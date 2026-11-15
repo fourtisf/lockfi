@@ -9,7 +9,7 @@ import { StakeDrawer } from '@/components/shell/StakeDrawer';
 import { TopBar } from '@/components/shell/TopBar';
 import { Toast } from '@/components/ui/Toast';
 import { initialSnapshot } from '@/lib/data/initial-snapshot';
-import { BRAND, SITE_URL } from '@/lib/site';
+import { BRAND, SITE_URL, X_HANDLE } from '@/lib/site';
 import './globals.css';
 
 // §19: Sora for display, Manrope for words, IBM Plex Mono for every number.
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
       'Deposit into any token on Robinhood Chain and collect swap fees in WETH. No lockups, no emissions.',
     images: [{ url: '/og-card.png', width: 1200, height: 630, alt: BRAND }],
   },
-  twitter: { card: 'summary_large_image', images: ['/og-card.png'] },
+  twitter: { card: 'summary_large_image', site: X_HANDLE, creator: X_HANDLE, images: ['/og-card.png'] },
 };
 
 export const viewport: Viewport = {

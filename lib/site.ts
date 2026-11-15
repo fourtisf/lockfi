@@ -26,3 +26,17 @@ export const DEFENSIVE_DOMAINS = ['www.tidewell.live'] as const;
 
 /** Served before the rename; redirects here, path preserved. */
 export const LEGACY_DOMAINS = ['balast.xyz', 'www.balast.xyz'] as const;
+
+/** Tidewell's one official X account. */
+export const X_HANDLE = '@usetidewell';
+export const X_URL = 'https://x.com/usetidewell';
+
+/**
+ * The token's contract address (CA), once there is one. `null` means not
+ * launched, and the site says "CA: Coming soon".
+ *
+ * Set it here and only here: every place that prints the CA reads this
+ * constant. Scammers post fake CAs around every launch, so the one on this
+ * site must never drift between copies.
+ */
+export const TOKEN_CA: `0x${string}` | null = null;

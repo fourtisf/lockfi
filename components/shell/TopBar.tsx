@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { WalletButton } from '@/components/wallet/Wallet';
+import { CaChip, XButton } from './Socials';
 import { DATA_SOURCE } from '@/lib/data';
 import { lagLabel, usd, usdExact } from '@/lib/format';
 import { BRAND } from '@/lib/site';
@@ -110,6 +111,7 @@ export function TopBar() {
               !simulated && <span className="lag-live">Live</span>
             )}
           </span>
+          <XButton />
           <WalletButton />
         </div>
       </div>
@@ -129,6 +131,9 @@ export function TopBar() {
             // Said in words, where it cannot be mistaken for a live feed (§7).
             <p className="strip-note">Simulated data · numbers are generated and no transaction is ever sent</p>
           )}
+          <span className="strip-ca">
+            <CaChip compact />
+          </span>
         </div>
       </div>
     </header>

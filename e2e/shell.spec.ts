@@ -18,6 +18,20 @@ test.describe('shell', () => {
     expect(errors).toEqual([]);
   });
 
+  test('links the official X account and says the CA is coming soon', async ({ page }) => {
+    await page.goto('/pools');
+    const x = page.getByRole('link', { name: '@usetidewell on X' });
+    await expect(x).toHaveAttribute('href', 'https://x.com/usetidewell');
+    await expect(x).toHaveAttribute('target', '_blank');
+    await expect(x).toHaveAttribute('rel', /noopener/);
+    await expect(page.locator('footer .xlink')).toHaveAttribute('href', 'https://x.com/usetidewell');
+    // No token yet: the CA says so, in the strip and the footer, with the
+    // warning that guards against the fake CAs posted around every launch.
+    await expect(page.locator('.strip .ca-chip')).toContainText('Coming soon');
+    await expect(page.locator('footer .ca-chip')).toContainText('Coming soon');
+    await expect(page.locator('footer')).toContainText('Only trust the CA shown on this site and on @usetidewell');
+  });
+
   test('/ redirects to the listing', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/\/pools$/);

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { CHAIN } from '@/lib/chain';
 import { BRAND } from '@/lib/site';
 import { Mark } from './Logo';
+import { CA_WARNING, CaChip, XLink } from './Socials';
 
 export function Footer() {
   return (
@@ -10,13 +11,17 @@ export function Footer() {
         <Mark size={18} color="var(--fg-3)" />
         {BRAND} · {CHAIN.name} · chain {CHAIN.id}
       </div>
+      <div className="foot-ca">
+        <CaChip />
+        <span className="foot-warn">{CA_WARNING}</span>
+      </div>
       <div className="foot-r">
         <Link href="/brand">Brand</Link>
         <a href="#">Contracts</a>
         {/* No "Audit" link until there is an audit to link to (§8, P5). */}
         <a href="#">Docs</a>
         <a href="#">Status</a>
-        <a href="#">X</a>
+        <XLink />
       </div>
     </footer>
   );

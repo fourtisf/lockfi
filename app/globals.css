@@ -715,3 +715,28 @@ td.fd{animation:fd 1.1s ease-out}
 .router-made{margin-top:14px}
 .router-made a{word-break:break-all;color:var(--ac)}
 @media (max-width:640px){.adv-grid{grid-template-columns:1fr}.wm-pop{right:-8px}}
+
+/* X and the token's CA (components/shell/Socials.tsx) */
+.xbtn{display:inline-grid;place-items:center;width:40px;height:40px;flex:none;border-radius:var(--r);border:1px solid var(--bd);background:var(--panel);color:var(--fg);transition:.15s}
+.xbtn:hover{border-color:var(--bd-2);color:var(--ac)}
+.xlink{display:inline-flex;align-items:center;gap:6px}
+.strip-ca{margin-left:auto;flex:none;display:flex}
+.strip-note + .strip-ca{margin-left:16px}
+.ca-chip{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:99px;background:var(--panel);font-size:12.5px;white-space:nowrap}
+.ca-k{font-weight:700;color:var(--ac);letter-spacing:.04em}
+.ca-v{color:var(--fg-2)}
+a.ca-v:hover{color:var(--ac)}
+.ca-copy{height:20px;padding:0 8px;margin-right:-6px;border-radius:99px;border:1px solid var(--bd);background:var(--raise);color:var(--fg-2);font-size:11.5px;font-weight:600;cursor:pointer}
+.ca-copy:hover{border-color:var(--bd-2);color:var(--ac)}
+.foot-ca{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.foot-warn{font-size:12px;color:var(--fg-3)}
+@media (max-width:640px){.xbtn{width:36px;height:36px}.foot-warn{flex-basis:100%}}
+/* On a phone the CA chip keeps its place: stats that no longer fit wrap to a
+   second row the strip's height hides, rather than the chip being clipped. */
+.ca-short{display:none}
+@media (max-width:640px){
+  .strip-in .tstats{flex:1 1 auto;flex-wrap:wrap;height:var(--strip);overflow:hidden;row-gap:var(--strip)}
+  .strip-in .ts{height:var(--strip);align-items:center}
+  .ca-long{display:none}
+  .ca-short{display:inline}
+}
