@@ -264,6 +264,37 @@ describe('buildSnapshot', () => {
     expect(pool.change24hRefHours!).toBeLessThan(24);
   });
 
+  it('keeps every ETH-quoted pool\'s 24h move when the deepest WETH/USDG pool is under a day old', async () => {
+    // The live site after the vault deploy: the deepest WETH/USDG pool was six
+    // hours old, the snapshot priced WETH "24h ago" from that pool's own last
+    // trade, found none, and every ETH-quoted pool with a fresh reference read
+    // "—" — while every USDG-quoted pool kept its figure. Make every WETH/USDG
+    // pool young (no trade at or before the mark) and the ETH-quoted pools must
+    // keep true 24h figures, priced from the indexer's hourly anchor series.
+    const usdg = USDG.toLowerCase();
+    const weth = (await prisma.$queryRaw<{ t: string }[]>`
+      SELECT CASE WHEN lower(token0) = ${usdg} THEN lower(token1) ELSE lower(token0) END AS t
+      FROM pools WHERE lower(token0) = ${usdg} OR lower(token1) = ${usdg} LIMIT 1`)[0].t;
+    const anchors = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM pools
+      WHERE (lower(token0) = ${weth} AND lower(token1) = ${usdg}) OR (lower(token0) = ${usdg} AND lower(token1) = ${weth})`;
+    expect(anchors.length).toBeGreaterThan(0);
+    const asOf = (await prisma.$queryRaw<{ t: Date }[]>`SELECT max(block_time) AS t FROM swap_events`)[0].t;
+    const mark = new Date(asOf.getTime() - 24 * 3600_000);
+    const before = snapshot.pools.filter((p) => p.quote === 'ETH' && (p.change24hRefHours ?? 0) >= 24);
+    expect(before.length).toBeGreaterThan(0);
+    for (const a of anchors) {
+      await prisma.$executeRaw`DELETE FROM swap_events WHERE pool_id = ${a.id} AND block_time <= ${mark}`;
+    }
+
+    const rebuilt = await buildSnapshot({ usdgAddress: USDG });
+    for (const p of before) {
+      const after = rebuilt!.pools.find((x) => x.id === p.id)!;
+      expect(after.change24hPct, `${p.token.symbol} lost its 24h move`).not.toBeNull();
+      expect(after.change24hRefHours!).toBeGreaterThanOrEqual(24);
+    }
+  });
+
   // Last in the file: these two delete swaps.
   it('measures a pool with no trade before the window from its first trade inside it', async () => {
     // The live site's case: most new pools trade only inside the last 24h,

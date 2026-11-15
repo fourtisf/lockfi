@@ -2268,3 +2268,29 @@ staking worked; the page the person was on led nowhere.
   ago, under a top-bar chip reading `130d behind` that is easy to miss. That
   ends when the cursor enters the eight-day swap window and starts reading
   trades again; nothing in this change touches it.
+
+### "—" on CASHCAT, NVDA, SPCX and TSLA: the anchor was six hours old
+
+After the change above the live board traded +970% for dashes: CASHCAT,
+NVDA, SPCX and TSLA read "—" while WETH and ARROW carried figures. The live
+snapshot showed the pattern at once — of pools older than 30 hours, **0 of
+124 USDG-quoted pools had no 24h move, and 32 of 92 ETH-quoted ones did.**
+
+The snapshot priced WETH at each moment from one pool: the deepest WETH/USDG
+pool, by its own last trade. That pool was the 0.046% one, six hours old at
+the snapshot's moment, so it had no price 24h ago, and every ETH-quoted pool
+whose reference trade was fresh got a null price. Before the stale-reference
+rule they fell back to their first trade of the day without anyone noticing
+— CASHCAT's +970% was that fallback, not a launch-day trade as written above.
+The rule only made the hole visible.
+
+WETH is now valued at both moments from `weth_usd_hourly`, the indexer's own
+anchor series — the one the first-trade fallback and the market strip's ETH
+price already used. A test makes every WETH/USDG pool younger than the mark
+and requires every ETH-quoted pool to keep a true 24h move; against the
+previous code it fails on "NVDA lost its 24h move", the board's own symptom.
+
+Pools younger than a day still read from their first trade, marked with its
+age (`+20107.8% 5h` on a five-hour-old launch). That is "since launch", as
+DexScreener shows new pairs, and the marker says so.
+

@@ -146,17 +146,6 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       )
     ),
 
-    -- The anchor's price at two moments, for an honest 24h change (§4.3).
-    anchor_pool AS (
-      SELECT p.id, p.token0, p.token1
-      FROM pools p
-      LEFT JOIN pool_state ps ON ps.pool_id = p.id
-      WHERE (lower(p.token0) = '${weth}' AND lower(p.token1) = '${usdgLower}')
-         OR (lower(p.token0) = '${usdgLower}' AND lower(p.token1) = '${weth}')
-      ORDER BY COALESCE(ps.liquidity, 0) DESC, p.created_block ASC
-      LIMIT 1
-    ),
-
     moments AS (
       SELECT as_of AS moment FROM params
       UNION ALL
@@ -189,16 +178,21 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       ) last ON true
     ),
 
-    -- WETH in USD at each moment, from the anchor pool and nothing else.
+    -- WETH in USD at each moment, from the indexer's anchor series
+    -- (weth_usd_hourly — §4.3, one anchor, one path), the same series that
+    -- values the first trade below and the market strip's ETH price. It came
+    -- from the deepest WETH/USDG pool's own last trade, and when that pool
+    -- was younger than a day it had no price 24h ago: every ETH-quoted pool
+    -- lost its reference and read "—" while every USDG-quoted one did not.
     anchor_usd AS (
-      SELECT r.moment,
-        CASE
-          WHEN lower(ap.token1) = '${usdgLower}' THEN r.ratio
-          WHEN lower(ap.token0) = '${usdgLower}' THEN 1 / NULLIF(r.ratio, 0)
-          ELSE NULL
-        END AS weth_usd
-      FROM anchor_pool ap
-      JOIN ratio_at r ON r.pool_id = ap.id
+      SELECT m.moment, w.weth_usd
+      FROM moments m
+      LEFT JOIN LATERAL (
+        SELECT wh.weth_usd FROM weth_usd_hourly wh
+        WHERE wh.hour <= m.moment
+        ORDER BY wh.hour DESC
+        LIMIT 1
+      ) w ON true
     ),
 
     -- Each pool's traded-side USD price at both moments, through the one
