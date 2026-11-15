@@ -229,4 +229,30 @@ describe('buildSnapshot', () => {
     const tiers = snapshot.pools.map((p) => p.feeTierBps).sort((a, b) => a - b);
     expect(tiers).toEqual([5, 30, 30, 100]);
   });
+
+  // Last in the file: these two delete swaps.
+  it('measures a pool with no trade before the window from its first trade inside it', async () => {
+    // The live site's case: most new pools trade only inside the last 24h,
+    // and every one of them read 0.0% because the reference price 24h ago
+    // did not exist. Remove a pool's trades before the window and it must
+    // still carry a real move, from its first trade inside the window.
+    const cursor = await prisma.indexerCursor.findFirstOrThrow();
+    const since = new Date(cursor.lastIndexedAt.getTime() - 24 * 3600_000);
+    const target = snapshot.pools.find((p) => p.quote === 'ETH' && p.change24hPct !== null)!;
+    await prisma.$executeRaw`DELETE FROM swap_events WHERE pool_id = ${target.id} AND block_time <= ${since}`;
+    const inWindow = await prisma.swapEvent.count({ where: { poolId: target.id } });
+    expect(inWindow).toBeGreaterThan(1);
+
+    const rebuilt = await buildSnapshot({ usdgAddress: USDG });
+    const pool = rebuilt!.pools.find((p) => p.id === target.id)!;
+    expect(pool.change24hPct).not.toBeNull();
+    expect(Number.isFinite(pool.change24hPct)).toBe(true);
+  });
+
+  it('reports no move at all — not 0% — for a pool with no trade to compare', async () => {
+    const target = snapshot.pools.find((p) => p.quote === 'ETH' && p.change24hPct !== null)!;
+    await prisma.$executeRaw`DELETE FROM swap_events WHERE pool_id = ${target.id}`;
+    const rebuilt = await buildSnapshot({ usdgAddress: USDG });
+    expect(rebuilt!.pools.find((p) => p.id === target.id)!.change24hPct).toBeNull();
+  });
 });

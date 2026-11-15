@@ -238,7 +238,7 @@ function Row({
         {usd(pool.marketCapUsd)}
         {pool.marketCapIsFdv && pool.marketCapUsd > 0 ? <i className="fdv">fdv</i> : null}
       </td>
-      <FlashTd className="r" text={pool.change24hPct.toFixed(1)}>
+      <FlashTd className="r" text={pool.change24hPct === null ? '—' : pool.change24hPct.toFixed(1)}>
         <Change pct={pool.change24hPct} />
       </FlashTd>
 

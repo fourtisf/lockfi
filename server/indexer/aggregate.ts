@@ -527,9 +527,15 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
 export async function rebuildAggregates(
   anchors: PriceAnchors,
   bounds?: Bounds,
+  options: { poolState?: boolean } = {},
 ): Promise<void> {
   await rebuildAnchorPrices(anchors, bounds);
   await rebuildFlowHours(bounds);
   await rebuildFeeHours(anchors, bounds);
-  await rebuildPoolState(anchors);
+  // Pool state is the one step that is NOT scoped to the hours a pass
+  // touched: it reads every pool's last swap and sums every flow hour. The
+  // poller skips it on most backfill passes and always runs it once caught
+  // up — it is rebuilt from the tables below, so when it runs changes
+  // nothing about what it produces.
+  if (options.poolState !== false) await rebuildPoolState(anchors);
 }

@@ -189,6 +189,51 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       LEFT JOIN anchor_usd au ON au.moment = r.moment
     ),
 
+    -- A pool with no trade before the window still has a 24h move: from its
+    -- FIRST trade inside the window to now. Most new pools are exactly that,
+    -- and they all read 0.0% when the move was computed only from a price
+    -- 24h ago that did not exist. Valued with WETH/USD at the hour of that
+    -- trade, from the same anchor series, so the ratio stays honest.
+    first_trade AS (
+      SELECT p.id AS pool_id, ft.block_time,
+        (power(ft.sqrt_price_x96::numeric, 2)
+           * power(10::numeric, GREATEST(t0.decimals - t1.decimals, 0)))
+          / power(2::numeric, 192)
+          / power(10::numeric, GREATEST(t1.decimals - t0.decimals, 0)) AS ratio
+      FROM pools p
+      CROSS JOIN params pr
+      JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
+      JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
+      CROSS JOIN LATERAL (
+        SELECT sw.block_time, sw.sqrt_price_x96
+        FROM swap_events sw
+        WHERE sw.pool_id = p.id AND sw.block_time > pr.since_24h AND sw.block_time <= pr.as_of
+        ORDER BY sw.block_num ASC, sw.log_index ASC
+        LIMIT 1
+      ) ft
+    ),
+
+    first_priced AS (
+      SELECT
+        p.id AS pool_id,
+        ${tradedSide({
+          addr0: 'p.token0',
+          addr1: 'p.token1',
+          weth,
+          usdg: usdgLower,
+          whenToken0: `ft.ratio * (CASE WHEN lower(p.token1) = '${usdgLower}' THEN 1 ELSE wh.weth_usd END)`,
+          whenToken1: `(CASE WHEN lower(p.token0) = '${usdgLower}' THEN 1 ELSE wh.weth_usd END) / NULLIF(ft.ratio, 0)`,
+        })} AS price_usd
+      FROM first_trade ft
+      JOIN pools p ON p.id = ft.pool_id
+      LEFT JOIN LATERAL (
+        SELECT w.weth_usd FROM weth_usd_hourly w
+        WHERE w.hour <= ft.block_time
+        ORDER BY w.hour DESC
+        LIMIT 1
+      ) wh ON true
+    ),
+
     -- Trailing sums straight out of pool_fee_hourly (§4.2).
     fees AS (
       SELECT
@@ -249,9 +294,13 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       COALESCE(ps.mc_usd, 0)::float8    AS mc_usd,
 
       -- 24h move, both prices through the same path so the ratio is honest.
+      -- The reference is the last price before the window, or failing that
+      -- the first trade inside it. Neither: unknown, never 0%.
       CASE
-        WHEN pnow.price_usd IS NULL OR pthen.price_usd IS NULL OR pthen.price_usd = 0 THEN NULL
-        ELSE ((pnow.price_usd / pthen.price_usd) - 1) * 100
+        WHEN pnow.price_usd IS NULL
+          OR COALESCE(pthen.price_usd, pfirst.price_usd) IS NULL
+          OR COALESCE(pthen.price_usd, pfirst.price_usd) = 0 THEN NULL
+        ELSE ((pnow.price_usd / COALESCE(pthen.price_usd, pfirst.price_usd)) - 1) * 100
       END::float8 AS change_24h_pct,
 
       f.fees_24h_usd::float8    AS fees_24h_usd,
@@ -287,6 +336,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
     LEFT JOIN spark s ON s.pool_id = p.id
     LEFT JOIN priced pnow  ON pnow.pool_id  = p.id AND pnow.moment  = pr.as_of
     LEFT JOIN priced pthen ON pthen.pool_id = p.id AND pthen.moment = pr.since_24h
+    LEFT JOIN first_priced pfirst ON pfirst.pool_id = p.id
     -- A pool with neither WETH nor USDG on a side cannot be priced through
     -- the one allowed path, so it is not listed rather than listed at zero.
     WHERE lower(p.token0) IN ('${weth}', '${usdgLower}')
@@ -344,7 +394,8 @@ function toPool(row: PoolQueryRow): Pool {
     marketCapUsd: row.mc_usd,
     marketCapIsFdv: row.mc_usd > 0,
     tvlUsd: row.tvl_usd,
-    change24hPct: row.change_24h_pct ?? 0,
+    // Unknown stays unknown: null renders as an em dash, never as 0.0%.
+    change24hPct: row.change_24h_pct ?? null,
     fees24hUsd: row.fees_24h_usd,
     feesWindowUsd: row.fees_window_usd,
     feeWindowHours: row.window_hours,
@@ -499,8 +550,12 @@ export async function buildSnapshot(
   const fees24hUsd = pools.reduce((a, p) => a + p.fees24hUsd, 0);
   const volume24hUsd = pools.reduce((a, p) => a + p.volume24hUsd, 0);
   const stakers = vaults.reduce((a, v) => a + v.stakers, 0);
+  // Depth-weighted, over the pools that HAVE a 24h figure — a pool with none
+  // is left out of both sides, not counted as having moved 0%.
+  const moved = pools.filter((p) => p.change24hPct !== null);
+  const movedTvl = moved.reduce((a, p) => a + p.tvlUsd, 0);
   const change24hPct =
-    tvlUsd > 0 ? pools.reduce((a, p) => a + p.change24hPct * p.tvlUsd, 0) / tvlUsd : 0;
+    movedTvl > 0 ? moved.reduce((a, p) => a + (p.change24hPct ?? 0) * p.tvlUsd, 0) / movedTvl : 0;
 
   const [totals] = await prisma.$queryRaw<{ fees_usd: number; positions: number }[]>`
     SELECT

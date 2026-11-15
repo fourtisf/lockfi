@@ -268,20 +268,37 @@ export async function refreshSupplies(
  * re-scan must not undo it.
  */
 export async function classifyPools(): Promise<number> {
-  const pools = await prisma.pool.findMany({ select: { id: true, hooks: true, token0: true, token1: true } });
-  let changed = 0;
-  for (const pool of pools) {
-    const launchpad = launchpadFor(pool.hooks);
-    const stakeable = launchpad === null;
-    const updated = await prisma.pool.updateMany({
-      where: { id: pool.id, stakeable: { not: stakeable } },
-      data: { stakeable },
+  // Set-based. This was one UPDATE per pool, every pass — thousands of round
+  // trips a pass once the chain had thousands of pools, on a step that almost
+  // never changes anything.
+  const hooks = [...LAUNCHPAD_HOOKS.entries()];
+  const launchpadHooks = hooks.map(([hook]) => hook);
+
+  // Every pool not on a configured launchpad hook is stakeable (§4).
+  const freed = await prisma.pool.updateMany({
+    where:
+      launchpadHooks.length === 0
+        ? { stakeable: false }
+        : { stakeable: false, OR: [{ hooks: null }, { hooks: { notIn: launchpadHooks } }] },
+    data: { stakeable: true },
+  });
+  let changed = freed.count;
+
+  for (const [hook, launchpad] of hooks) {
+    const held = await prisma.pool.updateMany({
+      where: { hooks: hook, stakeable: true },
+      data: { stakeable: false },
     });
-    changed += updated.count;
-    if (launchpad) {
-      // The launchpad belongs on the token, which is what the row displays.
+    changed += held.count;
+    // The launchpad belongs on the token, which is what the row displays.
+    const pools = await prisma.pool.findMany({
+      where: { hooks: hook },
+      select: { token0: true, token1: true },
+    });
+    const tokens = [...new Set(pools.flatMap((p) => [p.token0, p.token1]))];
+    if (tokens.length > 0) {
       await prisma.token.updateMany({
-        where: { address: { in: [pool.token0, pool.token1] }, launchpad: null },
+        where: { address: { in: tokens }, launchpad: null },
         data: { launchpad },
       });
     }

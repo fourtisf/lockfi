@@ -96,7 +96,9 @@ async function main(): Promise<void> {
 
   while (!shuttingDown) {
     try {
+      const passStarted = Date.now();
       const result = await poller.runPass();
+      const passSeconds = ((Date.now() - passStarted) / 1000).toFixed(1);
       backoffMs = 1_000;
       // Every pass while backfilling, not only the ones that found something:
       // on a 62-million-block chain most ranges are empty, and silence for an
@@ -109,7 +111,7 @@ async function main(): Promise<void> {
             `${behind.toLocaleString()} behind, window ${result.blockRange.toLocaleString()}): ` +
             `${result.events} events, +${result.swapsWritten} swaps, ` +
             `+${result.liquidityWritten} liquidity, +${result.poolsFound} pools, ` +
-            `+${result.tokensFound} tokens`,
+            `+${result.tokensFound} tokens, in ${passSeconds}s`,
         );
         // Tell the API something changed; it debounces before pushing (§4.4).
         await publishTick({ toBlock: result.toBlock.toString(), lagSeconds: result.lagSeconds });

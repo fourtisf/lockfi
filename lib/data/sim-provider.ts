@@ -272,7 +272,7 @@ export class SimProvider implements DataProvider {
     for (let i = 0; i < touched; i++) {
       const p = this.pools[Math.floor(rng() * this.pools.length)];
       const volatile = p.quote === 'ETH';
-      p.change24hPct = Math.max(-95, p.change24hPct + (rng() - 0.48) * (volatile ? 4 : 0.6));
+      p.change24hPct = Math.max(-95, (p.change24hPct ?? 0) + (rng() - 0.48) * (volatile ? 4 : 0.6));
       p.volume24hUsd = Math.max(1e3, p.volume24hUsd * (1 + (rng() - 0.45) * 0.06));
       p.fees24hUsd = Math.max(10, p.fees24hUsd * (1 + (rng() - 0.45) * 0.09));
       // The trailing window takes on fresh fees and drops the hours that aged
@@ -375,7 +375,7 @@ export class SimProvider implements DataProvider {
     // more than a $90K one.
     const change24hPct =
       tvlUsd > 0
-        ? this.pools.reduce((a, p) => a + p.change24hPct * p.tvlUsd, 0) / tvlUsd
+        ? this.pools.reduce((a, p) => a + (p.change24hPct ?? 0) * p.tvlUsd, 0) / tvlUsd
         : 0;
     return { tvlUsd, fees24hUsd, volume24hUsd, stakers, change24hPct };
   }

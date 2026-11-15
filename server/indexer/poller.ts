@@ -39,6 +39,19 @@ import { sweepLogos, type LogoSource } from './logo-sources';
 
 /** How often the logo sweep may run. GeckoTerminal rate-limits a burst. */
 const LOGO_SWEEP_MS = 30_000;
+/**
+ * How often, while backfilling, the steps whose cost grows with the WHOLE
+ * dataset run: pool state (every pool's last swap, every flow hour), launchpad
+ * classification and token supplies. They ran on every pass, and a first
+ * sync runs thousands of passes, so each pass got slower as the tables grew
+ * and the indexer crawled — the live site sat 130 days behind for a day. Once
+ * caught up they run every pass again. All three are recomputed from the
+ * tables, never incremented, so running them less often changes nothing
+ * about what they produce (§9).
+ */
+const GLOBAL_EVERY_MS = 60_000;
+/** The curated token list is re-read at least this often, caught up or not. */
+const LIST_EVERY_MS = 5 * 60_000;
 import {
   loadFeeTiers,
   loadKnownPools,
@@ -179,6 +192,8 @@ export class Poller {
   private readonly logoSources: LogoSource[] | null;
   private lastLogoSweep = 0;
   private sweeping = false;
+  private lastGlobalAt = 0;
+  private lastListAt = 0;
   /** Pools stored before native ETH was understood get corrected once a run. */
   private nativeAdopted = false;
 
@@ -197,6 +212,11 @@ export class Poller {
     this.tokenReader = options.tokenReader;
     this.logoSources = options.logoSources ?? null;
     this.log = options.log ?? (() => {});
+  }
+
+  private async refreshList(): Promise<number> {
+    this.lastListAt = Date.now();
+    return refreshLogos({ chainId: CHAIN.id, log: this.log });
   }
 
   /**
@@ -295,7 +315,7 @@ export class Poller {
         // It is also the only network call in this process that is not to a
         // node, and it is allowed to fail silently (§4 permits logos from
         // external sources; a missing one changes no number).
-        logosFound: await refreshLogos({ chainId: CHAIN.id, log: this.log }),
+        logosFound: await this.refreshList(),
         lagSeconds: 0,
         caughtUp: true,
         blockRange: Number(this.blockRange),
@@ -450,16 +470,21 @@ export class Poller {
     const anchors = await this.anchors();
     // Supplies first: the FDV figure in pool_state is computed from them, so
     // refreshing after the rebuild would leave it a pass behind.
-    const suppliesRefreshed = await refreshSupplies(head.timestamp, {
-      read: this.tokenReader,
-    });
+    const caughtUpNow = to >= head.number;
+    const globalDue = caughtUpNow || Date.now() - this.lastGlobalAt >= GLOBAL_EVERY_MS;
+    const suppliesRefreshed = globalDue
+      ? await refreshSupplies(head.timestamp, { read: this.tokenReader })
+      : 0;
     // No anchor yet means no dollar figure is derivable — the raw rows above
     // are still written, and the rebuild that prices them happens on whatever
     // pass first finds USDG. Skipping the aggregation here is not data loss.
     if (anchors) {
-      await rebuildAggregates(anchors, { fromBlock: from, toBlock: to });
+      await rebuildAggregates(anchors, { fromBlock: from, toBlock: to }, { poolState: globalDue });
     }
-    await classifyPools();
+    if (globalDue) {
+      await classifyPools();
+      this.lastGlobalAt = Date.now();
+    }
 
     const lastBlockTime = blockTimes.get(to) ?? head.timestamp;
     await writeCursor(POOL_MANAGER_CURSOR, to, lastBlockTime);
@@ -501,8 +526,11 @@ export class Poller {
       // Only when a pool was discovered: a logo list does not change between
       // blocks, and this is the one call in here that leaves the chain.
       logosFound:
-        initializePlan.pools.length > 0
-          ? await refreshLogos({ chainId: CHAIN.id, log: this.log })
+        // New pools bring new tokens the list may cover; and the list itself
+        // is re-read every few minutes regardless, because a token it covers
+        // can be discovered on a pass that found no new pool.
+        initializePlan.pools.length > 0 || Date.now() - this.lastListAt >= LIST_EVERY_MS
+          ? await this.refreshList()
           : 0,
       lagSeconds,
       caughtUp: to >= head.number,

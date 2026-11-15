@@ -72,7 +72,13 @@ export interface Pool {
    */
   marketCapIsFdv: boolean;
   tvlUsd: number;
-  change24hPct: number;
+  /**
+   * The price move over the last 24h of chain time, or null when there is no
+   * price to compare against — no trade in the pool before or during the
+   * window. Null renders as an em dash: it was rendered as 0.0%, which
+   * claimed no movement for a figure nobody had.
+   */
+  change24hPct: number | null;
   fees24hUsd: number;
   /** Fees over the trailing 7d, or over the pool's whole life if younger. */
   feesWindowUsd: number;
