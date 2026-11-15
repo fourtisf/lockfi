@@ -2921,6 +2921,11 @@ export const tidewellRouterAbi = [
   },
   {
     "type": "error",
+    "name": "PoolNotInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "Reentrancy",
     "inputs": []
   },

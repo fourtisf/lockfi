@@ -144,6 +144,7 @@ contract TidewellRouter is IUnlockCallback {
     error IsPaused();
     error NotPaused();
     error UnsupportedPool();
+    error PoolNotInitialized();
     error BadRange();
     error BadConfig();
     error MilestonesNotAscending(uint256 index);
@@ -231,7 +232,7 @@ contract TidewellRouter is IUnlockCallback {
         positionKey = Position.calculatePositionKey(address(this), cfg.tickLower, cfg.tickUpper, bytes32(0));
 
         (uint160 sqrtPriceX96, int24 tick,,) = poolManager_.getSlot0(poolId);
-        if (sqrtPriceX96 == 0) revert UnsupportedPool();
+        if (sqrtPriceX96 == 0) revert PoolNotInitialized();
         lastTick = tick;
         observations[0] = Observation({timestamp: uint32(block.timestamp), tickCumulative: 0});
         observationCount = 1;

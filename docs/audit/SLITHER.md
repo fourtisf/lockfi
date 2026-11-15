@@ -33,3 +33,27 @@ against the code. One led to a change; none is exploitable.
 
 Checked that these are not passing vacuously: across 200 sampled inputs,
 200 of 200 zaps and 200 of 200 shaped mints succeeded.
+
+## Mutation testing
+
+Planted bugs the suite must catch, each applied alone and the whole suite
+run (`/tmp` script, not in the repo):
+
+- Before the redesign: 27 of 28 killed; the survivor dropped the sub-wei
+  remainder of a stream's `reward / 7 days` (dust).
+- After the redesign (per-share vault, keeper-only truncated TWAP): 33 of 35
+  on the first run. The two survivors were test gaps, not contract bugs — the
+  30-minute window test happened to start the window exactly on an
+  observation, and the swap-hook test passed because the uninitialised pool
+  reverted with the same error. Both tests were sharpened (a window start
+  inside a gap; `PoolNotInitialized` as its own error) and both mutants are
+  now killed: **35 of 35**.
+
+Mutants include: crediting fees with the post-deposit supply (re-opens
+sniping), no protocol cut, stakers credited the protocol's share, claims not
+reducing what is owed, withdraw not burning shares, the payer credited
+instead of the recipient, re-rating fees already earned on a fee change,
+token1 credited with token0's fees, flooring owed each time, anyone may poke
+the router, untruncated observations, an uninterpolated window, swap hooks
+allowed, and the earlier guards (cap, deadline, slippage, cadence,
+milestones, weights, bins, zap minimum and leftovers, price bounds).

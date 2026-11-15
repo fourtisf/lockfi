@@ -264,6 +264,26 @@ contract TidewellRouterTest is Fixture {
         assertEq(r.twapTick(), moved);
     }
 
+    /// The window's start falling inside a long gap: the average is the old
+    /// tick for the 4 minutes of the window before the first fresh sample and
+    /// the new one after — not the old tick over two and a half hours.
+    function test_twap_interpolatesAWindowStartInsideAGap() public {
+        TidewellRouter r = deploy(cadenceConfig());
+        buildTwap(r);
+        int24 old = r.lastTick();
+        vm.warp(block.timestamp + 2 hours);
+        trade(key, false, 2_000 ether);
+        (, int24 moved,,) = StateLibraryView.slot0(manager, key);
+        for (uint256 i; i < 6; i++) {
+            vm.warp(block.timestamp + 5 minutes);
+            vm.prank(keeper);
+            r.poke();
+        }
+        vm.warp(block.timestamp + 1 minutes); // window starts 4 minutes before the first fresh poke
+        int256 expected = (int256(old) * 4 + int256(moved) * 26) / 30;
+        assertEq(int256(r.twapTick()), expected);
+    }
+
     function test_swapHookPools_areRefused() public {
         TidewellRouter.Config memory cfg = cadenceConfig();
         cfg.key.hooks = IHooks(address(uint160(1 << 7))); // BEFORE_SWAP
