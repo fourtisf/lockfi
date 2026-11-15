@@ -27,6 +27,9 @@ import {
 } from '@/lib/yield';
 import { feeTierLabel, feeTokensLabel, pairLabel, poolContracts } from '@/lib/pair';
 import { CopyAddress } from '@/components/ui/CopyAddress';
+import { StakeFields, StakeOutputs } from '@/components/stakes/StakeFields';
+import { liveAgeLabel, vaultView } from '@/lib/vault-view';
+import { useNow } from '@/hooks/useNow';
 
 const FILTERS: { id: 'all' | Quote; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -51,6 +54,7 @@ export function StakesBody() {
   const { query, openStake } = useUi();
   const [filter, setFilter] = useState<'all' | Quote>('all');
   const [picked, setPicked] = useState<string | null>(null);
+  const now = useNow();
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -64,8 +68,9 @@ export function StakesBody() {
           pool.token.symbol.toLowerCase().includes(q) ||
           pool.token.name.toLowerCase().includes(q),
       )
-      // §1: every ranking defaults to fee yield. No figure ranks last.
-      .sort((a, b) => yieldPct(b.pool.feeYield) - yieldPct(a.pool.feeYield));
+      // §1: every ranking defaults to fee yield — the vault's own when it
+      // has been read live, the pool's otherwise. No figure ranks last.
+      .sort((a, b) => yieldPct(vaultView(b.vault, b.pool).yield) - yieldPct(vaultView(a.vault, a.pool).yield));
   }, [vaults, pools, filter, query]);
 
   const selected = rows.find((r) => r.vault.id === picked) ?? rows[0] ?? null;
@@ -83,7 +88,15 @@ export function StakesBody() {
         <section className="card">
           <div className="lh">
             <h2 className="sect-h">Vaults</h2>
-            <span className="k">ranked by fee yield · fees per day, last 7 days</span>
+            <span className="k">
+              ranked by fee yield · fees per day, last 7 days
+              {(() => {
+                // How old the vaults' live read is, said once for the list.
+                const read = rows.find((r) => r.vault.live);
+                const age = read ? liveAgeLabel(vaultView(read.vault, read.pool, now)) : null;
+                return age ? <> · <span className={age.startsWith('as of') ? 'down' : undefined}>{age.replace('live', 'read from the chain')}</span></> : null;
+              })()}
+            </span>
             <div className="seg" role="group" aria-label="Vault quote filter" style={{ marginLeft: 'auto' }}>
               {FILTERS.map((f) => (
                 <button
@@ -132,7 +145,9 @@ export function StakesBody() {
             <div className="vlist">
               <div className="vhead" aria-hidden="true">
                 <span>Pool</span>
-                <span title={LIVE ? VAULT_YIELD_NOTE : undefined}>{LIVE ? 'Pool fee yield' : 'Fee yield'}</span>
+                <span title={LIVE ? VAULT_YIELD_NOTE : undefined}>
+                  {rows.some((r) => r.vault.live) ? 'Your fee yield' : LIVE ? 'Pool fee yield' : 'Fee yield'}
+                </span>
                 <span>Fees, 7 days</span>
                 <span>Staked</span>
                 <span>{LIVE ? 'Payouts' : 'Harvest'}</span>
@@ -166,9 +181,11 @@ function VaultRow({
   selected: boolean;
   onChoose: () => void;
 }) {
-  const qualifier = feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours));
-  const none = pool.feeYield.basis === 'insufficient';
-  const days = dailyFromHalfDays(pool.feeHistory);
+  const v = vaultView(vault, pool, null);
+  const y = v.yield;
+  const qualifier = feeYieldQualifier(y, ageLabel(y.basis === 'estimate' ? y.windowHours : pool.ageHours));
+  const none = y.basis === 'insufficient';
+  const days = dailyFromHalfDays(v.feeHistory);
   const max = Math.max(...days, 1);
 
   return (
@@ -179,15 +196,21 @@ function VaultRow({
           <b>
             {pairLabel(pool)}
             {/* "New" means what Established's 7d+ means: under a full week. */}
-            {pool.ageHours < YIELD_WINDOW_HOURS ? <span className="pill grey">New</span> : null}
+            {v.young ? <span className="pill grey">New</span> : null}
           </b>
           <small>{feeTierLabel(pool)} fee pool</small>
         </span>
       </span>
-      <span className={`apr num${none ? ' none' : ''}`} title={feeYieldTitle(pool.feeYield)}>
-        {feeYieldValue(pool.feeYield)}
+      <span className={`apr num${none ? ' none' : ''}`} title={v.live ? v.yieldTitle : feeYieldTitle(y)}>
+        {feeYieldValue(y)}
         {qualifier && <span className="est">{qualifier}</span>}
-        <small>{FEE_YIELD_LABEL}</small>
+        <small>{v.live ? v.yieldLabel : FEE_YIELD_LABEL}</small>
+        {v.live && v.poolYield.basis !== 'insufficient' && (
+          // The pool's average, beside the vault's own, so the gap is seen.
+          <small className="muted" title="The whole pool's average: most of its liquidity is concentrated near the price">
+            pool avg {feeYieldValue(v.poolYield)}
+          </small>
+        )}
       </span>
       <span>
         <span className="days" aria-hidden="true">
@@ -196,11 +219,11 @@ function VaultRow({
           ))}
         </span>
         <small className="muted" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
-          <span className="num">{usd(pool.fees24hUsd)}</span> in 24h
+          <span className="num">{usd(v.fees24hUsd)}</span> in 24h
         </small>
       </span>
       <span className="cell">
-        {usd(vault.totalStakedUsd)}
+        {usd(v.stakedUsd)}
         <small>{count(vault.stakers)} stakers</small>
       </span>
       {LIVE ? (
@@ -352,8 +375,11 @@ function StakePanel({ pool }: { pool: Pool }) {
   const form = useStakeForm(pool);
   const { vaults } = useMarket();
   const vault = vaults.find((v) => v.poolId === pool.id);
-  const shares = [0.25, 0.5, 0.75, 1];
   const live = form.mode === 'live';
+  const v = form.view;
+  const now = useNow();
+  const age = vault && v?.live ? liveAgeLabel(vaultView(vault, pool, now)) : null;
+  const y = v?.yield ?? pool.feeYield;
   const button = (
     <button className="btn btn-brand go" disabled={!form.canSubmit} onClick={() => void form.submit()}>
       {form.busy ? 'Staking…' : `Stake ${pairLabel(pool)}`}
@@ -373,76 +399,30 @@ function StakePanel({ pool }: { pool: Pool }) {
           ))}
         </div>
       )}
-      <div className="sub">
-        <span className={pool.feeYield.basis === 'insufficient' ? 'num' : 'num up'}>
-          {feeYieldValue(pool.feeYield)}
+      <div className="sub" title={v?.yieldTitle}>
+        <span className={y.basis === 'insufficient' ? 'num' : 'num up'}>
+          {feeYieldValue(y)}
         </span>{' '}
-        {FEE_YIELD_LABEL}
-        {LIVE && (
-          <span className="muted" title={VAULT_YIELD_NOTE}>
+        {v?.live ? `your fee yield · ${v.yieldLabel}` : (v?.yieldLabel ?? FEE_YIELD_LABEL)}
+        {v?.live ? (
+          <span className="muted">
             {' '}
-            (pool average)
+            · full range{v.poolYield.basis !== 'insufficient' && <> · pool avg {feeYieldValue(v.poolYield)}</>}
           </span>
+        ) : (
+          LIVE && (
+            <span className="muted" title={VAULT_YIELD_NOTE}>
+              {' '}
+              (pool average)
+            </span>
+          )
         )}{' '}
-        · {usd(pool.fees24hUsd)} fees 24h
+        · {usd(v?.fees24hUsd ?? pool.fees24hUsd)} fees 24h
+        {age && <span className={age.startsWith('as of') ? 'down' : 'muted'}> · {age}</span>}
       </div>
 
-      <label htmlFor="sp-amount" className="sr-only">
-        Amount to stake in ETH
-      </label>
-      <div className="inp">
-        <input
-          id="sp-amount"
-          type="number"
-          min="0"
-          step="0.1"
-          inputMode="decimal"
-          placeholder="0.0"
-          value={form.amount}
-          onChange={(e) => form.setAmount(e.target.value)}
-        />
-        <span className="unit">ETH</span>
-        {form.maxLabel !== null && (
-          <button type="button" className="max" onClick={() => form.setShare(1)}>
-            Max {form.maxLabel}
-          </button>
-        )}
-      </div>
-      {/* Shares of a balance need a balance: no wallet, no chips. */}
-      {form.maxLabel !== null && (
-        <div className="quick" role="group" aria-label="Share of balance">
-          {shares.map((f) => (
-            <button key={f} onClick={() => form.setShare(f)}>
-              {f === 1 ? 'Max' : `${f * 100}%`}
-            </button>
-          ))}
-        </div>
-      )}
-      <p className="note-s" style={{ textAlign: 'left' }}>
-        {form.minLabel}
-      </p>
-
-      <div className="out">
-        <div>
-          {/* Arithmetic on the amount typed, which needs no wallet. */}
-          <span>Your share of pool</span>
-          <b>{((form.quote?.share ?? 0) * 100).toFixed(2)}%</b>
-        </div>
-        <div>
-          <span>Est. weekly fees · from trailing 7d</span>
-          <b>{form.weeklyLabel ?? '—'}</b>
-        </div>
-        {/* §7: the protocol fee is disclosed here, before anything is signed —
-            live, as the vault itself reports it. */}
-        <div>
-          <span>{BRAND} fee</span>
-          <b>{form.feeLabel}</b>
-        </div>
-        <div>
-          <span>Lockup</span>
-          <b>None</b>
-        </div>
-      </div>
+      <StakeFields form={form} idPrefix="sp" />
+      <StakeOutputs form={form} />
 
       <div className="drip">
         <div className="k" style={{ fontSize: 12.5, color: 'var(--fg-3)', fontWeight: 600 }}>
@@ -457,7 +437,7 @@ function StakePanel({ pool }: { pool: Pool }) {
               <b>Claim</b>Any time, in {feeTokensLabel(pool)}. Leaving never forfeits fees already earned.
             </li>
             <li>
-              <b>Compound</b>Claim, then stake the ETH side back in: two signatures.
+              <b>Withdraw</b>All or part, any time, from Your stakes or the Portfolio. No lockup, no exit fee.
             </li>
           </ol>
         ) : (
@@ -477,11 +457,7 @@ function StakePanel({ pool }: { pool: Pool }) {
 
       {live ? <SignGate className="btn btn-brand go">{button}</SignGate> : button}
       {form.mode === 'closed' ? (
-        <p className="note-s">
-          {form.closedReason === 'no-eth-side'
-            ? 'This pool has no ETH side, and this form stakes ETH, so nothing can be staked from here.'
-            : `No ${BRAND} vault contract is deployed for this pool yet, so nothing can be staked.`}
-        </p>
+        <p className="note-s">No {BRAND} vault contract is deployed for this pool yet, so nothing can be staked.</p>
       ) : form.problem && (!live || form.walletStatus === 'ready') ? (
         <p className={`note-s${form.quiet ? '' : ' down'}`} role={form.quiet ? undefined : 'alert'}>
           {form.problem}

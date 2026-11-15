@@ -7,7 +7,8 @@
  *   balast-web      the Next.js front end
  *   balast-api      Fastify: /api/snapshot and the websocket
  *   balast-indexer  the log poller
- *   balast-keeper   pokes and routes the token teams' routers (P4); vaults need none
+ *   balast-keeper   pokes and routes the token teams' routers (P4), and reads each
+ *                   vault's pool live from the chain every minute (vault-watch.ts)
  *
  * The indexer is the one that matters most when it dies. §7 and the P3
  * criterion both name the same failure: a process that stops quietly while the

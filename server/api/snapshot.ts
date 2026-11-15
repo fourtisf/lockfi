@@ -39,6 +39,7 @@ import { prisma } from '../db';
 import { resolveUsdg } from '../indexer/anchor';
 import { tradedSide } from '../indexer/aggregate';
 import { POOL_MANAGER_CURSOR } from '../indexer/poller';
+import { queryVaultLive } from './vault-live';
 
 /** Buckets in a row's fee sparkline, and therefore hours per bucket. */
 const SPARK_BUCKETS = 14;
@@ -677,6 +678,18 @@ export async function buildSnapshot(
     ORDER BY hour DESC
     LIMIT 1
   `;
+
+  // Each vault's pool, read live from the chain by the vault watcher — not
+  // from the pool rows above, which are as of the indexer's last swap read.
+  const live = await queryVaultLive(anchor.address, ethRow?.price_usd ?? null);
+  for (const v of vaults) {
+    const l = live.get(v.poolId.toLowerCase());
+    if (l) {
+      v.live = l;
+      // What is staked, valued at today's price rather than the indexer's.
+      if (l.stakedUsd !== null) v.totalStakedUsd = l.stakedUsd;
+    }
+  }
 
   // Chain share needs the chain's total liquidity, and the PoolManager is the
   // chain's v4 liquidity — so our share of what we index is 100% and

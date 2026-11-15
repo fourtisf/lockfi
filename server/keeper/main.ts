@@ -7,6 +7,11 @@
  * attempt that did not simply succeed in keeper_runs. Vaults need no keeper:
  * they credit fees whenever anyone deposits, withdraws, claims or pokes.
  *
+ * It also runs the vault watcher (vault-watch.ts), on its own loop: each
+ * vault's pool read live from the chain every minute, so the vault figures
+ * on the site are today's while the pool indexer is still crossing history.
+ * It only reads — no key, no transaction.
+ *
  * It never exits on its own. With no router factory deployed, or no key, it
  * says why once and stays up idle: an exit would be restarted by PM2 into a
  * crash loop that fixes nothing and buries the reason (§17). /api/health is
@@ -25,18 +30,23 @@ import { routersFromFactory } from '../indexer/contracts';
 import { viemKeeperClient } from './client';
 import { LOOP_SECONDS, readSigner } from './config';
 import { Keeper } from './keeper';
+import { VaultWatcher, viemWatchClient } from './vault-watch';
+
+/** Seconds between vault watcher passes. */
+const WATCH_SECONDS = 60;
 
 function log(message: string): void {
   process.stdout.write(`${new Date().toISOString()} ${message}\n`);
 }
 
 let stopping = false;
-let wake: (() => void) | null = null;
+/** Every loop's current sleep, so a stop signal wakes all of them. */
+const sleepers = new Set<() => void>();
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     log(`${signal} — stopping after the current pass`);
     stopping = true;
-    wake?.();
+    for (const wake of [...sleepers]) wake();
   });
 }
 
@@ -46,11 +56,19 @@ function sleep(ms: number): Promise<void> {
     const timer = setTimeout(done, ms);
     function done() {
       clearTimeout(timer);
-      wake = null;
+      sleepers.delete(done);
       resolve();
     }
-    wake = done;
+    sleepers.add(done);
   });
+}
+
+/** The vault watcher's loop. Never throws: tick() logs and retries. */
+async function watchVaults(watcher: VaultWatcher): Promise<void> {
+  while (!stopping) {
+    await watcher.tick();
+    if (!stopping) await sleep(WATCH_SECONDS * 1000);
+  }
 }
 
 async function main(): Promise<void> {
@@ -59,11 +77,18 @@ async function main(): Promise<void> {
   const deployment = deploymentFor(CHAIN.id);
   const config = contractsConfig(deployment);
 
+  const vaults = deployment?.vaults ?? [];
+  const watching =
+    vaults.length > 0
+      ? watchVaults(new VaultWatcher({ client: viemWatchClient(), vaults, log }))
+      : Promise.resolve(log('no vault deployed (config/deployments.json): nothing to watch'));
+
   if (!config.routerFactory) {
     log(
-      'the keeper is not needed yet: vaults need no keeper, and no router factory is deployed ' +
-        '(config/deployments.json). Idling until a deploy restarts it.',
+      'routers: none to keep — no router factory is deployed (config/deployments.json). ' +
+        'Vaults need no keeper.',
     );
+    await watching;
     while (!stopping) await sleep(3_600_000);
     return;
   }
@@ -102,10 +127,13 @@ async function main(): Promise<void> {
 
   // The first pass runs immediately: a router left unobserved while this
   // process was down is poked now, decided by its own on-chain observation.
-  while (!stopping) {
-    await keeper.tick();
-    if (!stopping) await sleep(LOOP_SECONDS * 1000);
-  }
+  const keeping = (async () => {
+    while (!stopping) {
+      await keeper.tick();
+      if (!stopping) await sleep(LOOP_SECONDS * 1000);
+    }
+  })();
+  await Promise.all([keeping, watching]);
 }
 
 let exitCode = 0;

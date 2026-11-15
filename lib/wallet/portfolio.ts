@@ -13,7 +13,7 @@ import { zeroAddress } from 'viem';
 import { CONTRACTS } from '../chain';
 import { weiToNumber } from '../contracts/tx';
 import type { WalletVaultReads } from '../contracts/vault';
-import type { Pool, Portfolio, UserStake } from '../data/types';
+import type { Pool, Portfolio, UserStake, VaultCurrency } from '../data/types';
 
 export type { WalletVaultReads } from '../contracts/vault';
 
@@ -52,9 +52,22 @@ export interface WalletStake extends UserStake {
 
 const WETH = CONTRACTS.weth.toLowerCase();
 
-function describe(currency: string, pool: Pool | undefined, ethPriceUsd: number): { symbol: string; decimals: number; priceUsd: number | null } {
+function describe(
+  currency: string,
+  pool: Pool | undefined,
+  ethPriceUsd: number,
+  live: VaultCurrency[] | undefined,
+): { symbol: string; decimals: number; priceUsd: number | null } {
   const c = currency.toLowerCase();
   const eth = ethPriceUsd > 0 ? ethPriceUsd : null;
+  // The vault watcher's live read describes both sides — the USDG side of an
+  // ETH/USDG vault included, which the snapshot's pool row cannot: it carries
+  // only the traded token, so that side used to be unpriced and the whole
+  // stake read "—".
+  const known = live?.find((x) => x.address.toLowerCase() === c);
+  if (known && known.decimals >= 0) {
+    return { symbol: known.symbol, decimals: known.decimals, priceUsd: known.priceUsd ?? (c === zeroAddress || c === WETH ? eth : null) };
+  }
   if (c === zeroAddress) return { symbol: 'ETH', decimals: 18, priceUsd: eth };
   if (c === WETH) return { symbol: 'WETH', decimals: 18, priceUsd: eth };
   if (pool && c === pool.token.address.toLowerCase()) {
@@ -64,11 +77,22 @@ function describe(currency: string, pool: Pool | undefined, ethPriceUsd: number)
   return { symbol: pool?.quote === 'USDG' ? 'USDG' : 'token', decimals: -1, priceUsd: null };
 }
 
-/** The wallet's stakes, one per vault it holds shares in or can claim from. */
-export function walletStakes(reads: WalletVaultReads[], pools: Pool[], ethPriceUsd: number): WalletStake[] {
+/**
+ * The wallet's stakes, one per vault it holds shares in or can claim from.
+ *
+ * @param live each vault's live currencies (Vault.live), by pool id: the
+ *        prices and decimals the stake is valued with when present.
+ */
+export function walletStakes(
+  reads: WalletVaultReads[],
+  pools: Pool[],
+  ethPriceUsd: number,
+  live: Map<string, VaultCurrency[]> = new Map(),
+): WalletStake[] {
   return reads.map((r) => {
     const pool = pools.find((p) => p.id.toLowerCase() === r.deployment.poolId.toLowerCase());
-    const meta = [describe(r.key.currency0, pool, ethPriceUsd), describe(r.key.currency1, pool, ethPriceUsd)];
+    const cur = live.get(r.deployment.poolId.toLowerCase());
+    const meta = [describe(r.key.currency0, pool, ethPriceUsd, cur), describe(r.key.currency1, pool, ethPriceUsd, cur)];
     const num = (wei: bigint, decimals: number) => (decimals >= 0 ? weiToNumber(wei, decimals) : Number.NaN);
     const bySide: StakeSide[] = [0, 1].map((i) => ({
       symbol: meta[i].symbol,
@@ -80,7 +104,7 @@ export function walletStakes(reads: WalletVaultReads[], pools: Pool[], ethPriceU
 
     // A side with no price or unknown decimals cannot be valued. Zero would
     // claim the stake is worthless.
-    const priced = pool !== undefined && sides.every((s) => s.priceUsd !== null && Number.isFinite(s.amount));
+    const priced = (pool !== undefined || cur !== undefined) && sides.every((s) => s.priceUsd !== null && Number.isFinite(s.amount));
     const usd = (pick: (s: StakeSide) => number) =>
       priced ? sides.reduce((a, s) => a + pick(s) * (s.priceUsd as number), 0) : Number.NaN;
     const claimableUsd = usd((s) => s.claimable);
@@ -161,5 +185,88 @@ export function walletPortfolio(
     feesEarnedUsd: claimableUsd,
     netValueUsd: allPriced && Number.isFinite(claimableUsd) ? stakedUsd + claimableUsd : Number.NaN,
     walletBalanceEth: balanceWei === null ? null : weiToNumber(balanceWei),
+  };
+}
+
+/** One vault's history for a wallet, as /api/wallet/:address sends it (raw integer strings). */
+export interface WalletVaultHistory {
+  vault: string;
+  poolId: string;
+  deposited0: string;
+  deposited1: string;
+  withdrawn0: string;
+  withdrawn1: string;
+  claimed0: string;
+  claimed1: string;
+  firstDepositAt: string | null;
+}
+
+export interface WalletTotals {
+  /** Claimed so far plus claimable now, in dollars at today's prices. */
+  feesEarnedUsd: number;
+  claimedUsd: number;
+  /** Everything deposited, valued at today's prices. */
+  depositedUsd: number;
+  /**
+   * Impermanent loss, under its honest name (§7): what the stakes and what
+   * was withdrawn are worth now, against holding the tokens deposited.
+   * Fees are not in it — they are beside it.
+   */
+  priceImpactUsd: number;
+  /** Holdings + withdrawn + fees earned − deposited, all at today's prices. */
+  netChangeUsd: number;
+  netChangePct: number;
+}
+
+/**
+ * A wallet's totals across every vault it ever used — including ones it has
+ * left — from its event history and what the chain says it holds and can
+ * claim now. Valued at today's prices; NaN wherever a needed price or
+ * decimals is missing, never a guess.
+ */
+export function walletTotals(
+  history: WalletVaultHistory[],
+  stakes: WalletStake[],
+  currencies: Map<string, VaultCurrency[]>,
+): WalletTotals {
+  let claimed = 0;
+  let deposited = 0;
+  let withdrawn = 0;
+  let unknown = false;
+  for (const h of history) {
+    const cur = currencies.get(h.poolId.toLowerCase());
+    if (!cur || cur.length < 2 || cur.some((c) => c.priceUsd === null || c.decimals < 0)) {
+      unknown = true;
+      continue;
+    }
+    const value = (a: string, b: string) =>
+      weiToNumber(BigInt(a), cur[0].decimals) * (cur[0].priceUsd as number) +
+      weiToNumber(BigInt(b), cur[1].decimals) * (cur[1].priceUsd as number);
+    claimed += value(h.claimed0, h.claimed1);
+    deposited += value(h.deposited0, h.deposited1);
+    withdrawn += value(h.withdrawn0, h.withdrawn1);
+  }
+  const held = stakes.reduce((a, s) => a + s.stakedUsd, 0);
+  const claimable = totalClaimableUsd(stakes);
+  if (unknown || !Number.isFinite(held) || !Number.isFinite(claimable)) {
+    return {
+      feesEarnedUsd: Number.NaN,
+      claimedUsd: Number.NaN,
+      depositedUsd: Number.NaN,
+      priceImpactUsd: Number.NaN,
+      netChangeUsd: Number.NaN,
+      netChangePct: Number.NaN,
+    };
+  }
+  const fees = claimed + claimable;
+  const impact = held + withdrawn - deposited;
+  const net = impact + fees;
+  return {
+    feesEarnedUsd: fees,
+    claimedUsd: claimed,
+    depositedUsd: deposited,
+    priceImpactUsd: impact,
+    netChangeUsd: net,
+    netChangePct: deposited > 0 ? (net / deposited) * 100 : 0,
   };
 }

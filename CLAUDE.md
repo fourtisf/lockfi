@@ -2379,3 +2379,142 @@ Progress lines now name **`contracts`** and **`other`** (whatever no phase
 covers), so the next slow pass says where it went instead of hiding in the
 total.
 
+
+---
+
+## 21. Real vault figures, three ways in, and a portfolio you can act from
+
+ALFA, looking at the live Stakes page: "ETH 133% doesn't make sense — it has
+to be real data", the 24h column should be gainers and losers, adding
+liquidity needs more than one option, and a stake should show in the
+portfolio, live, withdrawable any time.
+
+### Why the vault read 133%, and what it actually earns
+
+Two causes, both measured on the chain before anything was changed.
+
+1. **The figure was four months old.** The snapshot's moment is the last
+   swap the indexer read — 8 July, while its cursor crosses history (19 days
+   behind head on 15 Nov). 133% was `fees_7d / tvl` for the ETH/USDG 0.05%
+   pool that week: $7.6K of fees on $297K of depth.
+2. **It was the pool's average, not the vault's rate.** Most of a pool's
+   liquidity is concentrated near the price and earns many times more per
+   dollar than full-range liquidity — which is exactly what a vault holds.
+
+Read live from the chain at block 115,139,946: the 0.05% pool paid LPs
+**$1,241 in 24 hours on $2.48M of volume**, and a full-range position earned
+**5.6% a year over the trailing 7 days** (5.0% after Tidewell's 10%); the
+0.046% pool, 5.4%. That is the vault's honest figure, and now the one shown,
+with the pool average beside it for comparison.
+
+Also found, and taken into account in the new code (not yet in the indexer):
+
+- **v4's Swap event signs are the swapper's**, the opposite of v3: negative
+  is what went INTO the pool (checked: a negative amount0 moves ETH/USDG's
+  price down). `server/chain/price.ts` `swapInputSide` reads positive as the
+  input for both, so the indexer charges v4 fees on the OUTPUT side — off by
+  the fee and the price impact, a fraction of a percent on these pools.
+- **The event's `fee` includes Uniswap's protocol fee**: 625 pips charged on a
+  500-pip pool whose protocol fee is 125. LPs get 500/625 = 80% of it. The
+  indexer's `pool_fee_hourly` counts all 625, so every pool's fee yield on the
+  boards is overstated by the protocol's share where one is set. Both are
+  open below; fixing them changes stored rows and needs a re-ingest decision.
+
+### The vault watcher (`server/keeper/vault-watch.ts`)
+
+Runs in `balast-keeper`, on its own loop, every minute, needing no key and
+independent of the pool indexer. For each vault in `config/deployments.json`:
+its pool's Swap logs (filtered by pool id) from the trailing eight days on a
+first run, then from its cursor, into `vault_swaps`; and the pool's state at
+that block from StateView plus the vault's `totalSupply`, into
+`vault_pool_state` (migration `20261116100000_vault_watch`). The cursor is
+written after every chunk, so a restart mid-backfill resumes; a re-read
+changes nothing; a range the endpoint refuses ("logs matched by query exceeds
+limit", which viem reports as "Missing or invalid parameters") is halved; a
+429 is waited out. It uses its own unbatched clients: the chain's endpoint
+answers a busy JSON-RPC batch with a body viem cannot read. First run against
+the real chain: 186K swaps in 66 seconds; each pass after that, half a second.
+
+**The full-range yield needs no TVL** (`server/keeper/vault-math.ts`). Each
+swap credits `lpFee × 2¹²⁸ / liquidity` to in-range liquidity — the pool's fee
+growth — and a full-range position is always in range, so per unit it earns
+the sum of those steps. A unit is worth `2√P` in token1, so
+`yield = (G0·P + G1) / 2¹²⁸ / 2√P`, annualised. Summing per-swap steps was
+checked against the PoolManager's own `getFeeGrowthGlobals` over 5,859
+blocks on both pools: within 0.002% (ETH side) and 0.4% (USDG side).
+
+`server/api/vault-live.ts` sums the rows in SQL and turns them into
+`Vault.live` (`VaultLive` in `lib/data/types.ts`): live price and ETH price,
+the vault's own staked value, LP fees / volume / trades over 24h, 14 half-day
+fee buckets, a live 24h price move, hours of history, and `fullRangeYield`
+with §7's three states (history capped at the pool's creation, so a young pool
+is an estimate, not a week). `/api/health` carries `vaultWatch` (age of each
+read; information, never a 503).
+
+`lib/vault-view.ts` decides what every surface shows: with `live`, the
+staker's rate (full range, after the vault's fee), live fees, "live · 35s
+ago" (aged in the browser only — `hooks/useNow.ts` — or hydration fails);
+without it, the pool's row labelled "pool average". ETH's price for anything
+signed comes from the newest live read (`liveEthPrice`), not the snapshot's.
+
+### Three ways in (no contract change)
+
+`lib/deposit.ts`, `hooks/useStakeForm.ts`, `components/stakes/StakeFields.tsx`
+— one form behind the panel and the drawer:
+
+- **ETH** — `zapStake` with native ETH; about half is swapped.
+- **USDG** (the pool's other token) — `zapStake` with the ERC-20, after an
+  approval to the zap for exactly the amount.
+- **ETH + USDG** — `TidewellVault.deposit` in the pool's ratio: no swap, no
+  swap fee, no price impact. The second side is matched by the vault's own
+  `previewDeposit`; it may pull 0.5% more than quoted (approved to the vault
+  for exactly that, and only this wallet's deposits can pull it); minimums
+  are the quote less 0.5%. Max picks the largest balanced deposit.
+
+Balances and decimals are read from the chain (`hooks/useDepositReads.ts`);
+the $10 minimum applies to the total. **Simulated against the deployed
+mainnet vaults and zap with `eth_simulateV1`**, from a real wallet holding
+ETH and USDG, built from the site's own library code: every route mints,
+withdraws and claims on both vaults; 0.01 ETH or 20 USDG lose 3 bps to the
+zap's swap; a minimum above what the vault takes reverts. Nothing was sent.
+
+### The portfolio
+
+- **Your stakes, with Withdraw / Claim / Compound, on `/portfolio`** — the
+  same rows as on `/stakes`, read from each vault every 15 seconds.
+- **A bug that would have shown every ETH/USDG stake as "—"**: the
+  snapshot's pool row describes only the traded side (WETH), so the USDG
+  side had no decimals or price and the stake was unpriced. Stakes are now
+  valued from the live read's currencies.
+- **Fees earned, price impact and activity are real**: `/api/wallet/:address`
+  (`server/api/wallet-history.ts`) sums the wallet's Deposited / Withdrawn /
+  Claimed events, which the indexer reads to head on the vaults' own cursors.
+  Per wallet, `private, no-store`, never in the snapshot. Fees earned =
+  claimed + claimable; price impact = holdings + withdrawn − deposited, at
+  today's prices (`walletTotals`); activity links each transaction.
+- The live portfolio with no wallet asks for one instead of showing zeros.
+
+### Gainers and losers
+
+Each board's sort control is now *its metric · MC · ▲ Gainers · ▼ Losers*
+(`byChange` in `lib/pools.ts`): the 24h price move, true 24h moves before
+since-launch ones ("+20,107% 5h" is a launch, not a day), unknown last.
+
+### Verified
+
+471 unit tests (50 new) against a real Postgres; 48 Playwright tests; both
+builds; the live build rendered against the real live snapshot with the
+watcher's real figures and a connected wallet reading real balances — ETH
+0.6223, USDG 940.18, 0.005 ETH matched to 9.07 USDG by the vault. Not
+verified end to end: Withdraw and Claim from a wallet that holds a stake,
+because none does yet; the calls are the ones the fork rehearsal (§20)
+exercised, and the simulation above runs them against the deployed vaults.
+
+### Still open
+
+- **The indexer's v4 fee side and protocol-fee share** (above): fix
+  `swapInputSide` for v4 and subtract the protocol fee at ingest, then decide
+  whether to re-ingest or let the swap window refill `pool_fee_hourly`.
+- **Pool rows are still as of the indexer's last swap read** until it reaches
+  the swap window; only vault figures are live.
+- The §12 questions, the token and the defensive domain are unchanged.

@@ -23,6 +23,9 @@ import {
 } from '@/lib/yield';
 import { feeTierLabel, feeTokensLabel, isDynamicFee, pairLabel, poolContracts } from '@/lib/pair';
 import { CopyAddress } from '@/components/ui/CopyAddress';
+import { StakeFields, StakeOutputs } from '@/components/stakes/StakeFields';
+import { liveAgeLabel, vaultView } from '@/lib/vault-view';
+import { useNow } from '@/hooks/useNow';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -64,7 +67,6 @@ export function StakeDrawer() {
     !canStake &&
     stakingLaunched &&
     pool.stakeable &&
-    form.closedReason !== 'no-eth-side' &&
     openVaults.length > 0;
 
   // Escape closes, Tab cycles inside, focus returns where it came from.
@@ -104,11 +106,27 @@ export function StakeDrawer() {
     };
   }, [open, closeStake]);
 
-  const enoughData = pool?.feeYield.basis !== 'insufficient';
-  // The same sum the stake panel does (lib/stake.ts, through useStakeForm):
-  // weekly fees from the trailing window, after the protocol's cut — the
-  // same fee the disclosure below prints, read from the vault when live.
-  const share = form.quote?.share ?? 0;
+  // A vault read live shows its own figures (lib/vault-view.ts): what its
+  // full-range position earned, and its pool's fees today. Otherwise the
+  // pool's row, labelled as the pool's average.
+  const v = form.view;
+  const headYield = v?.yield ?? pool?.feeYield ?? null;
+  const enoughData = headYield !== null && headYield.basis !== 'insufficient';
+  const now = useNow();
+  // The traded token's live price and move, when it is the vault pool's
+  // priced side (ETH on ETH/USDG).
+  const headLive = (() => {
+    const l = vaultHere?.live;
+    if (!l || !pool) return null;
+    const i = l.currencies.findIndex(
+      (c) => c.address === pool.token.address.toLowerCase() || (pool.token.symbol === 'WETH' && c.symbol === 'ETH'),
+    );
+    const p = i >= 0 ? l.currencies[i].priceUsd : null;
+    if (p === null || i < 0) return null;
+    const change = l.change24hPct === null ? null : i === 0 ? l.change24hPct : (1 / (1 + l.change24hPct / 100) - 1) * 100;
+    return { price: p, change };
+  })();
+  const age = pool && vaultHere?.live ? liveAgeLabel(vaultView(vaultHere, pool, now)) : null;
 
   return (
     <>
@@ -139,9 +157,21 @@ export function StakeDrawer() {
                 {/* The token's own move, the figure a trader looks for first:
                     its price and 24h change, then its valuation. */}
                 <div className="dr-price">
-                  <b className="num">{pool.priceUsd > 0 ? price(pool.priceUsd) : '—'}</b>
-                  <Change pct={pool.change24hPct} refHours={pool.change24hRefHours} />
-                  <span className="muted">24h</span>
+                  {/* A vault's pool read live: today's price and move, not the
+                      snapshot's, which is as of the indexer's last swap read. */}
+                  {headLive ? (
+                    <>
+                      <b className="num">{price(headLive.price)}</b>
+                      <Change pct={headLive.change} />
+                      <span className="muted">24h · live</span>
+                    </>
+                  ) : (
+                    <>
+                      <b className="num">{pool.priceUsd > 0 ? price(pool.priceUsd) : '—'}</b>
+                      <Change pct={pool.change24hPct} refHours={pool.change24hRefHours} />
+                      <span className="muted">24h</span>
+                    </>
+                  )}
                   {pool.marketCapUsd > 0 && (
                     <span className="muted">
                       · FDV <span className="num">{usd(pool.marketCapUsd)}</span>
@@ -166,26 +196,40 @@ export function StakeDrawer() {
               <div className="kv">
                 <div>
                   {/* §1's label, once — it used to sit above and below the figure. */}
-                  <div className="k" title={hasVault && DATA_SOURCE === 'live' ? VAULT_YIELD_NOTE : undefined}>
-                    {FEE_YIELD_LABEL.charAt(0).toUpperCase() + FEE_YIELD_LABEL.slice(1)}
-                    {hasVault && DATA_SOURCE === 'live' ? ' · pool average' : ''}
-                  </div>
+                  {v?.live ? (
+                    <div className="k" title={v.yieldTitle}>
+                      Your fee yield · trailing 7d
+                    </div>
+                  ) : (
+                    <div className="k" title={hasVault && DATA_SOURCE === 'live' ? VAULT_YIELD_NOTE : undefined}>
+                      {FEE_YIELD_LABEL.charAt(0).toUpperCase() + FEE_YIELD_LABEL.slice(1)}
+                      {hasVault && DATA_SOURCE === 'live' ? ' · pool average' : ''}
+                    </div>
+                  )}
                   <div
                     className={`v num${enoughData ? ' up' : ' muted'}`}
-                    title={feeYieldTitle(pool.feeYield)}
+                    title={v?.live ? v.yieldTitle : feeYieldTitle(pool.feeYield)}
                   >
-                    {feeYieldValue(pool.feeYield)}
-                    {feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours)) && (
-                      <span className="est">
-                        {feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours))}
+                    {headYield && feeYieldValue(headYield)}
+                    {v?.live ? (
+                      <span className="est kv-note">
+                        full range · after {vaultHere!.protocolFeeBps / 100}% fee
+                        {v.poolYield.basis !== 'insufficient' && <> · pool avg {feeYieldValue(v.poolYield)}</>}
                       </span>
+                    ) : (
+                      <>
+                        {feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours)) && (
+                          <span className="est">{feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours))}</span>
+                        )}
+                        {feeYieldReason(pool.feeYield) && <span className="est">{feeYieldReason(pool.feeYield)}</span>}
+                      </>
                     )}
-                    {feeYieldReason(pool.feeYield) && <span className="est">{feeYieldReason(pool.feeYield)}</span>}
                   </div>
                 </div>
                 <div>
                   <div className="k">Fees 24h</div>
-                  <div className="v num">{usd(pool.fees24hUsd)}</div>
+                  <div className="v num">{usd(v?.fees24hUsd ?? pool.fees24hUsd)}</div>
+                  {age && <span className={`est kv-note${age.startsWith('as of') ? ' down' : ''}`}>{age}</span>}
                 </div>
                 <div>
                   <div className="k">Pool depth</div>
@@ -193,7 +237,7 @@ export function StakeDrawer() {
                 </div>
                 <div>
                   <div className="k">Volume 24h</div>
-                  <div className="v num">{usd(pool.volume24hUsd)}</div>
+                  <div className="v num">{usd(v?.volume24hUsd ?? pool.volume24hUsd)}</div>
                 </div>
               </div>
 
@@ -207,14 +251,6 @@ export function StakeDrawer() {
                         of the pool&rsquo;s fees — are not deployed yet. Until they are, this shows
                         each pool&rsquo;s real trading, fees and depth, read from the chain. Nothing
                         can be deposited yet.
-                      </p>
-                    </>
-                  ) : form.closedReason === 'no-eth-side' ? (
-                    <>
-                      <b>Not enterable with ETH</b>
-                      <p className="hint">
-                        This pool&rsquo;s {BRAND} vault exists, but the pool has no ETH side, and this
-                        form stakes ETH. Nothing can be staked into it from here yet.
                       </p>
                     </>
                   ) : !pool.stakeable ? (
@@ -306,55 +342,12 @@ export function StakeDrawer() {
               {canStake ? (
                 <>
                   <div className="sect-h" style={{ display: 'block', marginBottom: 12 }}>
-                    Stake with one token
+                    Stake
                   </div>
-                  <div className="field">
-                    <label htmlFor="stake-amount" className="sr-only">
-                      Amount to stake in ETH
-                    </label>
-                    <div className="inp">
-                      <input
-                        id="stake-amount"
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        inputMode="decimal"
-                        placeholder="0.0"
-                        value={form.amount}
-                        onChange={(e) => form.setAmount(e.target.value)}
-                      />
-                      <span className="unit">ETH</span>
-                      {form.maxLabel !== null && (
-                        <button type="button" className="max" onClick={() => form.setShare(1)}>
-                          Max {form.maxLabel}
-                        </button>
-                      )}
-                    </div>
-                    <p className="hint">{form.minLabel}</p>
-                  </div>
-
-                  <div className="note">
-                    <div className="disclose">
-                      <span className="muted">Your share of pool</span>
-                      <b className="num">{(share * 100).toFixed(2)}%</b>
-                    </div>
-                    <div className="disclose">
-                      <span className="muted">Est. weekly fees · from trailing 7d</span>
-                      <b className="num">{form.weeklyLabel ?? '—'}</b>
-                    </div>
-                    {/* §7: the protocol fee is disclosed here, before signing —
-                        live, as the vault itself reports it. */}
-                    <div className="disclose">
-                      <span className="muted">{BRAND} fee</span>
-                      <b className="num">
-                        {form.feeLabel}
-                      </b>
-                    </div>
-                    <div className="disclose">
-                      <span className="muted">Lockup</span>
-                      <b>None</b>
-                    </div>
-                  </div>
+                  <StakeFields form={form} idPrefix="stake" />
+                  {/* §7: the protocol fee is disclosed here, before signing —
+                      live, as the vault itself reports it. */}
+                  <StakeOutputs form={form} />
 
                   <p className="hint" style={{ marginTop: 12 }}>
                     {form.mode === 'live' && (
@@ -375,9 +368,7 @@ export function StakeDrawer() {
               <p className="dr-f-why">
                 {!stakingLaunched
                   ? `Staking opens when ${BRAND} vaults launch.`
-                  : form.closedReason === 'no-eth-side'
-                    ? 'This pool has no ETH side to stake with.'
-                    : noVaultHere
+                  : noVaultHere
                       ? `No vault for ${pairLabel(pool)} — stake in an open vault instead.`
                       : 'No vault to stake into for this pool yet.'}
               </p>

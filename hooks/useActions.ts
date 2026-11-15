@@ -27,6 +27,7 @@ import {
 import { ethIndexOf, ethIsNative, poolIdOf, vaultAbi } from '@/lib/contracts/vault';
 import type { PoolKey } from '@/lib/data/types';
 import { MIN_DEPOSIT_USD, minDepositEth } from '@/lib/stake';
+import type { DepositSide } from '@/lib/deposit';
 
 type Address = `0x${string}`;
 const WETH = CONTRACTS.weth as Address;
@@ -67,16 +68,51 @@ export function useActions() {
   );
 
   /**
+   * Exactly `amount` of `token` for `spender` to pull, when the wallet has
+   * not already allowed that much. Never an unlimited approval.
+   */
+  const allowExactly = useCallback(
+    async (label: string, account: Address, token: Address, spender: Address, amount: bigint, symbol: string) => {
+      const allowance = await readContract(config, {
+        address: token,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [account, spender],
+        chainId: CHAIN.id,
+      });
+      if (allowance >= amount) return;
+      await send(`${label} · allow exactly ${symbol}`, () =>
+        writeContract(config, { address: token, abi: erc20Abi, functionName: 'approve', args: [spender, amount], account, chainId: CHAIN.id }),
+      );
+    },
+    [config, send],
+  );
+
+  /**
    * zapStake: liquidity is quoted by simulating with a floor of 1, then
    * required at 99.5% of that in the real call — after checking the quote is
    * not a deposit too large for the pool (MAX_ZAP_LOSS_BPS).
+   *
+   * `tokenIn` is address(0) for native ETH (wrapped by the zap for a WETH
+   * pool), WETH, or either pool currency; an ERC-20 input must already be
+   * approved to the zap.
    */
   const zapIn = useCallback(
     async (label: string, account: Address, vault: Address, tokenIn: Address, amountIn: bigint) => {
       if (!zap) throw new Error('The zap is not deployed.');
       const key = await keyOf(vault);
       const ethIndex = ethIndexOf(key);
-      if (ethIndex === null) throw new Error(NO_ETH_SIDE);
+      const t = tokenIn.toLowerCase();
+      // Which currency the input is measured in, for the loss check below.
+      const valueIndex: 0 | 1 | null =
+        t === zeroAddress || t === WETH.toLowerCase()
+          ? ethIndex
+          : t === key.currency0.toLowerCase()
+            ? 0
+            : t === key.currency1.toLowerCase()
+              ? 1
+              : null;
+      if (valueIndex === null) throw new Error(t === zeroAddress ? NO_ETH_SIDE : 'That token is not one of this pool’s. Nothing was sent.');
       const swap = zapStakeSwapAmount(amountIn, key.fee);
       const deadline = txDeadline();
       const value = tokenIn === zeroAddress ? amountIn : 0n;
@@ -97,7 +133,7 @@ export function useActions() {
         readContract(config, { address: vault, abi: vaultAbi, functionName: 'amountsForLiquidity', args: [quoted], chainId: CHAIN.id }),
         readContract(config, { address: CONTRACTS.stateView as Address, abi: stateViewAbi, functionName: 'getSlot0', args: [poolIdOf(key)], chainId: CHAIN.id }),
       ]);
-      const loss = lossBps(amountIn, ethValueAt(a0, a1, sqrtPriceX96, ethIndex));
+      const loss = lossBps(amountIn, ethValueAt(a0, a1, sqrtPriceX96, valueIndex));
       if (loss > MAX_ZAP_LOSS_BPS) {
         throw new Error(
           `This deposit would lose about ${(loss / 100).toFixed(1)}% of its value to its own swap — it is large for this pool's depth. Nothing was sent. Try a smaller amount.`,
@@ -131,6 +167,69 @@ export function useActions() {
       }
     },
     [zapIn, need, fail],
+  );
+
+  /**
+   * One token into a vault through the zap: native ETH as the transaction's
+   * value, or an ERC-20 approved to the zap for exactly the amount first.
+   */
+  const stakeOne = useCallback(
+    async (vault: Address, side: DepositSide, amount: bigint, label: string): Promise<boolean> => {
+      try {
+        const account = need();
+        if (!zap) throw new Error('The zap is not deployed.');
+        if (side.isEth) {
+          await zapIn(label, account, vault, zeroAddress, amount);
+        } else {
+          await allowExactly(label, account, side.currency, zap, amount, side.symbol);
+          await zapIn(label, account, vault, side.currency, amount);
+        }
+        return true;
+      } catch (err) {
+        fail(label, err);
+        return false;
+      }
+    },
+    [need, zap, zapIn, allowExactly, fail],
+  );
+
+  /**
+   * Both tokens straight into the vault, in its ratio: no swap. The vault's
+   * own previewDeposit, read now, says what it will take of each; the
+   * minimums are that less 0.5%. An ERC-20 side is approved to the vault for
+   * exactly its desired amount — the most the vault may pull from this
+   * wallet, and only in a deposit this wallet makes. Native ETH is the
+   * transaction's value; the vault refunds what it does not use.
+   */
+  const depositBoth = useCallback(
+    async (vault: Address, sides: [DepositSide, DepositSide], desired: [bigint, bigint], label: string): Promise<boolean> => {
+      try {
+        const account = need();
+        if (sides[1].native) throw new Error('A native-ETH side can only be currency0. Nothing was sent.');
+        const [liquidity, take0, take1] = await readContract(config, {
+          address: vault,
+          abi: vaultAbi,
+          functionName: 'previewDeposit',
+          args: desired,
+          chainId: CHAIN.id,
+        });
+        if (liquidity === 0n) throw new Error('These amounts mint no liquidity at the current price. Nothing was sent.');
+        for (const s of sides) {
+          if (!s.native && desired[s.index] > 0n) await allowExactly(label, account, s.currency, vault, desired[s.index], s.symbol);
+        }
+        const args = [desired[0], desired[1], minusSlippage(take0), minusSlippage(take1), account, txDeadline()] as const;
+        const value = sides[0].native ? desired[0] : 0n;
+        await simulateContract(config, { address: vault, abi: vaultAbi, functionName: 'deposit', args, value, account, chainId: CHAIN.id });
+        await send(label, () =>
+          writeContract(config, { address: vault, abi: vaultAbi, functionName: 'deposit', args, value, account, chainId: CHAIN.id }),
+        );
+        return true;
+      } catch (err) {
+        fail(label, err);
+        return false;
+      }
+    },
+    [need, config, allowExactly, send, fail],
   );
 
   /** Withdraw shares; the minimums are what they are worth now, less 0.5%. */
@@ -380,5 +479,5 @@ export function useActions() {
     [need, routerFactory, config, send, fail],
   );
 
-  return { stake, withdraw, claim, claimAll, compound, mintShaped, createRouter };
+  return { stake, stakeOne, depositBoth, withdraw, claim, claimAll, compound, mintShaped, createRouter };
 }

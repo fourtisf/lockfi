@@ -32,6 +32,9 @@ const VAULT_CALLS = parseAbi([
   'function protocolFeeBps() view returns (uint16)',
   'function depositsOpen() view returns (bool)',
   'function withdraw(uint128 liquidity, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline) returns (uint256 amount0, uint256 amount1)',
+  // Both tokens at once: what the deposit mints, and the deposit itself.
+  'function previewDeposit(uint256 amount0Desired, uint256 amount1Desired) view returns (uint128 liquidity, uint256 amount0, uint256 amount1)',
+  'function deposit(uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline) payable returns (uint128 liquidity, uint256 amount0, uint256 amount1)',
 ]);
 
 type VaultError = Extract<(typeof tidewellVaultAbi)[number], { type: 'error' }>;
@@ -50,6 +53,8 @@ export const VAULT_FUNCTIONS = [
   'protocolFeeBps',
   'depositsOpen',
   'withdraw',
+  'previewDeposit',
+  'deposit',
 ] as const;
 
 const WETH = CONTRACTS.weth.toLowerCase();

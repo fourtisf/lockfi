@@ -9,6 +9,8 @@
 import { prisma } from '../db';
 
 const TABLES = [
+  'vault_swaps',
+  'vault_pool_state',
   'keeper_runs',
   'contract_events',
   'router_routes',

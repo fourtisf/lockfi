@@ -26,7 +26,8 @@ import { resolveUsdg } from '../indexer/anchor';
 import { busKind, subscribeTicks } from './bus';
 import { buildSnapshot } from './snapshot';
 import { lagLabel } from '../../lib/format';
-import { keeperHealth } from '../keeper/health';
+import { keeperHealth, vaultWatchHealth } from '../keeper/health';
+import { isWalletAddress, walletHistory } from './wallet-history';
 
 const USDG = process.env.USDG_ADDRESS ?? '';
 
@@ -266,6 +267,8 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     // last Observed event — not from the keeper process, which can be
     // "online" and landing nothing. Vaults need no keeper and are not checked.
     const keeper = await keeperHealth({ deployment });
+    // Each vault's pool, read live by the vault watcher: how old that read is.
+    const vaultWatch = await vaultWatchHealth();
 
     // Misconfiguration outranks everything: a never-indexed chain is the
     // SYMPTOM when the indexer cannot start, and reporting the symptom sends
@@ -338,6 +341,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
       // observation, and the last attempt's reason; vaults are counted and
       // said to need no keeper.
       keeper,
+      vaultWatch,
     };
 
     return reply.code(status === 'ok' || status === 'catching-up' ? 200 : 503).send(body);
@@ -360,6 +364,19 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
       });
     }
     return reply.type('application/json').send(serialise(value));
+  });
+
+  /**
+   * One wallet's deposits, withdrawals and claims in Tidewell's vaults, from
+   * the vaults' own events (wallet-history.ts) — what the portfolio needs to
+   * show fees earned and price impact. Per wallet, so never in the snapshot,
+   * and never cached for another visitor.
+   */
+  app.get<{ Params: { address: string } }>('/api/wallet/:address', async (request, reply) => {
+    const { address } = request.params;
+    if (!isWalletAddress(address)) return reply.code(400).send({ error: 'not-an-address' });
+    const history = await walletHistory(address, deployment?.vaults ?? []);
+    return reply.header('cache-control', 'private, no-store').send(history);
   });
 
   /**

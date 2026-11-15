@@ -6,15 +6,14 @@ import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { useWallet } from '@/hooks/useWallet';
-import { countdown, shortWallet, signOf, tone, usdExact } from '@/lib/format';
+import { signOf, tone, usdExact } from '@/lib/format';
 import { SHAPES } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
-import { claimableLabel, hasClaimable } from '@/lib/wallet/portfolio';
 import { pairLabel } from '@/lib/pair';
 
 export function PositionList() {
   const { pools } = useMarket();
-  const { portfolio, source, stakes: walletStakes } = usePortfolio();
+  const { portfolio, source } = usePortfolio();
   const { status } = useWallet();
   const { query } = useUi();
   const router = useRouter();
@@ -29,14 +28,14 @@ export function PositionList() {
     );
   };
   const positions = portfolio.positions.filter((p) => matches(p.poolId));
-  const stakes = portfolio.stakes.filter((s) => matches(s.poolId));
   const stranded = portfolio.positions.find((p) => !p.inRange);
   const strandedPool = pools.find((p) => p.id === stranded?.poolId);
 
   return (
     <div className="card panel">
+      {/* Stakes have their own list, with Withdraw and Claim (MyStakes). */}
       <h2 className="sect-h" style={{ marginBottom: 4 }}>
-        Positions and stakes
+        Positions
       </h2>
 
       {positions.map((position) => {
@@ -73,58 +72,18 @@ export function PositionList() {
         );
       })}
 
-      {stakes.map((stake) => {
-        const pool = pools.find((p) => p.id === stake.poolId);
-        const live = walletStakes.find((s) => s.vaultId === stake.vaultId);
-        if (!pool && !live) return null;
-        const digits = 2;
-        return (
-          <div className="pnl-row" key={stake.vaultId}>
-            <div className="tok">
-              {pool && <TokenBadge token={pool.token} />}
-              <div>
-                <div className="n">{pool ? pool.token.symbol : `Vault ${shortWallet(live!.vault)}`} stake</div>
-                <div className="s">
-                  {live
-                    ? 'Fees credited the moment they’re earned'
-                    : <>Streaming · {countdown(stake.streamRemainingSeconds)}</>}
-                </div>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div className="num" style={{ fontWeight: 600 }}>
-                {Number.isFinite(stake.stakedUsd) ? usdExact(stake.stakedUsd) : '—'}
-              </div>
-              {live ? (
-                // Two tokens, as the vault pays them.
-                <div className={`num ${hasClaimable(live) ? 'up' : ''}`} style={{ fontSize: 12 }}>
-                  {claimableLabel(live)} claimable
-                </div>
-              ) : (
-                <div className={`num ${tone(stake.earnedWeth, digits)}`} style={{ fontSize: 12 }}>
-                  {signOf(stake.earnedWeth, digits) > 0 ? '+' : ''}
-                  {stake.earnedWeth.toFixed(digits)} WETH fees
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
-
-      {portfolio.positions.length === 0 && portfolio.stakes.length === 0 ? (
-        // An empty portfolio, not a search that hid it. The live site has no
-        // wallet and no vault until P2, so this is what is true there.
+      {portfolio.positions.length === 0 ? (
+        // An empty list, not a search that hid it.
         <div className="empty">
-          <b>Nothing here yet</b>
-          {source === 'wallet'
-            ? `This wallet has no stake in a ${BRAND} vault. Positions minted with the shape builder are Uniswap v4 NFTs in your wallet; listing them here comes with the indexer.`
+          <b>No positions yet</b>
+          {source === 'wallet' || source === 'snapshot'
+            ? `Positions minted with ${BRAND}'s shape builder are Uniswap v4 NFTs in your own wallet. Listing them here comes with the indexer; your stakes are listed above.`
             : status === 'disconnected' || status === 'connecting'
-              ? 'Connect a wallet to see its stakes and positions.'
-              : 'Stakes and positions appear here once they can be read for this wallet.'}
+              ? 'Connect a wallet to see its positions.'
+              : 'Positions appear here once they can be read for this wallet.'}
         </div>
       ) : (
-        positions.length === 0 &&
-        stakes.length === 0 && (
+        positions.length === 0 && (
           <div className="empty">
             <b>No match</b>Nothing in your portfolio matches that search.
           </div>

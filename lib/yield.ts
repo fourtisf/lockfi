@@ -38,9 +38,14 @@ export function computeFeeYield(args: {
   return { basis: 'trailing7d', pct };
 }
 
-/** "148%" — or an em dash when there is not enough data to say anything. */
+/**
+ * "148%", "5.6%" — or an em dash when there is not enough data to say
+ * anything. One decimal under 10%, where a whole number would round a
+ * full-range vault's 5.6% to 6%.
+ */
 export function feeYieldValue(y: FeeYield): string {
-  return y.basis === 'insufficient' ? '—' : `${y.pct.toFixed(0)}%`;
+  if (y.basis === 'insufficient') return '—';
+  return `${Math.abs(y.pct) < 10 ? y.pct.toFixed(1) : y.pct.toFixed(0)}%`;
 }
 
 /** What the figure is qualified with in the row: "est." plus the pool age. */

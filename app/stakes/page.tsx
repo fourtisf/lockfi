@@ -17,9 +17,9 @@ export default function StakesPage() {
             // them in the pool's two tokens; the simulator still rehearses the
             // WETH stream.
             <p className="lede">
-              Drop in ETH. Your share of the pool&rsquo;s swap fees is credited the moment it&rsquo;s
-              earned — claim any time in ETH and the pool&rsquo;s token. Leave whenever you like:
-              leaving never forfeits fees already earned.
+              Drop in ETH, USDG, or both. Your share of the pool&rsquo;s swap fees is credited the
+              moment it&rsquo;s earned — claim any time in ETH and the pool&rsquo;s token. Withdraw
+              whenever you like, here or from your portfolio: leaving never forfeits fees already earned.
             </p>
           ) : (
             <p className="lede">

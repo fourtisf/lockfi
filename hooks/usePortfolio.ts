@@ -7,6 +7,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { DATA_SOURCE } from '@/lib/data';
 import type { Portfolio } from '@/lib/data/types';
 import { walletPortfolio, walletStakes, type WalletStake } from '@/lib/wallet/portfolio';
+import { liveEthPrice } from '@/lib/vault-view';
 
 /**
  * Where a portfolio's figures came from:
@@ -38,8 +39,11 @@ export function usePortfolio(): PortfolioView {
   return useMemo(() => {
     if (!LIVE) return { source: 'sim', portfolio: market.portfolio, stakes: [], balanceWei: null, loading: false };
     if (!address) return { source: 'snapshot', portfolio: market.portfolio, stakes: [], balanceWei: null, loading: false };
-    const eth = market.global.ethPriceUsd;
-    const stakes = walletStakes(vaults, market.pools, eth);
+    // Valued at today's prices: ETH and both sides of each vault from the
+    // vault watcher's live read, not the indexer's last swap read.
+    const eth = liveEthPrice(market.vaults, market.global.ethPriceUsd);
+    const live = new Map(market.vaults.filter((v) => v.live).map((v) => [v.poolId.toLowerCase(), v.live!.currencies]));
+    const stakes = walletStakes(vaults, market.pools, eth, live);
     return {
       source: 'wallet',
       portfolio: walletPortfolio(market.portfolio, stakes, balanceWei, eth),
@@ -47,5 +51,5 @@ export function usePortfolio(): PortfolioView {
       balanceWei,
       loading,
     };
-  }, [market.portfolio, market.pools, market.global.ethPriceUsd, address, vaults, balanceWei, loading]);
+  }, [market.portfolio, market.pools, market.vaults, market.global.ethPriceUsd, address, vaults, balanceWei, loading]);
 }

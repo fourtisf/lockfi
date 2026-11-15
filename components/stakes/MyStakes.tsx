@@ -163,7 +163,7 @@ function WalletRow({ stake, pool, ethPriceUsd }: { stake: WalletStake; pool?: Po
   const [busy, setBusy] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [pct, setPct] = useState(100);
-  const symbol = pool?.token.symbol ?? `vault ${shortWallet(stake.vault)}`;
+  const symbol = pool ? `${pairLabel(pool)} ${feeTierLabel(pool)}` : `vault ${shortWallet(stake.vault)}`;
 
   const run = async (what: string, fn: () => Promise<boolean>) => {
     setBusy(what);
@@ -198,7 +198,7 @@ function WalletRow({ stake, pool, ethPriceUsd }: { stake: WalletStake; pool?: Po
           <div className="tok">
             {pool ? <TokenBadge token={pool.token} /> : null}
             <div>
-              <div className="n">{pool ? `${second.symbol} / ${first.symbol}` : symbol}</div>
+              <div className="n">{pool ? `${pairLabel(pool)} · ${feeTierLabel(pool)}` : symbol}</div>
               {holding && <div className="s num">{holdingLabel(stake)}</div>}
             </div>
           </div>

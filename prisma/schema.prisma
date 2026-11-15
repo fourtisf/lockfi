@@ -324,6 +324,68 @@ model Vault {
   @@map("vaults")
 }
 
+/// Every swap in a vault's pool over the trailing eight days, read straight
+/// from the chain by the vault watcher (server/keeper/vault-watch.ts),
+/// independent of the pool indexer's cursor. Signed as Uniswap v4 emits
+/// them: negative is what the swapper paid INTO the pool.
+model VaultSwap {
+  poolId        String   @map("pool_id")
+  blockNum      BigInt   @map("block_num")
+  logIndex      Int      @map("log_index")
+  txHash        String   @map("tx_hash")
+  /// Interpolated between the timestamps of the read range's two ends.
+  blockTime     DateTime @map("block_time")
+  amount0       Decimal  @db.Decimal(78, 0)
+  amount1       Decimal  @db.Decimal(78, 0)
+  sqrtPrice     Decimal  @map("sqrt_price_x96") @db.Decimal(78, 0)
+  /// The pool's in-range liquidity after the swap.
+  liquidity     Decimal  @db.Decimal(78, 0)
+  tick          Int
+  /// The whole fee charged, Uniswap's protocol fee included, in pips.
+  swapFeePips   Int      @map("swap_fee_pips")
+  /// The LPs' part of the fee, in the input token's smallest unit.
+  lpFee         Decimal  @map("lp_fee") @db.Decimal(78, 0)
+  /// Which side came in: 0 or 1; -1 when the swap cannot be attributed.
+  feeToken      Int      @map("fee_token") @db.SmallInt
+  amountIn      Decimal  @map("amount_in") @db.Decimal(78, 0)
+  /// lp_fee x 2^128 / liquidity: this swap's step of the pool's fee growth,
+  /// which is what a full-range position earns per unit of liquidity.
+  feeGrowthX128 Decimal  @map("fee_growth_x128") @db.Decimal(78, 0)
+
+  @@id([poolId, blockNum, logIndex])
+  @@index([poolId, blockTime])
+  @@map("vault_swaps")
+}
+
+/// A vault's pool as the chain stood at the last block the watcher read.
+model VaultPoolState {
+  poolId           String   @id @map("pool_id")
+  vaultAddress     String   @map("vault_address")
+  currency0        String
+  currency1        String
+  symbol0          String
+  symbol1          String
+  decimals0        Int
+  decimals1        Int
+  /// The pool's LP fee from its key, in pips.
+  lpFeePips        Int      @map("lp_fee_pips")
+  blockNum         BigInt   @map("block_num")
+  blockTime        DateTime @map("block_time")
+  sqrtPrice        Decimal  @map("sqrt_price_x96") @db.Decimal(78, 0)
+  tick             Int
+  liquidity        Decimal  @db.Decimal(78, 0)
+  /// The vault's own full-range liquidity: its totalSupply.
+  vaultLiquidity   Decimal  @map("vault_liquidity") @db.Decimal(78, 0)
+  feeGrowth0X128   Decimal  @map("fee_growth0_x128") @db.Decimal(78, 0)
+  feeGrowth1X128   Decimal  @map("fee_growth1_x128") @db.Decimal(78, 0)
+  /// Where the swap history in vault_swaps begins.
+  historyFromBlock BigInt   @map("history_from_block")
+  historyFromTime  DateTime @map("history_from_time")
+  updatedAt        DateTime @map("updated_at")
+
+  @@map("vault_pool_state")
+}
+
 /// A wallet's shares in one vault and what it has claimed, rebuilt from the
 /// vault's events. A wallet that withdrew but claimed keeps its row.
 model Stake {

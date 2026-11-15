@@ -2,7 +2,8 @@ import { parseEther, zeroAddress } from 'viem';
 import { describe, expect, it } from 'vitest';
 import type { WalletVaultReads } from '../contracts/vault';
 import type { Pool, Portfolio } from '../data/types';
-import { claimableLabel, hasClaimable, holdingLabel, totalClaimableUsd, walletPortfolio, walletStakes } from './portfolio';
+import { claimableLabel, hasClaimable, holdingLabel, totalClaimableUsd, walletPortfolio, walletStakes, walletTotals } from './portfolio';
+import type { VaultCurrency } from '../data/types';
 
 const POOL_ID = `v4:0x${'11'.repeat(32)}`;
 const VAULT = `0x${'22'.repeat(20)}` as `0x${string}`;
@@ -142,5 +143,73 @@ describe('walletPortfolio', () => {
 
   it('has no balance without a wallet balance read', () => {
     expect(walletPortfolio(base, [], null, 2500).walletBalanceEth).toBeNull();
+  });
+});
+
+describe('an ETH/USDG stake, valued from the vault watcher’s live read', () => {
+  const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168' as const;
+  // The snapshot's row for this pool describes only its traded side (WETH):
+  // the USDG side has no decimals or price there.
+  const ethUsdg = { id: POOL_ID, priceUsd: 1759, quote: 'USDG', token: { address: '0x0bd7d308f8e1639fab988df18a8011f41eacad73', decimals: 18, symbol: 'WETH' } } as unknown as Pool;
+  const r = reads({
+    key: { currency0: zeroAddress, currency1: USDG, fee: 500, tickSpacing: 10, hooks: zeroAddress },
+    amount0: parseEther('0.01'),
+    amount1: 18_110_000n, // 18.11 USDG
+    claimable0: parseEther('0.0001'),
+    claimable1: 500_000n, // 0.5 USDG
+  });
+  const live: VaultCurrency[] = [
+    { address: zeroAddress, symbol: 'ETH', decimals: 18, priceUsd: 1811 },
+    { address: USDG, symbol: 'USDG', decimals: 6, priceUsd: 1 },
+  ];
+
+  it('was unpriced without it — the whole stake read "—"', () => {
+    const [s] = walletStakes([r], [ethUsdg], 1811);
+    expect(s.priced).toBe(false);
+    expect(Number.isNaN(s.stakedUsd)).toBe(true);
+  });
+
+  it('is priced with it, both sides at today’s prices', () => {
+    const [s] = walletStakes([r], [ethUsdg], 1811, new Map([[POOL_ID, live]]));
+    expect(s.priced).toBe(true);
+    expect(s.stakedUsd).toBeCloseTo(0.01 * 1811 + 18.11, 9);
+    expect(s.claimableUsd).toBeCloseTo(0.0001 * 1811 + 0.5, 9);
+    expect(holdingLabel(s)).toBe('0.0100 ETH + 18.11 USDG');
+  });
+
+  it('totals fees earned and price impact from the history, at today’s prices', () => {
+    const stakes = walletStakes([r], [ethUsdg], 1811, new Map([[POOL_ID, live]]));
+    const history = [
+      {
+        vault: VAULT,
+        poolId: POOL_ID,
+        // Deposited 0.0105 ETH + 17.20 USDG; withdrew nothing; claimed 0.30 USDG.
+        deposited0: parseEther('0.0105').toString(),
+        deposited1: '17200000',
+        withdrawn0: '0',
+        withdrawn1: '0',
+        claimed0: '0',
+        claimed1: '300000',
+        firstDepositAt: '2026-11-15T10:00:00.000Z',
+      },
+    ];
+    const t = walletTotals(history, stakes, new Map([[POOL_ID, live]]));
+    const held = 0.01 * 1811 + 18.11;
+    const deposited = 0.0105 * 1811 + 17.2;
+    expect(t.claimedUsd).toBeCloseTo(0.3, 9);
+    expect(t.feesEarnedUsd).toBeCloseTo(0.3 + 0.0001 * 1811 + 0.5, 9);
+    expect(t.priceImpactUsd).toBeCloseTo(held - deposited, 9);
+    expect(t.netChangeUsd).toBeCloseTo(held - deposited + t.feesEarnedUsd, 9);
+    expect(t.netChangePct).toBeCloseTo((t.netChangeUsd / deposited) * 100, 9);
+  });
+
+  it('is unknown, not zero, when a vault in the history has no prices', () => {
+    const t = walletTotals(
+      [{ vault: VAULT, poolId: POOL_ID, deposited0: '1', deposited1: '1', withdrawn0: '0', withdrawn1: '0', claimed0: '0', claimed1: '0', firstDepositAt: null }],
+      [],
+      new Map(),
+    );
+    expect(Number.isNaN(t.feesEarnedUsd)).toBe(true);
+    expect(Number.isNaN(t.priceImpactUsd)).toBe(true);
   });
 });

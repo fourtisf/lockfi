@@ -55,7 +55,7 @@ export default function PoolsPage() {
             </li>
             <li>
               <b>10%</b>
-              <span>{BRAND}&rsquo;s fee, taken from fees earned at harvest. Never from your deposit.</span>
+              <span>{BRAND}&rsquo;s fee, taken from fees as they are collected. Never from your deposit.</span>
             </li>
             <li>
               <b>0</b>

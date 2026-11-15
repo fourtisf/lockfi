@@ -115,6 +115,30 @@ test.describe('stakes page', () => {
     await expect(panel.locator('[role="alert"]')).toContainText('above your balance');
   });
 
+  test('offers ETH, the pool’s token, or both — and matches the second side to the first', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/stakes', { waitUntil: 'networkidle' });
+    await page.locator('.vault').first().click();
+    const panel = page.locator('.spanel');
+    const routes = panel.getByRole('group', { name: 'Deposit with' }).getByRole('button');
+    await expect(routes).toHaveCount(3);
+    const labels = await routes.allInnerTexts();
+    expect(labels[2]).toBe(`${labels[0]} + ${labels[1]}`);
+
+    // One token: one field, and the note says half of it is swapped.
+    await routes.nth(1).click();
+    await expect(panel.locator('.sf-field')).toHaveCount(1);
+    await expect(panel.locator('.sf-note')).toContainText('swapped');
+
+    // Both: two fields; typing the first fills the second, and nothing is swapped.
+    await routes.nth(2).click();
+    await expect(panel.locator('.sf-field')).toHaveCount(2);
+    await expect(panel.locator('.sf-note')).toContainText('nothing is swapped');
+    await panel.locator('#sp-amount').fill('0.5');
+    await expect(panel.locator('#sp-amount-2')).not.toHaveValue('');
+    await expect(panel.locator('.sf-matched')).toBeVisible();
+  });
+
   test('ranks vaults by fee yield', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/stakes', { waitUntil: 'networkidle' });

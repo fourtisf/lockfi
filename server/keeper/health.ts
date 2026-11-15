@@ -173,3 +173,46 @@ export async function keeperHealth(options: { deployment: Deployment | null }): 
     routers: list,
   };
 }
+
+/** A vault's live figures older than this are said to be stale, not shown as live. */
+export const VAULT_WATCH_STALE_SECONDS = 600;
+
+export interface VaultWatchHealth {
+  vault: string;
+  poolId: string;
+  /** Chain time of the last block the watcher read for this vault's pool. */
+  asOf: string;
+  ageSeconds: number;
+  /** Hours of swap history behind the vault's figures. */
+  historyHours: number;
+  stale: boolean;
+}
+
+/**
+ * The vault watcher (vault-watch.ts), as /api/health reports it: per vault,
+ * how old the live read is. Information, not a status: a stale vault read
+ * leaves the vault working and the site saying its figures are old — the
+ * pages show the age — so it pages nobody.
+ */
+export async function vaultWatchHealth(now = Date.now()): Promise<{ message: string; vaults: VaultWatchHealth[] }> {
+  const rows = await prisma.vaultPoolState.findMany({ orderBy: { poolId: 'asc' } });
+  const vaults = rows.map((r) => {
+    const age = Math.max(0, Math.round((now - r.blockTime.getTime()) / 1000));
+    return {
+      vault: r.vaultAddress,
+      poolId: r.poolId,
+      asOf: r.blockTime.toISOString(),
+      ageSeconds: age,
+      historyHours: Math.round(Math.min(168, (r.blockTime.getTime() - r.historyFromTime.getTime()) / 3_600_000) * 10) / 10,
+      stale: age > VAULT_WATCH_STALE_SECONDS,
+    };
+  });
+  const stale = vaults.filter((v) => v.stale);
+  const message =
+    vaults.length === 0
+      ? 'No vault has been read live yet: the vault watcher runs in balast-keeper. Until it has, vault figures come from the indexer.'
+      : stale.length > 0
+        ? `${stale.length} vault(s) not read live for over ${duration(VAULT_WATCH_STALE_SECONDS)} — the site shows their age. See: runuser -u balast -- pm2 logs balast-keeper`
+        : `${vaults.length} vault(s) read live from the chain, the newest ${duration(Math.min(...vaults.map((v) => v.ageSeconds)))} ago.`;
+  return { message, vaults };
+}

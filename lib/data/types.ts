@@ -114,6 +114,52 @@ export interface Pool {
   feeYield: FeeYield;
 }
 
+/** One of a vault pool's two currencies, as the chain describes it. */
+export interface VaultCurrency {
+  /** address(0) for native ETH. Lowercase. */
+  address: string;
+  symbol: string;
+  decimals: number;
+  /** Dollars per whole token, or null when there is no honest price. */
+  priceUsd: number | null;
+}
+
+/**
+ * A vault's pool read straight from the chain by the vault watcher
+ * (server/keeper/vault-watch.ts), every minute, independent of the pool
+ * indexer — whose boards can be months behind while it crosses history.
+ */
+export interface VaultLive {
+  /** Chain time of the block these figures were read at (ISO). */
+  asOf: string;
+  blockNumber: number;
+  currencies: [VaultCurrency, VaultCurrency];
+  /** ETH in dollars from this pool's own price, when it pairs ETH with USDG. */
+  ethPriceUsd: number | null;
+  /**
+   * The move in currency0's price, in currency1, over the last 24h — from the
+   * pool's last swap 24h ago to its price now. Null without a swap that old.
+   */
+  change24hPct: number | null;
+  /** The vault's own liquidity at today's price; null when a side has no price. */
+  stakedUsd: number | null;
+  /** LP fees over the last 24h, Uniswap's protocol fee taken out. */
+  fees24hUsd: number;
+  volume24hUsd: number;
+  trades24h: number;
+  /** LP fees per 12h bucket over the trailing 7 days, oldest first: 14 points. */
+  feeHistory: number[];
+  /** Hours of swap history behind the figures, at most 168. */
+  historyHours: number;
+  /**
+   * What a full-range position — exactly what the vault holds — earned over
+   * the trailing window, annualised, BEFORE the vault's protocol fee. Not the
+   * pool's average, which concentrated LPs pull far above what full range
+   * earns (lib/yield.ts, stakerYield, takes the protocol fee out).
+   */
+  fullRangeYield: FeeYield;
+}
+
 export interface Vault {
   id: string;
   poolId: string;
@@ -130,6 +176,12 @@ export interface Vault {
    * while displaying a yield (§8, P3), so this is shown, not hidden.
    */
   harvestLagSeconds?: number | null;
+  /**
+   * The vault's pool read live from the chain; absent until the watcher has
+   * read it (and in the simulator's older snapshots). Where present, every
+   * vault figure on the site comes from here, not from the pool's row.
+   */
+  live?: VaultLive;
 }
 
 export interface UserStake {

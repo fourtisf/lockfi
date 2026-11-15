@@ -95,6 +95,45 @@ describe('snapshot vaults', () => {
     expect(snapshot.featured.stakers).toBe(7);
   });
 
+  it("carries a watched vault's live figures, and values its stake at today's price", async () => {
+    // What the vault watcher writes: the pool at the last block it read.
+    const sqrt2000 = (BigInt(Math.round(Math.sqrt(2000e-12) * 2 ** 60)) * 2n ** 36n).toString();
+    await prisma.vaultPoolState.create({
+      data: {
+        poolId: POOL_A1,
+        vaultAddress: FIRST,
+        currency0: '0x0000000000000000000000000000000000000000',
+        currency1: USDG.toLowerCase(),
+        symbol0: 'ETH',
+        symbol1: 'USDG',
+        decimals0: 18,
+        decimals1: 6,
+        lpFeePips: 500,
+        blockNum: 1000n,
+        blockTime: new Date(),
+        sqrtPrice: sqrt2000,
+        tick: 0,
+        liquidity: '100000000000000000',
+        vaultLiquidity: '1000000000000000',
+        feeGrowth0X128: '0',
+        feeGrowth1X128: '0',
+        historyFromBlock: 1n,
+        historyFromTime: new Date(Date.now() - 8 * 86_400_000),
+        updatedAt: new Date(),
+      },
+    });
+    const snapshot = await build();
+    const first = snapshot.vaults.find((v) => v.address === FIRST)!;
+    expect(first.live).toBeDefined();
+    expect(first.live!.ethPriceUsd).toBeCloseTo(2000, 6);
+    expect(first.live!.fullRangeYield).toEqual({ basis: 'trailing7d', pct: 0 });
+    // Not the indexer's $3,373.97: the vault's liquidity at today's price.
+    expect(first.totalStakedUsd).toBeCloseTo(first.live!.stakedUsd!, 9);
+    expect(first.totalStakedUsd).not.toBeCloseTo(3373.97, 0);
+    // A vault the watcher has not read keeps the indexer's figures.
+    expect(snapshot.vaults.find((v) => v.address === SECOND)!.live).toBeUndefined();
+  });
+
   it('carries no wallet: the same public document for every visitor', async () => {
     const json = JSON.stringify(await build());
     expect(json).not.toContain(STAKER);
