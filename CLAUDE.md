@@ -1888,6 +1888,32 @@ was readable.
   data" had been the tooltip for both, and was wrong for the second.
 - The drawer's title named WETH as the pair for USDG pools too.
 
+### 5,000 blocks a second on the box, and a status report with nothing to read
+
+ALFA's next report: block 29.6 million, 101 days behind, 291,000 pools — the
+indexer moving, at about 5,500 blocks a second against the 37,000 measured
+from the sandbox, and the report still saying "no progress lines … the file
+is empty or missing", so nothing said why.
+
+- **Pool state valued every pool.** The ten-minute rebuild in the structure
+  phase computed positions and a price for all 291,000 pools and upserted a
+  row for each — minutes per rebuild on the box, blocking the loop. It now
+  values only pools that have traded (`last_swap`), which are the only ones
+  the snapshot can show.
+- **A busy endpoint read as a narrow one.** Failover joins every endpoint's
+  error into one message; a rate-limited first endpoint ("429 Too Many
+  Requests") next to a range-capped fallback read as a block-span refusal
+  and capped the window for the rest of the run. `classifyRefusal` now says
+  `count`, `rate`, `span` or `other`, and a `rate` refusal waits a moment and
+  retries the same window without touching it.
+- **Every progress line says where its time went**: `[logs 1.2s, times 0.1s,
+  write 0.4s, aggregate 0.0s]`. The next slow pass names its slow part.
+- **The status report asks PM2 where the log is** (`pm2 jlist`'s
+  `pm_out_log_path`) before trying the configured and default paths, and
+  when there is still no progress line it reads the indexer's cursor twice,
+  fifteen seconds apart, and prints the measured pace and the time to today —
+  a report that needs no log to answer the one question it exists for.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside

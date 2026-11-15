@@ -420,17 +420,20 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       SELECT pool_id, tick_lower, tick_upper, SUM(liquidity_delta) AS l
       FROM liquidity_events, horizon
       WHERE block_num <= horizon.block
+        AND pool_id IN (SELECT pool_id FROM last_swap)
       GROUP BY pool_id, tick_lower, tick_upper
       HAVING SUM(liquidity_delta) <> 0
     ),
 
     -- The price each pool's positions are valued at: the latest swap's, or
     -- the price it was initialised at if it has not traded.
+    -- Only pools that have traded: a pool with no swap read is never shown
+    -- (the snapshot lists pools that traded in the window), and on this chain
+    -- the ones that never traded are hundreds of thousands of launches.
+    -- Valuing all of them made this step minutes long on the live box.
     current_price AS (
-      SELECT p.id AS pool_id,
-        (COALESCE(ls.sqrt_price_x96, p.init_sqrt_price_x96)::float8 / 2::float8 ^ 96) AS sp
-      FROM pools p
-      LEFT JOIN last_swap ls ON ls.pool_id = p.id
+      SELECT ls.pool_id, (ls.sqrt_price_x96::float8 / 2::float8 ^ 96) AS sp
+      FROM last_swap ls
     ),
 
     -- What the positions hold, in raw token units:
@@ -479,10 +482,10 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
           ${ratioSql('ls.sqrt_price_x96', 't0.decimals', 't1.decimals')}
         END AS ratio,
         (SELECT usd FROM weth_usd) AS weth_usd
-      FROM pools p
+      FROM last_swap ls
+      JOIN pools p ON p.id = ls.pool_id
       JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
       JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
-      LEFT JOIN last_swap ls ON ls.pool_id = p.id
       LEFT JOIN reserves  r  ON r.pool_id  = p.id
       -- Not a pool whose token was recorded without being read (decimals -1,
       -- discovery.ts): nothing can be valued in it, and it has not traded.

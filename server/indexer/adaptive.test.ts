@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../db';
 import { isReachable, resetDatabase } from '../test/db';
 import { FixtureLogSource, USDG, buildFixtureChain, fixtureTokenReader } from '../test/fixture';
-import { Poller, isSpanRefusal } from './poller';
+import { Poller, classifyRefusal, isSpanRefusal } from './poller';
 
 const chain = buildFixtureChain();
 
@@ -169,6 +169,10 @@ describe('backfilling an empty chain', () => {
     expect(isSpanRefusal('x:\n  a: block range too large\n  b: query returned more than 10000 results')).toBe(false);
     // Nobody recognisable: not a cap to keep forever.
     expect(isSpanRefusal('getLogs(1-2) failed on all 4 endpoints:\n  a: HTTP request failed.')).toBe(false);
+    // A busy endpoint beside a range-capped fallback is busy, not too wide:
+    // read as a span cap, it held the window down for the rest of the sync.
+    expect(classifyRefusal('x:\n  a: Too Many Requests (429)\n  b: block range too large')).toBe('rate');
+    expect(classifyRefusal('x:\n  a: Too Many Requests\n  b: logs matched by query exceeds limit of 10000')).toBe('count');
   });
 
   it('narrows again once it is following head', async () => {

@@ -121,6 +121,10 @@ async function main(): Promise<void> {
             `${result.events} events, +${result.swapsWritten} swaps, ` +
             `+${result.liquidityWritten} liquidity, +${result.poolsFound} pools, ` +
             `+${result.tokensFound} tokens, in ${passSeconds}s` +
+            (result.timings
+              ? ` [logs ${(result.timings.logs / 1000).toFixed(1)}s, times ${(result.timings.times / 1000).toFixed(1)}s, ` +
+                `write ${(result.timings.write / 1000).toFixed(1)}s, aggregate ${(result.timings.aggregate / 1000).toFixed(1)}s]`
+              : '') +
             (result.structureOnly ? ' (older than the swap window: pools and liquidity only)' : ''),
         );
         // Tell the API something changed; it debounces before pushing (§4.4).

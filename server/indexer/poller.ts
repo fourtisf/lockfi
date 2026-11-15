@@ -102,9 +102,32 @@ const CALM_STREAK = 3;
  * "logs matched by query exceeds limit of 10000".
  */
 export function isSpanRefusal(message: string): boolean {
-  const count = /exceeds? (the )?limit|more than \d+ results|too many (results|logs)|response (size|too large)/i;
-  const span = /block range|range (is )?too (large|wide|big)|block span|blocks? (limit|exceed|maximum)|max(imum)? (block )?range/i;
-  return span.test(message) && !count.test(message);
+  return classifyRefusal(message) === 'span';
+}
+
+/**
+ * What a refused `eth_getLogs` was refused for, from every endpoint's answer.
+ *
+ *   count  the window matched too many logs here: narrow it, for now
+ *   rate   an endpoint is rate-limiting us: wait, and change nothing
+ *   span   the window is wider than an endpoint will ever answer: cap it
+ *   other  nothing recognisable: narrow it, for now
+ *
+ * The order matters. Failover joins every endpoint's error into one message,
+ * so a rate-limited first endpoint and a range-capped fallback produce
+ * "429 Too Many Requests … block range too large" — read as a span refusal,
+ * that capped the window for the rest of the sync because one endpoint was
+ * busy for a second.
+ */
+export function classifyRefusal(message: string): 'count' | 'rate' | 'span' | 'other' {
+  if (/exceeds? (the )?limit|more than \d+ results|too many (results|logs)|response (size|too large)/i.test(message)) {
+    return 'count';
+  }
+  if (/\b429\b|too many requests|rate.?limit/i.test(message)) return 'rate';
+  if (/block range|range (is )?too (large|wide|big)|block span|blocks? (limit|exceed|maximum)|max(imum)? (block )?range/i.test(message)) {
+    return 'span';
+  }
+  return 'other';
 }
 
 /** The cursor key for the one v4 contract every pool lives in. */
@@ -155,6 +178,12 @@ export interface PassResult {
   refused?: boolean;
   /** The range was older than the swap window: pools and liquidity only. */
   structureOnly?: boolean;
+  /**
+   * Milliseconds spent fetching logs, fetching block times, writing rows and
+   * rebuilding aggregates. Printed with each progress line, so a slow pass
+   * on the box says which part was slow instead of leaving it to be guessed.
+   */
+  timings?: { logs: number; times: number; write: number; aggregate: number };
   /** Seconds between the last indexed block's time and head's. Shown in the top bar (§7). */
   lagSeconds: number;
   caughtUp: boolean;
@@ -414,6 +443,7 @@ export class Poller {
       }
     }
 
+    const tLogs = Date.now();
     let logs;
     try {
       logs = await this.source.getLogs({
@@ -440,14 +470,25 @@ export class Poller {
       // "getLogs(a-b) failed on all 4 endpoints:", which says neither.
       const full = (error as Error).message;
       const message = full.split('\n')[0];
+      const kind = classifyRefusal(full);
+      if (kind === 'rate') {
+        // Busy, not too wide: the same window again after a breath.
+        this.log(`  endpoints rate-limiting (${width} blocks) — retrying the same window`);
+        await new Promise((r) => setTimeout(r, 1_500));
+        return {
+          fromBlock: from, toBlock: cursor ?? from, headBlock: head.number, events: 0, swapsWritten: 0,
+          liquidityWritten: 0, poolsFound: 0, tokensFound: 0, suppliesRefreshed: 0, logosFound: 0,
+          lagSeconds: 0, caughtUp: false, blockRange: Number(this.blockRange), refused: true,
+        };
+      }
       const floor = this.reorgDepth * 2n > 1n ? this.reorgDepth * 2n : 2n;
       if (structureOnly) {
         this.structureMax = max(floor, width / 2n);
-        if (isSpanRefusal(full)) this.hardCap = this.structureMax;
+        if (kind === 'span') this.hardCap = this.structureMax;
         this.blockRange = this.structureMax;
       } else {
         this.maxRange = max(floor, width / 2n);
-        if (isSpanRefusal(full)) this.hardCap = this.maxRange;
+        if (kind === 'span') this.hardCap = this.maxRange;
         this.blockRange = this.maxRange;
       }
       this.calmPasses = 0;
@@ -470,10 +511,12 @@ export class Poller {
         refused: true,
       };
     }
+    const tTimes = Date.now();
     const blockTimes = structureOnly
       ? await this.coarseTimes(logs.map((l) => l.blockNumber), from, to, toTime!)
       : await this.source.getBlockTimes(from, to);
 
+    const tWrite = Date.now();
     const events: ChainEvent[] = [];
     for (const raw of logs) {
       const blockTime = blockTimes.get(raw.blockNumber);
@@ -601,6 +644,7 @@ export class Poller {
     // on screen for the whole structure phase — the live site kept showing a
     // $1.76T TVL the fix for it had already made impossible, because nothing
     // ran the fixed rebuild.
+    const tAggregate = Date.now();
     const caughtUpNow = to >= head.number;
     const globalEvery = structureOnly ? STRUCTURE_GLOBAL_EVERY_MS : GLOBAL_EVERY_MS;
     const globalDue = caughtUpNow || Date.now() - this.lastGlobalAt >= globalEvery;
@@ -623,6 +667,7 @@ export class Poller {
 
     const lastBlockTime = blockTimes.get(to) ?? head.timestamp;
     await writeCursor(POOL_MANAGER_CURSOR, to, lastBlockTime);
+    const tEnd = Date.now();
 
     // Adapt for the next pass. Only while backfilling: once the indexer is
     // following head there is nothing to gain from a wider window and a
@@ -696,6 +741,7 @@ export class Poller {
       caughtUp: to >= head.number,
       blockRange: Number(to - from + 1n),
       structureOnly,
+      timings: { logs: tTimes - tLogs, times: tWrite - tTimes, write: tAggregate - tWrite, aggregate: tEnd - tAggregate },
     };
   }
 

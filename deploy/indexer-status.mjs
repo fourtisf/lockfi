@@ -14,6 +14,7 @@
 // second on this chain), so the rate is the gain over head, and a pace that is
 // not gaining says so rather than printing an ETA that never arrives.
 
+import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:3001';
@@ -24,8 +25,24 @@ const API = process.env.API_URL ?? 'http://127.0.0.1:3001';
  * lines" while the indexer was moving 5,000 blocks a second. The freshest
  * non-empty candidate wins.
  */
+/** Where PM2 itself says the indexer's output goes, if PM2 will say. */
+function pm2LogPath() {
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const run = asRoot
+    ? spawnSync('runuser', ['-u', 'balast', '--', 'pm2', 'jlist'], { encoding: 'utf8', timeout: 10_000 })
+    : spawnSync('pm2', ['jlist'], { encoding: 'utf8', timeout: 10_000 });
+  try {
+    const list = JSON.parse(run.stdout || '[]');
+    const indexer = list.find((p) => p.name === 'balast-indexer');
+    return indexer?.pm2_env?.pm_out_log_path ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const LOG_CANDIDATES = [
   process.env.INDEXER_LOG,
+  pm2LogPath(),
   '/var/log/balast/indexer.out.log',
   '/home/balast/.pm2/logs/balast-indexer-out.log',
   '/root/.pm2/logs/balast-indexer-out.log',
@@ -125,6 +142,23 @@ async function health() {
   }
 }
 
+/**
+ * The pace without a log: read the cursor twice, fifteen seconds apart. Head
+ * moves about ten blocks a second, so the gain over head is what counts.
+ */
+async function measured(first) {
+  await new Promise((r) => setTimeout(r, 15_000));
+  const second = await health();
+  if (!second?.indexed || !first?.indexed) return false;
+  const moved = Number(second.indexed.lastBlock) - Number(first.indexed.lastBlock);
+  if (!(moved > 0)) return false;
+  // Chain time recovered per second of wall time: the lag shrinking.
+  const gained = (first.indexed.lagSeconds ?? 0) + 15 - (second.indexed.lagSeconds ?? 0);
+  const eta = gained > 15 ? ` — about ${span((second.indexed.lagSeconds * 15) / (gained - 15))} to reach today at this rate` : '';
+  console.log(`  pace       ${n(Math.round(moved / 15))} blocks a second (measured over 15s)${eta}`);
+  return true;
+}
+
 async function main() {
   const h = await health();
   const text = tail(LOG);
@@ -173,6 +207,9 @@ async function main() {
     console.log(`  pace       catching up, about ${span(p.etaSeconds)} to go at the current rate`);
   } else if (p) {
     console.log('  pace       NOT gaining on the chain — see: runuser -u balast -- pm2 logs balast-indexer');
+  } else if (lines.length === 0 && h.indexed && h.indexed.lagSeconds > 3600 && (await measured(h))) {
+    // Printed by measured(): the pace from two readings of the indexer's own
+    // cursor, which needs no log at all.
   } else if (lines.length === 0 && h.indexed && h.indexed.lagSeconds > 3600) {
     // Behind, and not one progress line in the log: the indexer is not
     // reporting passes at all. Not "not measurable yet" — that is what this
