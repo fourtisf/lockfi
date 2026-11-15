@@ -253,10 +253,18 @@ td.fd{animation:fd 1.1s ease-out}
 /* The drawer's list of a token's pools, deepest first; the open one marked. */
 .dr-pools{margin:4px 0 18px}
 .dr-pools .k{margin-bottom:6px}
-.dr-pools button{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;width:100%;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:none;color:inherit;font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.dr-pools button{display:grid;grid-template-columns:minmax(0,1fr) 84px 96px;gap:12px;align-items:center;width:100%;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:none;color:inherit;font:inherit;font-size:13px;text-align:left;cursor:pointer}
 .dr-pools button:hover{background:var(--raise)}
 .dr-pools button[aria-current="true"]{border-color:var(--bd);background:var(--raise)}
 .dr-pools .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dr-pools .est-inline{font-size:11px;color:var(--fg-3)}
+.dr-pools-why{margin:0 0 10px;font-size:12.5px;line-height:1.5}
+.dr-pools-head{display:grid;grid-template-columns:minmax(0,1fr) 84px 96px;gap:12px;padding:0 10px 4px;font-size:11.5px;color:var(--fg-3)}
+.dr-pools-head span:nth-child(n+2),.dr-pools button .num{text-align:right}
+.dr-why{margin:0 0 18px}
+.dr-why p{margin:6px 0 0;line-height:1.5}
+.dr-f-why{margin:0;padding:10px 22px 0;font-size:12.5px;color:var(--fg-3);border-top:1px solid var(--bd)}
+.dr-f-why + .dr-f{border-top:0}
 
 .grid{display:grid;gap:20px}
 .g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr 1fr}

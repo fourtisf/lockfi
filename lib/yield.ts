@@ -19,9 +19,8 @@ export function computeFeeYield(args: {
   ageHours: number;
 }): FeeYield {
   const { feesWindowUsd, tvlUsd, windowHours, ageHours } = args;
-  if (ageHours < MIN_DATA_HOURS || tvlUsd <= 0 || windowHours <= 0) {
-    return { basis: 'insufficient' };
-  }
+  if (ageHours < MIN_DATA_HOURS || windowHours <= 0) return { basis: 'insufficient', reason: 'young' };
+  if (tvlUsd <= 0) return { basis: 'insufficient', reason: 'no-depth' };
   const pct = (feesWindowUsd / tvlUsd) * ((365 * 24) / windowHours) * 100;
   if (ageHours < YIELD_WINDOW_HOURS) {
     return { basis: 'estimate', pct, windowHours };
@@ -41,11 +40,19 @@ export function feeYieldQualifier(y: FeeYield, ageText: string): string | null {
   return null;
 }
 
+/** Why there is no yield figure, in a few words for under the dash. */
+export function feeYieldReason(y: FeeYield): string | null {
+  if (y.basis !== 'insufficient') return null;
+  return y.reason === 'no-depth' ? 'depth not known yet' : 'under 24h of fees';
+}
+
 /** Why a pool shows an em dash, for the title attribute. */
 export function feeYieldTitle(y: FeeYield): string {
   switch (y.basis) {
     case 'insufficient':
-      return 'Less than 24h of fee data. No yield figure is honest yet.';
+      return y.reason === 'no-depth'
+        ? "This pool's depth is not known yet, so there is nothing honest to divide its fees by."
+        : 'Less than 24h of fee data. No yield figure is honest yet.';
     case 'estimate':
       return `Pool is younger than 7 days. Annualised from ${Math.round(
         y.windowHours,

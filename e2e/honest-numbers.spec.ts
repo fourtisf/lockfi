@@ -27,7 +27,9 @@ test.describe('honest numbers', () => {
     await page.locator('#main tbody tr .stake-btn').first().click();
     const drawer = page.locator('.drawer');
     await expect(drawer).toHaveClass(/on/);
-    await expect(drawer.locator('.kv .v').first()).toHaveText('—');
+    // The dash, and why: a dash nobody can read is a number nobody can trust.
+    await expect(drawer.locator('.kv .v').first()).toHaveText(/^—/);
+    await expect(drawer.locator('.kv .v').first()).toContainText('under 24h of fees');
     // And it cannot be staked while it is still on its launchpad curve (§4).
     await expect(drawer).toContainText('Not stakeable yet');
     await expect(drawer.getByRole('button', { name: 'Stake', exact: true })).toBeDisabled();

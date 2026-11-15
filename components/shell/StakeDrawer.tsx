@@ -10,7 +10,7 @@ import { ageLabel, usd, weth } from '@/lib/format';
 import { BRAND } from '@/lib/site';
 import { poolsOfToken } from '@/lib/pools';
 import { stakeQuote } from '@/lib/stake';
-import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldTitle, feeYieldValue } from '@/lib/yield';
+import { FEE_YIELD_LABEL, feeYieldQualifier, feeYieldReason, feeYieldTitle, feeYieldValue } from '@/lib/yield';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -30,6 +30,9 @@ export function StakeDrawer() {
   // drawer used to offer a stake form for every pool regardless.
   const hasVault = pool !== null && vaults.some((v) => v.poolId === pool.id);
   const canStake = pool !== null && pool.stakeable && hasVault;
+  // No vault anywhere is not a missing vault for this pool: staking itself has
+  // not launched (the contracts are P2, and §8 puts an audit before mainnet).
+  const stakingLaunched = vaults.length > 0;
   const balance = portfolio.walletBalanceEth;
   // The token's pools, deepest first. The board shows one row per token, so
   // this is where its other pools are found (lib/pools.ts).
@@ -101,7 +104,9 @@ export function StakeDrawer() {
             <div className="dr-h">
               <TokenBadge token={pool.token} />
               <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{pool.token.symbol} / WETH</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  {pool.token.symbol} / {pool.quote === 'USDG' ? 'USDG' : 'WETH'}
+                </div>
                 <div style={{ fontSize: 12 }} className="muted">
                   {pool.token.name}
                 </div>
@@ -128,6 +133,7 @@ export function StakeDrawer() {
                         {feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours))}
                       </span>
                     )}
+                    {feeYieldReason(pool.feeYield) && <span className="est">{feeYieldReason(pool.feeYield)}</span>}
                   </div>
                 </div>
                 <div>
@@ -144,10 +150,54 @@ export function StakeDrawer() {
                 </div>
               </div>
 
+              {!canStake && (
+                <div className="note dr-why">
+                  {!stakingLaunched ? (
+                    <>
+                      <b>Staking isn&rsquo;t open yet</b>
+                      <p className="hint">
+                        {BRAND}&rsquo;s vaults — the contracts that hold a stake and pay it a share
+                        of the pool&rsquo;s fees — are still being built, and none goes live before an
+                        independent security audit. Until then this shows each pool&rsquo;s real
+                        trading, fees and depth, read from the chain. Nothing can be deposited yet.
+                      </p>
+                    </>
+                  ) : !pool.stakeable ? (
+                    <>
+                      <b>Not stakeable yet</b>
+                      <p className="hint">
+                        {pool.token.symbol} is still on its {pool.token.launchpad ?? 'launchpad'} curve.
+                        Pre-graduation liquidity is indexed here but cannot be staked until the pool
+                        graduates.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <b>No vault for this pool yet</b>
+                      <p className="hint">
+                        Staking into {pool.token.symbol} opens when its {BRAND} vault is deployed.
+                        The figures above are the pool&rsquo;s own; nothing can be staked here yet.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
               {siblings.length > 1 && (
                 <div className="dr-pools">
                   <div className="k">
                     {pool.token.symbol} trades in {siblings.length} pools · deepest first
+                  </div>
+                  <p className="hint dr-pools-why">
+                    Anyone can open a pool for a token, with its own trading fee and its own pair
+                    (WETH or USDG). Each pool is a separate market with its own liquidity — so its
+                    own trading, fees and yield. A higher fee earns more on each trade but usually
+                    draws less trading. Tap one to see it.
+                  </p>
+                  <div className="dr-pools-head" aria-hidden="true">
+                    <span>Fee · pair</span>
+                    <span>Depth</span>
+                    <span>Fee yield 7d</span>
                   </div>
                   {siblings.slice(0, 8).map((p) => (
                     <button
@@ -162,11 +212,19 @@ export function StakeDrawer() {
                       <span className="num">{usd(p.tvlUsd)}</span>
                       <span className="num" title={feeYieldTitle(p.feeYield)}>
                         {feeYieldValue(p.feeYield)}
+                        {p.feeYield.basis === 'estimate' && <span className="est-inline"> est.</span>}
+                        {feeYieldReason(p.feeYield) && <span className="sr-only"> — {feeYieldReason(p.feeYield)}</span>}
                       </span>
                     </button>
                   ))}
                   {siblings.length > 8 && (
                     <p className="hint">and {siblings.length - 8} smaller pools</p>
+                  )}
+                  {siblings.some((p) => p.feeYield.basis === 'insufficient') && (
+                    <p className="hint">&ldquo;—&rdquo; means a pool has under 24 hours of fees, or its depth is not known yet: too little for an honest yield figure.</p>
+                  )}
+                  {siblings.some((p) => p.feeYield.basis === 'estimate') && (
+                    <p className="hint">&ldquo;est.&rdquo; marks a pool younger than 7 days: its yield is worked out from the hours it has, not a full week.</p>
                   )}
                 </div>
               )}
@@ -220,26 +278,14 @@ export function StakeDrawer() {
                     it.
                   </p>
                 </>
-              ) : pool.stakeable ? (
-                <div className="note">
-                  <b>No vault for this pool yet</b>
-                  <p className="hint">
-                    Staking into {pool.token.symbol} opens when its {BRAND} vault is deployed.
-                    The figures above are the pool&rsquo;s own; nothing can be staked here yet.
-                  </p>
-                </div>
-              ) : (
-                <div className="note">
-                  <b>Not stakeable yet</b>
-                  <p className="hint">
-                    {pool.token.symbol} is still on its {pool.token.launchpad ?? 'launchpad'} curve.
-                    Pre-graduation liquidity is indexed here but cannot be staked until the pool
-                    graduates.
-                  </p>
-                </div>
-              )}
+              ) : null}
             </div>
 
+            {!canStake && (
+              <p className="dr-f-why">
+                {!stakingLaunched ? `Staking opens when ${BRAND} vaults launch, after an audit.` : 'No vault to stake into for this pool yet.'}
+              </p>
+            )}
             <div className="dr-f">
               <button
                 className="btn btn-ghost"

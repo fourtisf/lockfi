@@ -371,9 +371,9 @@ export function classifyYield(row: {
   window_hours: number;
   tvl_usd: number;
 }): FeeYield {
-  if (row.fee_yield_pct === null || row.age_hours < MIN_DATA_HOURS || row.tvl_usd <= 0) {
-    return { basis: 'insufficient' };
-  }
+  if (row.age_hours < MIN_DATA_HOURS) return { basis: 'insufficient', reason: 'young' };
+  if (row.tvl_usd <= 0) return { basis: 'insufficient', reason: 'no-depth' };
+  if (row.fee_yield_pct === null) return { basis: 'insufficient', reason: 'young' };
   if (row.age_hours < YIELD_WINDOW_HOURS) {
     return { basis: 'estimate', pct: row.fee_yield_pct, windowHours: row.window_hours };
   }

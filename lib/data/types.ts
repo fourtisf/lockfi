@@ -35,8 +35,12 @@ export interface TokenMeta {
  * component only renders it.
  */
 export type FeeYield =
-  /** Fewer than 24h of data. Display "—", never a number (§7). */
-  | { basis: 'insufficient' }
+  /**
+   * No honest figure: display "—", never a number (§7). `reason` says why,
+   * because a dash nobody can read is a number nobody can trust: under 24
+   * hours of fees, or a pool whose depth is not known.
+   */
+  | { basis: 'insufficient'; reason?: 'young' | 'no-depth' }
   /** Pool younger than 7d: annualised over what exists, labelled est. + age. */
   | { basis: 'estimate'; pct: number; windowHours: number }
   /** The real thing: fees_7d / tvl_now * 365/7. */

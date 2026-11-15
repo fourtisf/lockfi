@@ -1859,6 +1859,35 @@ now asks for $100 traded in 24 hours and Established for $1 of fees in 7
 days. A 0.0% that remains on a row with real volume is a price that did not
 move — a stable yield token does exactly that — and is shown as such.
 
+### Why the Stake button is grey, and why one token has many pools
+
+ALFA, on the live site: "why can't I stake, and why are they all different —
+there should be an explanation". Both answers were on the page and neither
+was readable.
+
+- **Why staking is closed** sat below the token's pool list, out of sight
+  under 85 CASHCAT pools, and on the live site it said "No vault for this
+  pool yet" — true of every pool, because no vault exists anywhere. The
+  drawer now says it first, directly under the four figures: *staking isn't
+  open yet* — the vaults that hold a stake and pay its share of fees are
+  still being built and none goes live before an independent audit; until
+  then this shows each pool's real trading, fees and depth, and nothing can
+  be deposited. The per-pool message remains for when some vaults exist and
+  this pool has none. A line beside the disabled button repeats the reason,
+  so it is visible without scrolling at any height.
+- **Why one token has many pools** — "CASHCAT trades in 85 pools · deepest
+  first" with yields from 926% to 1979% to a dash and no column names. It now
+  says that anyone can open a pool for a token with its own fee and pair,
+  that each is a separate market with its own liquidity and therefore its own
+  trading, fees and yield, and that a higher fee earns more per trade but
+  usually draws less. The columns are named (fee · pair, depth, fee yield
+  7d); an estimate carries `est.` and a line saying what it means.
+- **A dash says why.** `FeeYield`'s insufficient case carries a `reason` —
+  `young` (under 24 hours of fees) or `no-depth` (depth not known) — shown
+  under the drawer's dash and explained under the list. "Less than 24h of
+  data" had been the tooltip for both, and was wrong for the second.
+- The drawer's title named WETH as the pair for USDG pools too.
+
 ### The Tide header
 
 ALFA asked for a premium X header. `x-header-tide-{glass,gold}` is the inside
