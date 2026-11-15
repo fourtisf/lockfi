@@ -186,6 +186,7 @@ contract TidewellVaultTest is Fixture {
         assertEq(cut, (reward + cut) * 1000 / 10_000);
         assertEq(weth.balanceOf(treasury), cut);
         assertEq(vault.periodFinish(), block.timestamp + 7 days);
+        assertEq(vault.lastHarvestAt(), block.timestamp);
 
         // Half way: half the stream, give or take rounding.
         vm.warp(block.timestamp + 3.5 days);

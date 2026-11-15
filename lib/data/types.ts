@@ -46,12 +46,25 @@ export type FeeYield =
   /** The real thing: fees_7d / tvl_now * 365/7. */
   | { basis: 'trailing7d'; pct: number };
 
+/** A Uniswap v4 PoolKey, as a transaction needs it. Addresses lowercase. */
+export interface PoolKey {
+  /** address(0) for native ETH. */
+  currency0: `0x${string}`;
+  currency1: `0x${string}`;
+  /** In hundredths of a bip, as on chain (3000 = 0.30%). */
+  fee: number;
+  tickSpacing: number;
+  hooks: `0x${string}`;
+}
+
 export interface Pool {
   id: string;
   address: string;
   token: TokenMeta;
   quote: Quote;
   feeTierBps: number;
+  /** The v4 PoolKey, rebuilt from the indexer; absent for v3 and simulated pools. */
+  key?: PoolKey;
   protocol: Protocol;
   /** Pre-graduation launchpad liquidity is listed but cannot be staked (§4). */
   stakeable: boolean;
@@ -104,6 +117,12 @@ export interface Vault {
   rewardRate: number;
   nextHarvestInSeconds: number;
   protocolFeeBps: number;
+  /**
+   * How long a due harvest has not happened, in seconds; 0 when on schedule,
+   * null when unknown. A keeper that dies silently is a vault paying zero
+   * while displaying a yield (§8, P3), so this is shown, not hidden.
+   */
+  harvestLagSeconds?: number | null;
 }
 
 export interface UserStake {

@@ -256,3 +256,26 @@ describe('buildSnapshot', () => {
     expect(rebuilt!.pools.find((p) => p.id === target.id)!.change24hPct).toBeNull();
   });
 });
+
+describe('v4PoolKey', () => {
+  it('rebuilds the key whose hash is the pool id, native ETH included', async () => {
+    const { v4PoolKey } = await import('./snapshot');
+    const { encodeAbiParameters, keccak256 } = await import('viem');
+    const weth = '0x0bd7d308f8e1639fab988df18a8011f41eacad73';
+    const tkn = '0x00000000000000000000000000000000000000aa';
+    const zero = '0x0000000000000000000000000000000000000000';
+    const idOf = (c0: string, c1: string) =>
+      keccak256(encodeAbiParameters(
+        [{ type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'int24' }, { type: 'address' }],
+        [c0 as `0x${string}`, c1 as `0x${string}`, 3000, 60, zero],
+      ));
+    // A native pool, recorded by the indexer with WETH in currency0's place.
+    const native = v4PoolKey({ id: `v4:${idOf(zero, tkn)}`, token0: weth, token1: tkn, fee_tier: 3000, tick_spacing: 60, hooks: zero });
+    expect(native?.currency0).toBe(zero);
+    // A real WETH pool keeps WETH.
+    const wrapped = v4PoolKey({ id: `v4:${idOf(weth, tkn)}`, token0: weth, token1: tkn, fee_tier: 3000, tick_spacing: 60, hooks: null });
+    expect(wrapped?.currency0).toBe(weth);
+    // A key that hashes to neither is not guessed.
+    expect(v4PoolKey({ id: 'v4:0x' + '1'.repeat(64), token0: weth, token1: tkn, fee_tier: 3000, tick_spacing: 60, hooks: null })).toBeUndefined();
+  });
+});

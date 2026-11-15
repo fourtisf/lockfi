@@ -33,7 +33,17 @@ export const CONTRACTS = {
   stateView: '0xF3334192D15450CdD385c8B70e03f9A6bD9E673b',
   permit2: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
   multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
+  /**
+   * Uniswap v4 PositionManager ("Uniswap v4 Positions NFT"). Read off the
+   * UniversalRouter's V4_POSITION_MANAGER() on chain; its poolManager(),
+   * permit2() and WETH9() match the addresses above.
+   */
+  positionManager: '0x58daec3116aae6D93017bAAea7749052E8a04fA7',
 } as const;
+
+/** The public RPC the browser's wallet layer reads through. */
+export const PUBLIC_RPC = 'https://rpc.mainnet.chain.robinhood.com';
+export const EXPLORER = 'https://robinhoodchain.blockscout.com';
 
 export type ContractName = keyof typeof CONTRACTS;
 

@@ -21,11 +21,13 @@
  * no harvest payouts — the components already have empty states for that.
  */
 
+import { encodeAbiParameters, keccak256 } from 'viem';
 import { CONTRACTS, PROTOCOL_FEE_BPS, REWARD_WINDOW_SECONDS } from '../../lib/chain';
 import type {
   FeeYield,
   MarketSnapshot,
   Pool,
+  PoolKey,
   Portfolio,
   Quote,
   RouterPlan,
@@ -56,6 +58,10 @@ interface PoolQueryRow {
   address: string;
   protocol: string;
   fee_tier: number;
+  token0: string;
+  token1: string;
+  tick_spacing: number;
+  hooks: string | null;
   stakeable: boolean;
   token_address: string;
   symbol: string;
@@ -283,6 +289,10 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       p.address,
       p.protocol,
       p.fee_tier,
+      p.token0,
+      p.token1,
+      p.tick_spacing,
+      p.hooks,
       p.stakeable,
       -- The traded side, by the one rule in aggregate.ts. Using a different
       -- rule here is how the WETH/USDG row once read "WETH · $1.00".
@@ -380,6 +390,39 @@ export function classifyYield(row: {
   return { basis: 'trailing7d', pct: row.fee_yield_pct };
 }
 
+const ZERO = '0x0000000000000000000000000000000000000000' as const;
+
+/**
+ * The v4 PoolKey a transaction needs, rebuilt from the pool row.
+ *
+ * The indexer records a native-ETH side as WETH so prices flow through one
+ * anchor (events.ts, pricedCurrencies) — which loses the one fact a mint
+ * needs: whether currency0 is address(0). The pool id is keccak256 of the
+ * key, so it settles it: whichever candidate hashes to the id is the key.
+ */
+export function v4PoolKey(row: Pick<PoolQueryRow, 'id' | 'token0' | 'token1' | 'fee_tier' | 'tick_spacing' | 'hooks'>): PoolKey | undefined {
+  const id = row.id.replace(/^v4:/, '').toLowerCase();
+  const hooks = (row.hooks ?? ZERO) as `0x${string}`;
+  const candidates = [row.token0, ZERO];
+  for (const currency0 of candidates) {
+    const key: PoolKey = {
+      currency0: currency0.toLowerCase() as `0x${string}`,
+      currency1: row.token1.toLowerCase() as `0x${string}`,
+      fee: row.fee_tier,
+      tickSpacing: row.tick_spacing,
+      hooks: hooks.toLowerCase() as `0x${string}`,
+    };
+    const hash = keccak256(
+      encodeAbiParameters(
+        [{ type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'int24' }, { type: 'address' }],
+        [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks],
+      ),
+    );
+    if (hash.toLowerCase() === id) return key;
+  }
+  return undefined;
+}
+
 function toPool(row: PoolQueryRow): Pool {
   return {
     id: row.id,
@@ -396,6 +439,7 @@ function toPool(row: PoolQueryRow): Pool {
     quote: (row.quote_symbol ?? 'ETH') as Quote,
     // Pool fees are in hundredths of a bip on chain; the UI wants bips.
     feeTierBps: Math.round(row.fee_tier / 100),
+    key: row.protocol === 'v4' ? v4PoolKey(row) : undefined,
     protocol: row.protocol === 'v3' ? 'v3' : 'v4',
     stakeable: row.stakeable,
     ageHours: row.age_hours,

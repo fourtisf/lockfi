@@ -117,6 +117,10 @@ contract TidewellVault is IUnlockCallback {
     uint256 public pendingEthFees;
     /// @notice Token-side fees held, converted to ETH at the next harvest.
     uint256 public pendingTokenFees;
+    /// @notice When the keeper last harvested. The site shows how overdue the
+    ///         next one is: a keeper that dies silently is a vault paying
+    ///         nothing while its page still shows a yield (§8, P3).
+    uint256 public lastHarvestAt;
 
     uint256 private locked = 1;
 
@@ -404,6 +408,7 @@ contract TidewellVault is IUnlockCallback {
     {
         if (msg.sender != keeper) revert NotKeeper();
         _updateReward(address(0));
+        lastHarvestAt = block.timestamp;
 
         bytes memory result = poolManager.unlock(abi.encode(Action.Harvest, address(0), uint128(0)));
         (uint256 ethFees, uint256 tokenSold, uint256 ethFromTokens) = abi.decode(result, (uint256, uint256, uint256));
