@@ -17,7 +17,7 @@ forge test
 - `FOUNDRY_PROFILE=p2 forge test --match-contract Invariant` runs the vault
   invariant suite at 10,000 runs × 64 calls (CLAUDE.md §9; about ten minutes).
 - `FORK_RPC=https://rpc.mainnet.chain.robinhood.com forge test --match-path 'test/fork/*'`
-  rehearses stake → harvest → claim → withdraw, a shaped mint and a router
+  rehearses stake → real trades → claim → withdraw, a shaped mint and a router
   route against the real Robinhood Chain contracts and pool, on a fork.
 - After changing a contract: `node ../scripts/export-abis.mjs` so the site and
   keeper use the ABIs that were built.
@@ -33,10 +33,10 @@ acknowledgement is given** — CLAUDE.md §8 P5, §20. A dry run (no
 
 | Variable | Meaning |
 |---|---|
-| `OWNER` | Vault owner — a multisig. Sets keeper, treasury, fee (≤ cap). Cannot touch funds. |
-| `KEEPER` | The keeper's address: a fresh hot wallet holding only gas. Its key goes in the server's `.env` as `KEEPER_PRIVATE_KEY`. |
+| `OWNER` | Vault owner — a multisig. Sets treasury, fee (≤ cap), closes new deposits. Cannot touch funds. |
+| `KEEPER` | Optional. The keeper new token-team routers name (vaults need none): a fresh hot wallet holding only gas, its key in the server's `.env` as `KEEPER_PRIVATE_KEY`. Recorded in the deployment for the router page. |
 | `TREASURY` | Receives the protocol fee. |
-| `PROTOCOL_FEE_BPS` | Default 1000 (10% of harvested fees). |
+| `PROTOCOL_FEE_BPS` | Default 1000 (10% of fees as they are collected). |
 | `PROTOCOL_FEE_CAP_BPS` | Default 2000. **Fixed forever per vault.** Confirm before deploying (§10). |
 | `VAULT_POOLS` | `currency0:currency1:fee:tickSpacing,...` — hookless pools with an ETH or WETH side. |
 | `POOL_MANAGER`, `POSITION_MANAGER`, `PERMIT2`, `WETH` | Only off mainnet: that chain's Uniswap addresses. |
@@ -108,5 +108,5 @@ node scripts/apply-deployment.mjs <chainId>
 This merges `contracts/deployments/<chainId>.json` into
 `config/deployments.json` (it refuses a 4663 deployment without an audit
 report too). Commit, push, and run the usual `deploy/deploy.sh` on the server;
-set `KEEPER_PRIVATE_KEY` in the server's `.env` first so the keeper starts
-harvesting.
+`deploy/contracts.sh` has already put `KEEPER_PRIVATE_KEY` in the server's
+`.env`; the keeper idles until a token team creates a router.

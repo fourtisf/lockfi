@@ -1995,20 +1995,17 @@ A Foundry project against Uniswap v4-core and v4-periphery (submodules,
 `v4-periphery` pinned at `c6e4754`, `forge-std` v1.9.7). §3's four contracts,
 named per §19:
 
-- **`TidewellVault`** — one per pool. Stakers' liquidity sits in a single
-  **full-range** position the vault owns in the PoolManager (passive, never
-  out of range). Shares are liquidity units, so there is no exchange rate to
-  attack. Any change to the position collects every fee it has earned; those
-  are held as `pendingEthFees` / `pendingTokenFees` for the next harvest, not
-  handed to whoever triggered the change. `harvest(minEthFromTokens,
-  deadline)` (keeper only) sells the token side for ETH in the same pool,
-  wraps, sends `protocolFeeBps` to the treasury and streams the rest over 7
-  days (Synthetix). Two departures from stock Synthetix, both so nothing is
-  lost: the remainder of `reward / 7 days` and anything streamed while nobody
-  is staked go to `queuedRewards` and into the next stream; per-account
-  rewards are kept scaled by 1e18, which is what makes §3.5's "claim every
-  hour = never claim" exact rather than "within a few wei". Vaults accept
-  hookless pools with an ETH or WETH side only.
+- **`TidewellVault`** — one per hookless pool. Stakers' liquidity sits in a
+  single **full-range** position the vault owns in the PoolManager (passive,
+  never out of range). Shares are liquidity units, so there is no exchange
+  rate to attack. **Fees are credited per share at the moment they are
+  collected** — every deposit, withdraw, claim and `poke` first collects what
+  the position earned and credits it to the shares as they stood — and are
+  claimable any time, in the pool's two tokens, after withdrawing too. They
+  are held as the PoolManager's ERC-6909 claims and paid PoolManager →
+  claimant. 10% of fees as collected go to the treasury (`payProtocolFees`).
+  No harvest, no swap, no stream, no keeper. (The first version streamed WETH
+  over 7 days; see *The pre-audit review* below for why it went.)
 - **`TidewellZap`** — `zapStake` (one token into a vault) and §3.1's
   `zapMint` (one token into a v4 position NFT for the caller), with a
   `minLiquidity` guard.
@@ -2032,24 +2029,111 @@ whose `poolManager()`, `permit2()` and `WETH9()` match §2. It is in
 ### What is proven
 
 - **§9's P2 criterion**: the vault invariant suite at 10,000 runs × 64 calls
-  (640,000 calls per invariant), 50 wallets depositing, withdrawing,
-  claiming, exiting, trading, harvesting, changing the fee and warping time
-  in random order — 0 reverts, all five invariants hold, and after every run
-  every wallet exits and is paid exactly `earned`.
-- **§9's P3 criterion, the on-chain half**: after 48 hours without a keeper,
-  one harvest collects exactly the fees the PoolManager's own fee growth says
-  the position earned; a second collects only what accrued since. (Not zero:
-  the harvest's own swap pays a fee to the pool, part of which lands on the
-  vault's position. The first version of the test asserted zero and was
-  wrong about the property, not the contract.)
+  (640,000 calls per invariant), 50 wallets depositing (for themselves and for
+  each other), withdrawing, claiming, exiting, trading, poking, paying the
+  protocol, changing the fee and warping time in random order — 0 reverts;
+  shares sum to supply, position liquidity equals supply, the fee never
+  exceeds the cap, the vault can always pay every fee owed in both tokens,
+  nothing beyond dust is stranded, and after every run every wallet exits and
+  is paid exactly what `owed` said.
+- **§9's P3 criterion** needs no keeper now: after 48 hours in which nobody
+  touched the vault, one claim collects exactly the fees the PoolManager's
+  own fee growth says the position earned (the staker's 90%), and a second
+  pays nothing.
 - **§3.5**, every line, mapped to its test in `docs/audit/README.md`. A
   60-bin shaped mint costs 8.1M gas; ArbOS caps a transaction at 32M (the
   block header's 2^50 is not the limit).
 - **A rehearsal on a fork of mainnet** (`test/fork/`): stake through the zap
-  into the real native ETH/USDG 0.05% pool, real swaps, harvest, seven days,
-  exit — the reward is real fees and the user is paid exactly what they
-  earned; a 5-bin shaped mint through the real PositionManager; a router
-  route. All pass.
+  into the real native ETH/USDG 0.05% pool, real swaps, claim — real fees in
+  ETH and USDG, paid exactly as `claimable` quoted, 10% to the treasury; a
+  5-bin shaped mint through the real PositionManager; a router route. All
+  pass.
+- **Mutation testing**: 35 planted bugs, each must fail the suite — 35 of 35
+  do (`docs/audit/SLITHER.md`). **Slither**: 68 results triaged, none
+  exploitable. **Fuzzing**: no deposit/withdraw returns more than was put in;
+  no late arrival, however large or however long it stays, gets fees earned
+  before it; the zap and shaper never keep anything.
+
+### The pre-audit review, and the redesign it forced
+
+An independent review, with each serious finding proven by a test
+(`docs/audit/PRE_AUDIT_REVIEW.md`):
+
+1. **High — the router's TWAP was writable by anyone.** `poke()` was public:
+   swap, poke, swap back in one transaction recorded any price. Proven: a
+   25 ETH route in a 0.05% pool netted the attacker +2.53 ETH. Now `poke()`
+   is keeper-only, each observation moves at most `maxTwapDeviationTicks`
+   (truncated oracle), the window is exactly 30 minutes by interpolation, and
+   swap-hook pools are refused. All five proof tests revert.
+2. **Medium — §3.3's 7-day stream did not stop sniping; it caused
+   forfeiture.** A deposit 9× Alice's just before a harvest took 90.4% of fees
+   she alone earned; exiting after a harvest forfeited one's own fees — an
+   exit fee in effect. **ALFA chose per-share crediting** (the vault above).
+   The same whale now gets 0.
+3. **Medium — the harvest's token sale could be sandwiched** by a compromised
+   keeper. Gone with the harvest.
+4. **Low — a token issuer freezing the vault's address blocked every
+   withdraw.** Fees are ERC-6909 claims now; tested with a freezable token.
+5–6. **Low** — TWAP window not bounded; swap hooks allowed. Fixed (above).
+
+**§3.3's stream and §8's P3 harvest keeper are superseded** by this. The
+spec's reason for the stream ("stops a wallet from depositing right before a
+harvest, claiming, and leaving") was shown not to hold, and per-share
+crediting achieves it exactly.
+
+### The keeper drives routers only
+
+`server/keeper/` (PM2 `balast-keeper`): per router, `poke()` when its newest
+observation is 240 s old (300 s left only five samples in the window after
+loop jitter) and `route()` when `due()` and not paused; every send simulated
+first, the decoded revert recorded in `keeper_runs`. With no key, or a key
+that is not the router's `keeper()`, it records one skipped run an hour and
+sends nothing; with no router factory it idles and says why once. Vaults need
+no keeper. `/api/health` reports routers (observation age, last route, last
+reason) and answers 503 `keeper-overdue` for a router unobserved for an hour;
+a stalled indexer outranks it.
+
+The indexer reads vault, factory and router events into `contract_events`
+and rebuilds `vaults` and `stakes` from them (staked liquidity, stakers, fees
+collected and protocol cut per token, claims), byte-identical on replay.
+Migration `20261115200000_p3_keeper` was edited in place before any box
+applied it.
+
+### The wallet and the pages
+
+wagmi 2.19.5 + @tanstack/react-query 5.105.0, injected wallets only (EIP-6963
+discovery), Robinhood Chain defined in `lib/wallet/chain.ts`. Per-wallet
+state is read from chain in the browser, never put in the public snapshot.
+All vault calls go through `lib/contracts/vault.ts`.
+
+- **Stake** is one token in through `zapStake`, with `minLiquidity` from a
+  simulation less 0.5%, and **a 2% price-impact refusal** (`MAX_ZAP_LOSS_BPS`):
+  the fork showed 500 ETH into the deepest ETH/USDG pool keeping 1.4% of its
+  value, which `minLiquidity` cannot catch because it is quoted with that
+  impact included. **Minimum deposit $10** (`MIN_DEPOSIT_USD`), at the
+  snapshot's ETH price; with no price, it says so.
+- **Claim** shows two token amounts plus a USD total (`claimable` includes
+  fees not yet collected). **Compound** is claim, then zap the ETH side back:
+  two signatures, said plainly. **Withdraw** all or part, mins less 0.5%.
+- **Mint** converts the page's shape into tick bins at the live price (the
+  split at mint is computed from those bins; the old rough split could revert
+  `EmptyBin`), merges collapsed bins, ≤ 60, weights summing to 10,000.
+- **Router** calls `createRouter`; USD milestones are converted to WETH at
+  today's price and the page says so; the keeper address comes from
+  `config/deployments.json`'s `keeper`.
+- Exact-amount approvals only; Max keeps 0.001 ETH for gas; Stake waits for
+  the vault's live `protocolFeeBps()`; "Not yet independently audited — use
+  at your own risk" beside every signing button while `audited: false`.
+- **The vault rows show the pool's fee yield labelled as the pool average.**
+  A full-range position earns less per dollar than the average when other
+  LPs concentrate near the price; the honest per-vault figure (each swap's
+  fee × full-range liquidity ÷ active liquidity, from `swap_events`) is open.
+- Minted positions are not listed in the portfolio yet: the PositionManager
+  cannot enumerate a wallet's NFTs, so that needs the indexer.
+
+Verified: 408 unit tests, both builds, 45 Playwright tests (5 new, with a
+mock EIP-6963 wallet), and every flow driven through the real UI in Chromium
+against these contracts deployed on a fork of mainnet.
 
 ### Tooling note
 
