@@ -2,10 +2,12 @@
 
 *Cover: `brand/article-cover-glass-1500.png` (or the gold finish), 5:2, offered on tidewell.live/brand.*
 
-*Every claim below is a property of the contracts and the site as built
-(CLAUDE.md §1, §7, §20–§24). No yield figure appears on purpose: §1 forbids
-a forward one, and a trailing one would be out of date the day after posting.
-If something changes — a new vault, an audit — change this before reposting.*
+*Every claim below is true of Tidewell as built (CLAUDE.md §1, §7,
+§20–§24). No yield figure appears on purpose: §1 forbids a forward one, and a
+trailing one would be out of date the day after posting. The copy names no
+contracts and lists no addresses, at ALFA's request; the audit disclaimer
+stays, reworded, because a reader deciding whether to deposit needs it. If
+something changes — a new vault, an audit — change this before reposting.*
 
 ---
 
@@ -64,8 +66,8 @@ A stake goes into a Tidewell vault, one vault per pool.
   fees you have already earned.
 
 Tidewell keeps 10% of the fees a vault collects, and never touches your
-deposit. That 10% is capped at 20% inside each vault's contract, and the cap
-can never be raised.
+deposit. That 10% is capped at 20%, fixed when each vault is created, and
+the cap can never be raised.
 
 Live today: two vaults on the ETH / USDG pools (0.05% and 0.046% fee tiers).
 
@@ -111,8 +113,8 @@ the number can be trusted:
 - The owner can pause *new* deposits. Withdrawals and claims cannot be
   paused by anyone.
 
-**Be clear about the risk.** Tidewell's contracts are **not yet independently
-audited**. Use them at your own risk, and with amounts you can afford to
+**Be clear about the risk.** Tidewell has **not yet been independently
+audited**. Use it at your own risk, and with amounts you can afford to
 lose. Providing liquidity is not risk-free: if a token's price falls, your
 position's value falls with it. Fees soften that; they do not remove it.
 
@@ -126,19 +128,8 @@ position's value falls with it. Fees soften that; they do not remove it.
 4. **Track it:** *Portfolio* shows what you hold, the fees you have earned,
    and Claim, Collect and Withdraw, all in one place.
 
-### Contracts
-
-Verify these against the site before you sign anything.
-
-| Contract | Address |
-|---|---|
-| TidewellZap | `0xd66dD61F88d1CF615e2098fdC10806D8ef043D3C` |
-| TidewellShaper | `0x89bAC15372Fd3770C871f0cc78c27c2Adb324A01` |
-| Vault, ETH / USDG 0.05% | `0x901deabd094Bd204CBe02854b1924E5AB4C41597` |
-| Vault, ETH / USDG 0.046% | `0xff36537B0135F04021431461fC28EfFEff9D9A5c` |
-
-Only trust contract addresses shown on **tidewell.live** and posted by
-**@usetidewell**.
+Only use **tidewell.live**, and follow **@usetidewell** for announcements.
+Anything else claiming to be Tidewell is not.
 
 ---
 

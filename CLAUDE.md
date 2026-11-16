@@ -2932,10 +2932,11 @@ ALFA asked for a premium banner for an article, and the article's copy.
   fetches every file `/brand` offers passes.
 - **The copy** is `docs/articles/introducing-tidewell.md`: two versions of
   the post that links it, then the article — what Tidewell is, Stakes,
-  Positions, the honest-numbers rules, custody, the risk, how to start, and
-  the contract addresses (checked against `config/deployments.json` and for
-  their checksums). Every claim is a property of the contracts and the site
-  as built; it says plainly that the contracts are **not yet independently
+  Positions, the honest-numbers rules, custody, the risk and how to start.
+  At ALFA's request it names no contracts and lists no addresses (an earlier
+  version did); the audit disclaimer stays, reworded as "Tidewell has not yet
+  been independently audited". Every claim is a property of the contracts and
+  the site as built; it says plainly that the contracts are **not yet independently
   audited**, carries **no yield figure** (§1 forbids a forward one; a
   trailing one would be stale the day after posting), and does not promote
   the router, which §22 recommends nobody uses until its new factory exists.
