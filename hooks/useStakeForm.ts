@@ -137,10 +137,25 @@ export function useStakeForm(pool: Pool | null) {
       if (c === pool.token.address.toLowerCase()) return pool.priceUsd > 0 ? pool.priceUsd : null;
       return pool.quote === 'USDG' ? 1 : null;
     };
+    // A symbol while the chain is still being asked: the pool's own token by
+    // name, and the other side of a USDG pool as USDG. A vault the watcher has
+    // not read yet (one deployed minutes ago) showed "token | token | token +
+    // token" until the browser's own reads answered. Decimals are never
+    // guessed: until they are read, nothing can be signed.
+    const fallbackSymbol = (currency: string): string | undefined => {
+      const c = currency.toLowerCase();
+      if (c === pool.token.address.toLowerCase()) return pool.token.symbol;
+      if (pool.quote === 'USDG' && c !== zeroAddress && c !== CONTRACTS.weth.toLowerCase()) return 'USDG';
+      return undefined;
+    };
     const known = [key.currency0, key.currency1].map((c, i) => {
       const l = live?.find((x) => x.address === c.toLowerCase());
       const r = reads[i];
-      return { symbol: l?.symbol ?? r?.symbol ?? undefined, decimals: l?.decimals ?? r?.decimals ?? null, priceUsd: priceFor(c) };
+      return {
+        symbol: l?.symbol ?? r?.symbol ?? fallbackSymbol(c),
+        decimals: l?.decimals ?? r?.decimals ?? null,
+        priceUsd: priceFor(c),
+      };
     });
     return depositSides(key, known);
   }, [pool, mode, key, vault?.live?.currencies, reads, ethPrice]);

@@ -91,6 +91,20 @@ describe('snapshot vaults', () => {
       rewardRate: 0,
       nextHarvestInSeconds: 0,
       harvestLagSeconds: null,
+      // §32: what the vault has done since deployment, from its events, as
+      // exact integer strings for the stats page to value.
+      totals: {
+        feesCollected: ['6000000000000000000', '1500000000000000'],
+        protocolCut: ['600000000000000000', '150000000000000'],
+        claimed: ['0', '0'],
+        protocolPaid: ['0', '0'],
+        depositsOpen: true,
+        stakedSince: new Date(AS_OF.getTime() - 10 * 86_400_000).toISOString(),
+        lastCollectedAt: new Date(AS_OF.getTime() - 3_600_000).toISOString(),
+        readTo: AS_OF.toISOString(),
+        everStakers: 0,
+        deposits: 0,
+      },
     });
     expect(snapshot.featured.stakers).toBe(7);
   });

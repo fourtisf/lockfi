@@ -854,3 +854,44 @@ details.dr-pools[open] summary .dr-pools-more{display:none}
   .pg-rows .ca-label{flex-basis:100%;max-width:none;white-space:normal}
   .pg-rows .ca-addr{margin-left:0;margin-right:auto;white-space:nowrap}
 }
+
+/* §32: the token page. */
+.tk-id{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tk-sym{margin:0;font-family:var(--disp);font-size:22px;letter-spacing:-.01em}
+.tk-name{font-size:13px}
+.tk-acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.tk-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.tk-stats .pg-sub .chg{font-size:12px}
+.tk-chart-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tk-chart-h .seg{margin-left:auto}
+.tk-pools .n{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:600}
+.pc-area{position:relative}
+.pc-lim{position:absolute;right:0;transform:translateY(-50%);font-size:11.5px;color:var(--fg-3);background:var(--panel);padding:0 2px}
+@media (max-width:900px){.tk-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.tk-hide{display:none}.tk-acts{margin-left:0}}
+.dr-tok{color:var(--ac);text-decoration:underline;text-underline-offset:2px}
+.sh-card img{width:100%;height:auto;border-radius:10px;display:block}
+/* §32: the stats page. */
+.st-sum{grid-template-columns:repeat(4,minmax(0,1fr))}
+.st-tbl .n{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:600}
+.st-tbl .s{font-size:12px;color:var(--fg-3)}
+.pg-note a{color:var(--ac);text-decoration:underline;text-underline-offset:2px}
+@media (max-width:900px){.st-sum{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.st-hide{display:none}}
+/* §32: the token page's and stats page's tables fold into labelled cards on a
+   phone, as "Your stakes" does: no column set fits 360px honestly. */
+.pg-stack>*{min-width:0}
+@media (max-width:700px){
+  .tbl.stack-sm,.tbl.stack-sm tbody,.tbl.stack-sm tr,.tbl.stack-sm td{display:block;width:auto}
+  .tbl.stack-sm thead{display:none}
+  .tbl.stack-sm tr{border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin:10px 0}
+  .tbl.stack-sm td{border-bottom:0;padding:4px 0;text-align:left}
+  .tbl.stack-sm td.r{text-align:left}
+  .tbl.stack-sm td[data-label]::before{content:attr(data-label);display:block;font:600 12px var(--sans);color:var(--fg-3);margin-bottom:2px;position:static;width:auto;background:none;opacity:1}
+  .tbl.stack-sm .tk-hide,.tbl.stack-sm .st-hide{display:block}
+}
+/* A live top bar at 360px carries the lag chip ("7d behind") where the
+   simulator's says "Sim", and was 15px too wide on every page: the search box
+   gives up the room, it still opens the search. */
+@media (max-width:400px){.search{min-width:64px;padding:0 10px}.lag{padding:0 9px}}
+.tk-more{margin-top:12px}

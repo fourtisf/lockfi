@@ -37,14 +37,14 @@ function remembered(): MarketSnapshot | null {
   return lastGood && Date.now() - lastGood.at < LAST_GOOD_MAX_AGE_MS ? lastGood.snapshot : null;
 }
 
-function apiUrl(): string {
+export function internalApiUrl(): string {
   return process.env.API_INTERNAL_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? '3001'}`;
 }
 
 export async function initialSnapshot(): Promise<MarketSnapshot | null> {
   if (DATA_SOURCE !== 'live') return null;
   try {
-    const response = await fetch(`${apiUrl()}/api/snapshot`, {
+    const response = await fetch(`${internalApiUrl()}/api/snapshot`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

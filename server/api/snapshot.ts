@@ -566,6 +566,14 @@ function toPool(row: PoolQueryRow): Pool {
  */
 async function queryVaults(): Promise<Vault[]> {
   const rows = await prisma.vault.findMany({ orderBy: { poolId: 'asc' } });
+  // Wallets that have ever staked and deposits made, per vault (the
+  // `(contract, kind, block_num)` index serves it).
+  const counts = await prisma.$queryRaw<{ contract: string; wallets: number; deposits: number }[]>`
+    SELECT contract, COUNT(DISTINCT account)::int AS wallets, COUNT(*)::int AS deposits
+    FROM contract_events WHERE kind = 'Deposited' GROUP BY contract
+  `;
+  const byVault = new Map(counts.map((c) => [c.contract.toLowerCase(), c]));
+  const s = (d: { toFixed(): string }) => d.toFixed();
   return rows.map((v) => ({
     id: `vault-${v.poolId}`,
     poolId: v.poolId,
@@ -583,6 +591,18 @@ async function queryVaults(): Promise<Vault[]> {
     rewardRate: 0,
     nextHarvestInSeconds: 0,
     harvestLagSeconds: null,
+    totals: {
+      feesCollected: [s(v.feesCollected0), s(v.feesCollected1)],
+      protocolCut: [s(v.protocolCut0), s(v.protocolCut1)],
+      claimed: [s(v.claimed0), s(v.claimed1)],
+      protocolPaid: [s(v.protocolPaid0), s(v.protocolPaid1)],
+      depositsOpen: v.depositsOpen,
+      stakedSince: v.stakedSince?.toISOString() ?? null,
+      lastCollectedAt: v.lastCollectedAt?.toISOString() ?? null,
+      readTo: v.updatedAt.toISOString(),
+      everStakers: byVault.get(v.address.toLowerCase())?.wallets ?? 0,
+      deposits: byVault.get(v.address.toLowerCase())?.deposits ?? 0,
+    },
   }));
 }
 

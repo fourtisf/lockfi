@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
@@ -170,7 +171,10 @@ export function StakeDrawer() {
                   {pairLabel(pool)}
                 </div>
                 <div style={{ fontSize: 12 }} className="muted">
-                  {pool.token.name}
+                  {pool.token.name} ·{' '}
+                  <Link className="dr-tok" href={`/token/${pool.token.address}`} onClick={closeStake}>
+                    Token page
+                  </Link>
                 </div>
                 {/* The token's own move, the figure a trader looks for first:
                     its price and 24h change, then its valuation. */}

@@ -20,6 +20,7 @@ export function Footer() {
         <Link href="/contracts">Contracts</Link>
         {/* No "Audit" link until there is an audit to link to (§8, P5). */}
         <Link href="/docs">Docs</Link>
+        <Link href="/stats">Stats</Link>
         <Link href="/status">Status</Link>
         <XLink />
         <TelegramLink />

@@ -13,22 +13,53 @@ import { MyStakes } from '@/components/stakes/MyStakes';
 import { FEE_DIGITS, signedPct, signedUsd, tone, usdExact, usdFee, weth } from '@/lib/format';
 import { weekOverWeek } from '@/lib/portfolio';
 import { claimableLabel, walletTotals } from '@/lib/wallet/portfolio';
+import { useWallet } from '@/hooks/useWallet';
+import { BRAND, SITE_URL } from '@/lib/site';
+import { xPostHref } from '@/lib/x';
 
-/** A share card is a preview: nothing renders or posts one yet. */
+/**
+ * Share what this wallet has earned (§32): an X post linking to the wallet's
+ * share page, whose card is worked out on the server from the chain — so
+ * the post cannot carry a figure the chain does not. In the simulator it is
+ * a preview, like every other action there.
+ */
 export function ShareCardButton() {
   const { act } = useUi();
-  const { portfolio } = usePortfolio();
-  // Nothing to share is not a card worth offering.
-  const empty = portfolio.stakes.length === 0 && portfolio.positions.length === 0;
+  const { portfolio, source, stakes } = usePortfolio();
+  const { address } = useWallet();
+  const { history } = useWalletHistory();
+  if (source === 'sim') {
+    const empty = portfolio.stakes.length === 0 && portfolio.positions.length === 0;
+    return (
+      <button className="btn btn-quiet" disabled={empty} onClick={() => act('Sharing an earnings card')}>
+        Share earnings
+      </button>
+    );
+  }
+  // Something staked now, or a stake in the vaults' history (fees kept after a withdrawal).
+  const has = stakes.length > 0 || (history?.vaults.length ?? 0) > 0;
+  if (!address || !has) {
+    return (
+      <button className="btn btn-quiet" disabled title={address ? 'Nothing staked yet' : 'Connect a wallet first'}>
+        Share earnings
+      </button>
+    );
+  }
+  const url = `${SITE_URL}/share/${address}`;
   return (
-    <button
-      className="btn btn-quiet"
-      disabled={empty}
-      title={empty ? 'Nothing staked or minted yet' : undefined}
-      onClick={() => act('Sharing a PnL card')}
-    >
-      Share PnL card
-    </button>
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <a className="btn btn-quiet" href={`/share/${address}`} target="_blank" rel="noopener">
+        View card
+      </a>
+      <a
+        className="btn btn-brand"
+        href={xPostHref(`Earning real swap fees on ${BRAND}. No emissions, withdraw any time.`, url)}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Share on X ↗
+      </a>
+    </div>
   );
 }
 

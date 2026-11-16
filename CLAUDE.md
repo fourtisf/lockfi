@@ -3211,3 +3211,147 @@ Pons graduates into a hookless pool is not knowable until it happens.
 - **Alerts to Telegram** (indexer stalled, keeper overdue): need a bot token
   from ALFA. `deploy/monitor.sh` already detects both.
 - **The external audit**: only an independent auditor can do it.
+
+---
+
+## 32. More vaults, a page per token, share cards, and the stats page
+
+ALFA picked four of the suggestions: vaults for popular tokens, a page per
+token, a card a staker can share, and a transparency page.
+
+### Vaults for the tokens people click (ALFA runs it)
+
+`deploy/vault-pools.mjs`, run against the live pool list, picks:
+
+| Token | Pool | Why |
+|---|---|---|
+| CASHCAT | CASHCAT / ETH · 2% | ETH pool holds over a quarter of the deepest (USDG) one |
+| PONS | PONS / ETH · 1.0128% | same rule |
+| MSTR | MSTR / ETH · 0.25% | same rule |
+| NVDA, AAPL, TSLA, SPY, META | their USDG pools · 0.3% | the ETH pools are thin |
+| SPCX | SPCX / USDG · 1% | same |
+
+Every stock pick is the official Robinhood token. Each address was checked
+against `config/robinhood-stocks.json`, the registry read from the stock
+factory's `Deployed` events. Where several contracts share a symbol, the
+picker took the one holding far more depth than the next: five CASHCATs and
+eight PONS. The figures behind the choice are as of the indexer's last swap
+read, a week behind.
+
+**A vault with no ETH side was never staked into through the UI before.**
+So `add-vaults.sh NVDA MSTR` was run against a fork of mainnet at head. It
+cost 0.00039 ETH for both vaults. The live build was then driven in Chromium
+with a fresh wallet holding ETH, USDG and NVDA. Every step confirmed on the
+fork:
+
+- The board's NVDA Stake opened **NVDA / USDG**, with the routes USDG, NVDA
+  and USDG + NVDA.
+- 20 USDG went in through the zap, after an exact-amount approval.
+- 0.1 NVDA went in through the zap. 0.05 NVDA was correctly refused under
+  the $10 minimum, at $9.38.
+- 0.1 NVDA went in with 15.91 USDG matched by the vault: two ERC-20
+  approvals, no swap.
+- 0.01 ETH went into MSTR / ETH.
+- The portfolio listed both stakes, and **Withdraw all** from NVDA / USDG
+  took the shares to zero and returned both tokens.
+
+One fix came out of it. Before the vault watcher has read a new vault, the
+route buttons read "token | token | token + token" until the browser's own
+chain reads answered. The pool's token and the USDG side are now named from
+the snapshot meanwhile (`useStakeForm`). Decimals are never guessed: nothing
+can be signed until they are read.
+
+**Nothing was deployed on mainnet.** That is ALFA's to run:
+`bash deploy/add-vaults.sh CASHCAT PONS MSTR NVDA` (or any subset), then send
+back the record it prints so it can go in `config/deployments.json`.
+
+### `/token/<address>`
+
+A shareable page per token:
+
+- **Figures.** Price, 24h move and FDV come from the token's deepest pool,
+  the same pool and figures its board row shows. Depth, volume and fees are
+  summed over all its pools.
+- **Contract.** The CA, to copy and open on the explorer.
+- **Price chart.** 24h or 7d, served by `GET /api/chart/:poolId`
+  (`server/api/chart.ts`):
+  - Each point is the hour's last swap, in dollars through the one allowed
+    path (§4.3), from `swap_events`.
+  - The chart ends at the last swap read, like every other figure.
+  - An hour with no trade has no point.
+  - It is drawn by `PriceChart`, which is not zero-anchored, so it prints
+    the high and the low beside the line.
+- **Pools.** Every pool the token trades in, deepest first, eight shown and
+  the rest on request. Each says what can be done there: Stake where a vault
+  is, Add liquidity where the shaper can mint, or why neither ("no ETH side",
+  "Uniswap v3", "on its launchpad").
+- **Entry point.** The stake drawer links to it ("Token page"). The board
+  row's token cell is already a button, and a link cannot go inside it.
+- **Link card.** `opengraph-image.tsx` shows symbol, price, move, depth and
+  FDV. It adds "as of <date>" when the snapshot is more than six hours
+  behind, because an image travels without the top bar's lag chip (§7).
+
+`chart.test.ts` recomputes every hourly close independently, in TypeScript,
+from the raw swap rows and the anchor series. It also holds the window, the
+end at the last swap read, and the 400 responses to bad input.
+
+### Share cards: `/share/<wallet>`
+
+`GET /api/share/:wallet` (`server/api/share.ts`) works out what a wallet has
+earned staking. It reads the chain (shares, claimable, what the shares are
+worth) and the vaults' events (claimed), and sums them through the
+portfolio's own functions (`walletStakes`, `walletTotals`). So the card and
+`/portfolio` cannot disagree, and **a card can only show what the chain
+says, never a figure from the link**.
+
+- **What it shows.** Fees earned (claimed plus claimable, at today's
+  prices), what is staked and where, and the first stake's date. No yield
+  and no projection.
+- **The card.** `app/share/[address]/opengraph-image.tsx` draws it, with the
+  site's own fonts. `scripts/build-og-fonts.py` cuts them to TTF subsets in
+  `assets/og-fonts/`, about 60 KB.
+- **The page.** It shows the card, the figures in words, Start earning, and
+  the audit notice. It is `noindex`.
+- **The button.** Portfolio's placeholder "Share PnL card" button is now
+  real: **View card** and **Share on X**. The X post links the page, which
+  unfurls as the card.
+- **Checked against mainnet.** `scripts/check-share.mts` found the one
+  wallet that has staked so far and worked out its card: $18.09 staked,
+  $0.000285 claimable. The claimed side read zero there, because the sandbox
+  database has no vault events.
+
+### `/stats`
+
+Every vault's record since deployment, from its own events. The snapshot
+now carries `Vault.totals` from the indexer's `vaults` rows:
+
+- fees collected and Tidewell's cut, per token;
+- claimed, and paid to the treasury;
+- deposits open, first stake, last collection, read-to time;
+- wallets that ever staked, and deposits.
+
+`lib/stats.ts` values those at today's prices from the vault watcher's live
+read:
+
+- **A side with no price is not valued at all**, rather than counted as
+  zero.
+- **A hole in one vault makes the total unknown** rather than smaller.
+- Fees earned since the last collection sit in the position and count at
+  the next deposit, withdraw or claim, and the page says so.
+
+The footer links Stats.
+
+### A phone-width fault found on the way
+
+At 360px the live top bar was 15px too wide on every page. Its lag chip
+reads "7d behind" where the simulator's reads "Sim". The e2e overflow tests
+run in the simulator, and while the chip was short, so they never saw it.
+Under 400px the search box now gives up the room. A new e2e test waits for
+the chip at its longest and checks the width.
+
+The token and stats tables fold into labelled cards under 700px, as "Your
+stakes" does.
+
+Verified: 538 unit tests, 52 e2e tests, lint, both builds. The live build
+was rendered against the real live snapshot at desktop and phone widths, and
+the link cards were rendered and looked at.

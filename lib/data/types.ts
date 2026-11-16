@@ -160,6 +160,34 @@ export interface VaultLive {
   fullRangeYield: FeeYield;
 }
 
+/**
+ * What a vault has done since it was deployed, from its own events (the
+ * indexer's contract pass, which reads them to the chain head on the vaults'
+ * own cursors). Token amounts are raw integer strings in the pool's
+ * currency0 and currency1; the page values them with the live read's
+ * decimals and prices. Public totals, no wallet (§32: /stats).
+ */
+export interface VaultTotals {
+  /** Every fee the position collected, before Tidewell's cut. */
+  feesCollected: [string, string];
+  /** Tidewell's share of those, set aside as they were collected. */
+  protocolCut: [string, string];
+  /** What stakers have claimed. */
+  claimed: [string, string];
+  /** What has been paid to the treasury. */
+  protocolPaid: [string, string];
+  depositsOpen: boolean;
+  /** First deposit, ISO; null before any. */
+  stakedSince: string | null;
+  /** Latest fee collection, ISO: fees earned since are in the position, uncredited until the next action. */
+  lastCollectedAt: string | null;
+  /** Chain time the vault's events were read to, ISO. */
+  readTo: string;
+  /** Wallets that have ever staked, and deposits made. */
+  everStakers: number;
+  deposits: number;
+}
+
 export interface Vault {
   id: string;
   poolId: string;
@@ -182,6 +210,8 @@ export interface Vault {
    * vault figure on the site comes from here, not from the pool's row.
    */
   live?: VaultLive;
+  /** Since deployment, from the vault's events; absent in the simulator. */
+  totals?: VaultTotals;
 }
 
 export interface UserStake {

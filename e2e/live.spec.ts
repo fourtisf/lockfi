@@ -153,4 +153,15 @@ test.describe('live boards', () => {
     await expect(page.locator('.lag.behind')).toBeVisible({ timeout: 150_000 });
     await expect(page.locator('.lag.behind')).toContainText(/behind/i);
   });
+
+  // The chip is at its longest when behind ("Sim 42s behind"; live, "7d
+  // behind"), and at 360px that pushed every page 15px sideways on the live
+  // site. The overflow checks elsewhere ran while it was short.
+  test('a phone-width top bar fits with the lag chip at its longest', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto('/pools', { waitUntil: 'networkidle' });
+    await expect(page.locator('.lag.behind')).toBeVisible({ timeout: 150_000 });
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(over).toBeLessThanOrEqual(1);
+  });
 });

@@ -1,6 +1,19 @@
 import { expect, test } from '@playwright/test';
 
-const ROUTES = ['/pools', '/stakes', '/positions', '/router', '/portfolio', '/brand', '/contracts', '/docs', '/status'];
+const ROUTES = [
+  '/pools',
+  '/stakes',
+  '/positions',
+  '/router',
+  '/portfolio',
+  '/brand',
+  '/contracts',
+  '/docs',
+  '/status',
+  '/stats',
+  '/token/0x0040dbfd23df97c06FB9A73B59E298D7e5BcE198',
+  '/share/0x000000000000000000000000000000000000dEaD',
+];
 const WIDTHS = [1600, 1180, 760, 360];
 
 test.describe('shell', () => {
@@ -45,6 +58,7 @@ test.describe('shell', () => {
     for (const [name, path, heading] of [
       ['Contracts', '/contracts', 'Contracts'],
       ['Docs', '/docs', 'Docs'],
+      ['Stats', '/stats', 'Stats'],
       ['Status', '/status', 'Status'],
     ] as const) {
       await page.locator('footer').getByRole('link', { name, exact: true }).click();
@@ -55,6 +69,29 @@ test.describe('shell', () => {
     await page.goto('/contracts');
     await expect(page.locator('#main')).toContainText('0x0040');
     await expect(page.locator('#main')).toContainText('Vault');
+  });
+
+  // §32: a token has a page of its own, reached from its drawer, with its
+  // pools and what can be done in each.
+  test('the drawer leads to the token page, which lists the token’s pools', async ({ page }) => {
+    await page.goto('/pools', { waitUntil: 'networkidle' });
+    await page.locator('table tbody tr').first().locator('.tok-btn').click();
+    const drawer = page.getByRole('dialog');
+    const pair = (await drawer.getAttribute('aria-label')) ?? '';
+    await drawer.getByRole('link', { name: 'Token page' }).click();
+    await expect(page).toHaveURL(/\/token\/0x[0-9a-fA-F]{40}$/);
+    const symbol = pair.replace(/^Stake /, '').split(' / ')[0];
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(symbol);
+    await expect(page.getByRole('heading', { name: new RegExp(`${symbol} trades in \\d+ pools?`) })).toBeVisible();
+    await expect(page.locator('#main')).toContainText('Share on X');
+  });
+
+  test('the share card is an image the site serves', async ({ request }) => {
+    const r = await request.get('/share/0x000000000000000000000000000000000000dEaD/opengraph-image');
+    expect(r.status()).toBe(200);
+    expect(r.headers()['content-type']).toContain('image/png');
+    const t = await request.get('/token/0x0040dbfd23df97c06FB9A73B59E298D7e5BcE198/opengraph-image');
+    expect(t.status()).toBe(200);
   });
 
   test('/ redirects to the listing', async ({ page }) => {

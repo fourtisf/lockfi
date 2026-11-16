@@ -3,6 +3,8 @@
  *
  *   GET  /api/health    — is the indexer alive, and how far behind is it
  *   GET  /api/snapshot  — the whole MarketSnapshot
+ *   GET  /api/chart/:id — one pool's hourly price, for the token page
+ *   GET  /api/share/:wallet — what a wallet earned staking, for its share card
  *   GET  /api/stream    — websocket, pushing the snapshot on real events
  *
  * §4.4: in production we push on actual events, debounced to about a second.
@@ -29,6 +31,8 @@ import { lagLabel } from '../../lib/format';
 import { keeperHealth, vaultWatchHealth } from '../keeper/health';
 import { isWalletAddress, walletHistory } from './wallet-history';
 import { createTokenCurveReader } from './token-curve';
+import { CHART_HOURS, createChartCache, isPoolId } from './chart';
+import { createShareCache } from './share';
 
 const USDG = process.env.USDG_ADDRESS ?? '';
 
@@ -110,6 +114,8 @@ export function isLocalRender(request: { headers: Record<string, string | string
 
 export async function buildServer(options: ServerOptions = {}): Promise<FastifyInstance> {
   const resolveAnchor = cachedUsdgResolver(options.anchorCacheMs ?? 0);
+  const chart = createChartCache();
+  const share = createShareCache();
   let countsAt = 0;
   let countsMemo: { pools: number; swaps: number } | undefined;
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
@@ -437,6 +443,43 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     const value = await tokenCurve.get(ethUsd);
     if (!value) return reply.code(503).send({ error: 'unavailable', message: 'The token curve could not be read just now.' });
     return reply.header('cache-control', 'public, max-age=10').send(value);
+  });
+
+  /**
+   * One pool's price, hour by hour, from the indexer's own swaps (chart.ts):
+   * the token page's chart. Public, identical for every visitor, and cached
+   * for a minute here and by the browser.
+   */
+  app.get<{ Params: { poolId: string }; Querystring: { hours?: string } }>('/api/chart/:poolId', async (request, reply) => {
+    const { poolId } = request.params;
+    if (!isPoolId(poolId)) return reply.code(400).send({ error: 'not-a-pool' });
+    const hours = Number(request.query.hours ?? 168);
+    if (!(CHART_HOURS as readonly number[]).includes(hours)) {
+      return reply.code(400).send({ error: 'bad-hours', message: `hours is one of ${CHART_HOURS.join(', ')}` });
+    }
+    const anchor = await resolveAnchor(USDG || null);
+    if (!anchor.address) return reply.code(503).send({ error: 'no-anchor', message: 'No USD anchor yet: nothing can be priced.' });
+    const value = await chart(poolId, anchor.address, hours);
+    return reply.header('cache-control', 'public, max-age=60').send(value);
+  });
+
+  /**
+   * What a wallet has earned staking (share.ts), for the card a staker shares:
+   * worked out from the chain and the vaults' events, never from a figure in
+   * a link. Public chain data about one wallet; cached for half a minute.
+   */
+  app.get<{ Params: { address: string } }>('/api/share/:address', async (request, reply) => {
+    const { address } = request.params;
+    if (!isWalletAddress(address)) return reply.code(400).send({ error: 'not-an-address' });
+    const vaults = deployment?.vaults ?? [];
+    if (vaults.length === 0) return reply.code(404).send({ error: 'no-vaults' });
+    try {
+      const card = await share(address, vaults, () => snapshot().catch(() => null));
+      return reply.header('cache-control', 'public, max-age=30').send(card);
+    } catch (error) {
+      request.log.warn(`share card for ${address}: ${(error as Error).message.split('\n')[0]}`);
+      return reply.code(503).send({ error: 'unavailable', message: 'The vaults could not be read just now.' });
+    }
   });
 
   /**
