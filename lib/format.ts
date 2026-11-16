@@ -65,10 +65,14 @@ export function signedPct(n: number, digits = 1): string {
   return `${s > 0 ? '+' : s < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}%`;
 }
 
-/** Signed exact dollars, e.g. +$1,204 / −$812 / $0. */
-export function signedUsd(n: number): string {
-  const s = signOf(n, 0);
-  return `${s > 0 ? '+' : s < 0 ? '−' : ''}${usdExact(Math.abs(n))}`;
+/**
+ * Signed exact dollars, e.g. +$1,204 / −$812 / $0. The sign is judged at the
+ * digits shown, so pair it with tone(n, digits) at the same precision: a
+ * −$0.40 printed to the dollar is "$0", and colouring it red says a zero lost.
+ */
+export function signedUsd(n: number, digits = 0): string {
+  const s = signOf(n, digits);
+  return `${s > 0 ? '+' : s < 0 ? '−' : ''}${usdExact(Math.abs(n), digits)}`;
 }
 
 /**

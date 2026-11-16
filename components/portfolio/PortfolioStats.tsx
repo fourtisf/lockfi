@@ -166,7 +166,8 @@ function WalletPortfolio() {
           {/* Impermanent loss, under the name that tells the truth (§7). */}
           <div className="k">Price impact on holdings</div>
           <div className={`v num ${totals && known(totals.priceImpactUsd) ? tone(totals.priceImpactUsd, 2) : 'muted'}`}>
-            {totals && known(totals.priceImpactUsd) ? signedUsd(totals.priceImpactUsd) : '—'}
+            {/* To the cent, as its colour is judged: on a small stake the impact is cents. */}
+            {totals && known(totals.priceImpactUsd) ? signedUsd(totals.priceImpactUsd, 2) : '—'}
           </div>
           <div className="d">
             {totals && known(totals.priceImpactUsd)

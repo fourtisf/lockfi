@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewell is live: video composition</title>
+<style>
+@font-face { font-family: 'Sora'; src: url(fonts/Sora.woff2) format('woff2'); font-weight: 100 800; }
+@font-face { font-family: 'Manrope'; src: url(fonts/Manrope.woff2) format('woff2'); font-weight: 200 800; }
+@font-face { font-family: 'Plex'; src: url(fonts/Plex-400.woff2) format('woff2'); font-weight: 400; }
+@font-face { font-family: 'Plex'; src: url(fonts/Plex-500.woff2) format('woff2'); font-weight: 500; }
+@font-face { font-family: 'Plex'; src: url(fonts/Plex-600.woff2) format('woff2'); font-weight: 600; }
+:root {
+  --deep: #03141A; --sea: #062A35; --teal: #0B6E86; --aqua: #7FDCEC; --foam: #E9FBFE;
+  --mist: #A9CED6; --dim: #7FA3AB; --ink: #0C1E24; --ground: #ECF2F2;
+}
+html, body { margin: 0; background: #000; }
+#stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--deep); font-family: 'Manrope', sans-serif; color: #fff; -webkit-font-smoothing: antialiased; }
+#bg, #glowA, #glowB, #glowC, #vignette, #grain, #fade { position: absolute; inset: 0; pointer-events: none; }
+#bg { background: linear-gradient(180deg, #021117 0%, #052430 52%, #031820 100%); }
+#glowA { background: radial-gradient(closest-side, rgba(20,135,160,.42), rgba(20,135,160,0)); width: 1500px; height: 1500px; inset: auto; }
+#glowB { background: radial-gradient(closest-side, rgba(9,80,100,.55), rgba(9,80,100,0)); width: 1400px; height: 1100px; inset: auto; }
+#glowC { background: radial-gradient(closest-side, rgba(127,220,236,.35), rgba(127,220,236,0)); width: 720px; height: 720px; inset: auto; }
+#waves { position: absolute; left: 0; top: 0; }
+#layer { position: absolute; inset: 0; }
+#vignette { background: radial-gradient(ellipse at 50% 46%, rgba(0,0,0,0) 55%, rgba(0,0,0,.5) 100%); z-index: 60; }
+#grain { z-index: 61; opacity: .26; mix-blend-mode: overlay; background-size: 256px 256px; }
+#fade { background: #000; z-index: 70; }
+.view { position: absolute; overflow: hidden; }
+.view img { position: absolute; display: block; max-width: none; }
+.txt { position: absolute; white-space: nowrap; }
+.mask { display: inline-block; overflow: hidden; vertical-align: top; padding: 0 .04em .12em; margin: 0 -.04em -.12em; }
+.in { display: inline-block; will-change: auto; }
+.ring { position: absolute; border: 2px solid #5BC2D8; border-radius: 14px; box-shadow: 0 0 0 6px rgba(91,194,216,.16), 0 0 36px rgba(91,194,216,.5); }
+.chip { position: absolute; white-space: nowrap; background: rgba(3,24,31,.92); border: 1px solid rgba(127,220,236,.38); border-radius: 14px; padding: 12px 18px; font: 600 21px/1.35 'Manrope'; color: #fff; box-shadow: 0 18px 40px rgba(0,0,0,.4); }
+.chip b { color: var(--aqua); font-weight: 700; }
+.navbar { position: absolute; background: #fff; border-radius: 18px; box-shadow: 0 34px 90px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08); }
+.eyebrow { font: 700 17px/1 'Manrope'; letter-spacing: .26em; text-transform: uppercase; color: var(--aqua); }
+.cap-title { font: 600 54px/1.1 'Sora'; letter-spacing: -.02em; color: #fff; }
+.cap-sub { font: 500 25px/1.42 'Manrope'; color: #B9D6DC; white-space: normal; width: 1150px; }
+.big { font: 700 116px/1 'Sora'; letter-spacing: -.035em; }
+.big .live { background: linear-gradient(90deg, #BFF4FB, #5FD0E4 60%, #2FB2CB); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.line { font: 700 80px/1.08 'Sora'; letter-spacing: -.03em; }
+.lede { font: 500 31px/1.4 'Manrope'; color: var(--mist); }
+.mono { font-family: 'Plex', monospace; font-variant-numeric: tabular-nums; }
+.prog { display: flex; gap: 26px; font: 600 19px/1 'Manrope'; }
+.prog span { position: relative; padding-bottom: 12px; color: rgba(255,255,255,.38); }
+.prog span i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 2px; background: var(--aqua); transform-origin: left; }
+.prog span em { font-style: normal; font-family: 'Plex', monospace; font-weight: 500; margin-right: 8px; color: inherit; opacity: .8; }
+.ticker { position: absolute; display: flex; align-items: center; gap: 22px; background: rgba(3,24,31,.86); border: 1px solid rgba(127,220,236,.28); border-radius: 16px; padding: 16px 24px; box-shadow: 0 18px 40px rgba(0,0,0,.35); }
+.ticker .k { font: 700 14px/1.2 'Manrope'; letter-spacing: .2em; text-transform: uppercase; color: var(--aqua); }
+.ticker .v { font: 600 40px/1 'Plex'; color: #fff; font-variant-numeric: tabular-nums; }
+.ticker .n { font: 500 19px/1.35 'Manrope'; color: #B9D6DC; }
+.plus { position: absolute; font: 600 30px/1 'Plex'; color: #6FE3A7; text-shadow: 0 4px 18px rgba(0,0,0,.5); }
+#cursor { position: absolute; left: 0; top: 0; z-index: 50; width: 30px; height: 40px; transform-origin: 3px 3px; filter: drop-shadow(0 6px 10px rgba(0,0,0,.45)); }
+#ripple { position: absolute; z-index: 49; width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--aqua); margin: -13px 0 0 -13px; }
+.disc { font: 500 19px/1.55 'Manrope'; color: #86A9B1; text-align: center; white-space: normal; width: 1400px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="bg"></div><div id="glowA"></div><div id="glowB"></div><div id="glowC"></div>
+  <svg id="waves" width="1920" height="1080" viewBox="0 0 1920 1080">
+    <defs>
+      <linearGradient id="wBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0D4E5F"/><stop offset="1" stop-color="#031A21"/></linearGradient>
+      <linearGradient id="wMid" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#127089"/><stop offset=".5" stop-color="#083846"/><stop offset="1" stop-color="#03161C"/></linearGradient>
+      <linearGradient id="wFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2AA6C0"/><stop offset=".18" stop-color="#11657B"/><stop offset="1" stop-color="#021218"/></linearGradient>
+      <filter id="soft" x="-5%" y="-200%" width="110%" height="500%"><feGaussianBlur stdDeviation="6"/></filter>
+    </defs>
+    <path id="wb" fill="url(#wBack)" opacity=".75"/>
+    <path id="wm" fill="url(#wMid)" opacity=".9"/>
+    <path id="wf" fill="url(#wFront)"/>
+    <path id="wg" fill="none" stroke="#7FDCEC" stroke-width="8" opacity=".35" filter="url(#soft)"/>
+    <path id="wc" fill="none" stroke="#BDF3FB" stroke-width="1.6" opacity=".85"/>
+  </svg>
+  <div id="layer"></div>
+  <svg id="cursor" viewBox="0 0 30 40"><path d="M2 2 L2 31 L9.4 24.2 L14.2 35.2 L19.4 33 L14.6 22.4 L24.6 22.4 Z" fill="#fff" stroke="#0C1E24" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  <div id="ripple"></div>
+  <div id="vignette"></div><div id="grain"></div><div id="fade"></div>
+</div>
+<script>
+(async () => {
+  const F = await (await fetch('frags.json')).json();
+  const IMG = {};
+  const names = Object.keys(F).filter((k) => !k.startsWith('_'));
+  await Promise.all(names.map(async (n) => { const i = new Image(); i.src = F[n].src; await i.decode(); IMG[n] = i; }));
+  const mark = new Image(); mark.src = 'img/tidewell-mark-signature-glass-2048.png'; await mark.decode();
+  await document.fonts.load('700 40px Sora'); await document.fonts.load('600 40px Sora'); await document.fonts.load('500 20px Manrope');
+  await document.fonts.load('700 20px Manrope'); await document.fonts.load('600 20px Plex'); await document.fonts.load('500 20px Plex');
+
+  // ---------- numbers from the recording ----------
+  const C = F._chain;
+  const EARNED = F._earned;           // ["$0.00", "$0.12", "$0.48", "$1.40"]
+  const VOL = F._volumes;             // cumulative USD traded at each checkpoint
+  const fees = { eth: Number(C.trading[2].claimable[0]) / 1e18, usdg: Number(C.trading[2].claimable[1]) / 1e6 };
+  const back = { eth: C.afterWithdraw.eth - C.beforeWithdraw.eth, usdg: C.afterWithdraw.usdg - C.beforeWithdraw.usdg };
+
+  // ---------- easing and keys ----------
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const P = (t, a, b) => clamp((t - a) / (b - a));
+  const lerp = (a, b, x) => a + (b - a) * x;
+  const eo3 = (x) => 1 - Math.pow(1 - x, 3);
+  const eio3 = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+  const eoX = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+  const eoB = (x) => { const c = 1.4; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+  function K(t, keys, ease = eio3) {
+    if (t <= keys[0][0]) return keys[0][1];
+    for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) return lerp(keys[i - 1][1], keys[i][1], ease(P(t, keys[i - 1][0], keys[i][0])));
+    return keys[keys.length - 1][1];
+  }
+  // opacity window: in over [a, a+fi], out over [b-fo, b]
+  const W = (t, a, b, fi = 0.5, fo = 0.5) => Math.min(eo3(P(t, a, a + fi)), 1 - eio3(P(t, b - fo, b)));
+
+  // ---------- element pool ----------
+  const S = document.getElementById('stage');
+  const L = document.getElementById('layer');
+  const pool = new Map();
+  let used = new Set();
+  function el(id, make) {
+    let e = pool.get(id);
+    if (!e) { e = make(); L.appendChild(e); pool.set(id, e); }
+    used.add(id);
+    e.style.display = '';
+    return e;
+  }
+  const SHADOW = '0 40px 100px rgba(0,0,0,.55), 0 10px 30px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.07)';
+  function V(id, o) {
+    const e = el(id, () => { const d = document.createElement('div'); d.className = 'view'; return d; });
+    const f0 = F[o.layers[0][0]];
+    const cam = o.cam ? { x: 0, y: 0, w: f0.w, h: f0.h, ...o.cam } : { x: 0, y: 0, w: f0.w, h: f0.h };
+    const s = o.w / cam.w;
+    const vis = o.layers.filter((l) => l[1] > 0.001);
+    const wsum = vis.reduce((a, l) => a + l[1], 0) || 1;
+    const h = o.h ?? (o.cam && o.cam.h ? o.cam.h * s : (vis.reduce((a, l) => a + F[l[0]].h * l[1], 0) / wsum) * s);
+    const op = o.op ?? 1;
+    Object.assign(e.style, {
+      left: `${o.x}px`, top: `${o.y}px`, width: `${o.w}px`, height: `${h}px`, opacity: op, zIndex: o.z ?? 10,
+      borderRadius: `${o.r ?? 20}px`, boxShadow: o.shadow ?? SHADOW, background: o.bg ?? '#ECF2F2',
+      transform: o.tf ?? '', display: op <= 0.001 ? 'none' : '',
+    });
+    const want = new Set();
+    for (const [name, lop] of o.layers) {
+      want.add(name);
+      let img = e.querySelector(`img[data-f="${name}"]`);
+      if (!img) { img = IMG[name].cloneNode(); img.dataset.f = name; e.appendChild(img); }
+      const f = F[name];
+      Object.assign(img.style, { width: `${f.w * s}px`, height: `${f.h * s}px`, left: `${-cam.x * s}px`, top: `${-cam.y * s}px`, opacity: lop, display: lop > 0.001 ? 'block' : 'none' });
+    }
+    for (const img of e.querySelectorAll('img')) if (!want.has(img.dataset.f)) img.style.display = 'none';
+    return { x: o.x, y: o.y, s, h, w: o.w, cam };
+  }
+  // geometry of a view without drawing it
+  const G = (frag, x, y, w, cam) => { const f = F[frag]; const c = { x: 0, y: 0, w: f.w, h: f.h, ...(cam || {}) }; const s = w / c.w; return { x, y, w, s, h: (cam && cam.h ? cam.h : f.h) * s, cam: c }; };
+  const at = (g, frag, key, fx = 0.5, fy = 0.5) => { const t = F[frag].targets[key]; return [g.x + (t.x + t.w * fx - g.cam.x) * g.s, g.y + (t.y + t.h * fy - g.cam.y) * g.s]; };
+  const box = (g, frag, keys, pad = 6) => {
+    const ts = keys.map((k) => F[frag].targets[k]);
+    const x0 = Math.min(...ts.map((t) => t.x)), y0 = Math.min(...ts.map((t) => t.y));
+    const x1 = Math.max(...ts.map((t) => t.x + t.w)), y1 = Math.max(...ts.map((t) => t.y + t.h));
+    return { x: g.x + (x0 - g.cam.x) * g.s - pad, y: g.y + (y0 - g.cam.y) * g.s - pad, w: (x1 - x0) * g.s + 2 * pad, h: (y1 - y0) * g.s + 2 * pad };
+  };
+  function T(id, html, st, cls = 'txt') {
+    const e = el(id, () => { const d = document.createElement('div'); d.className = cls; return d; });
+    if (e._h !== html) { e.innerHTML = html; e._h = html; }
+    if (st.op !== undefined) { st.opacity = st.op; if (st.op <= 0.001) st.display = 'none'; delete st.op; }
+    Object.assign(e.style, st);
+    return e;
+  }
+  // a line that rises out of a mask
+  function R(id, html, st, k, cls = 'txt') {
+    const e = T(id, `<span class="mask"><span class="in">${html}</span></span>`, { ...st, op: k > 0 ? (st.op ?? 1) : 0 }, cls);
+    const inner = e.querySelector('.in');
+    inner.style.transform = `translateY(${(1 - eoX(k)) * 112}%)`;
+    return e;
+  }
+  function ring(id, b, k, label) {
+    const e = el(id, () => { const d = document.createElement('div'); d.className = 'ring'; return d; });
+    const sc = lerp(1.06, 1, eo3(clamp(k * 1.6)));
+    Object.assign(e.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px`, opacity: clamp(k * 2) * (k > 0 ? 1 : 0), transform: `scale(${sc})`, zIndex: 30, display: k <= 0 ? 'none' : '' });
+  }
+
+  // ---------- grain (seeded) ----------
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const gc = document.createElement('canvas'); gc.width = gc.height = 256;
+  const gx = gc.getContext('2d'); const gd = gx.createImageData(256, 256);
+  for (let i = 0; i < gd.data.length; i += 4) { const v = 128 + (rnd() - 0.5) * 120; gd.data[i] = gd.data[i + 1] = gd.data[i + 2] = v; gd.data[i + 3] = 255; }
+  gx.putImageData(gd, 0, 0);
+  document.getElementById('grain').style.backgroundImage = `url(${gc.toDataURL()})`;
+
+  // ---------- waves ----------
+  const wb = document.getElementById('wb'), wm = document.getElementById('wm'), wf = document.getElementById('wf'), wg = document.getElementById('wg'), wc = document.getElementById('wc');
+  function wave(base, amp, ph, k, tilt) {
+    let d = '';
+    for (let x = -20; x <= 1940; x += 16) {
+      const y = base - tilt * (x - 960) + amp * Math.sin(k * x + ph) + amp * 0.45 * Math.sin(k * 2.3 * x - ph * 1.3 + 1.7);
+      d += (x === -20 ? 'M' : 'L') + x + ' ' + y.toFixed(1) + ' ';
+    }
+    return d;
+  }
+  const fill = (d) => `${d} L1940 1100 L-20 1100 Z`;
+
+  // ---------- timeline ----------
+  const TOTAL = 66;
+  const STEPS = [[11.4, 18.0], [18.0, 33.0], [33.0, 46.0], [46.0, 58.5]];
+  const CLICKS = [];
+  const usd = (n, d = 2) => `$${n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+
+  function cursorAt(t, keys) {
+    // keys: [time, x, y] waypoints; moves ease between consecutive points
+    if (t <= keys[0][0]) return [keys[0][1], keys[0][2]];
+    for (let i = 1; i < keys.length; i++) {
+      if (t <= keys[i][0]) {
+        const x = eio3(P(t, keys[i - 1][0], keys[i][0]));
+        // a slight arc, as a hand moves
+        const ax = lerp(keys[i - 1][1], keys[i][1], x), ay = lerp(keys[i - 1][2], keys[i][2], x);
+        const dx = keys[i][1] - keys[i - 1][1], dy = keys[i][2] - keys[i - 1][2];
+        const arc = Math.sin(Math.PI * x) * Math.min(60, Math.hypot(dx, dy) * 0.08);
+        const len = Math.hypot(dx, dy) || 1;
+        return [ax + (-dy / len) * arc, ay + (dx / len) * arc];
+      }
+    }
+    const l = keys[keys.length - 1];
+    return [l[1], l[2]];
+  }
+  let CUR = null; // {x, y, op, clicks:[t]}
+
+  function captions(t) {
+    const texts = [
+      ['Connect your wallet', 'Any browser wallet, on Robinhood Chain.'],
+      ['Stake ETH, USDG or both', 'Pick a vault, enter an amount, confirm once. From $10.'],
+      ['Earn from every swap', 'Each trade through the pool pays a fee. Your share is credited the moment it is earned.'],
+      ['Claim or withdraw any time', `No lockup and no exit fee. Withdrawn: ${F._withdrawn[0]} ETH + ${F._withdrawn[1]} USDG, plus ${EARNED[3]} in fees claimed.`],
+    ];
+    STEPS.forEach(([a, b], i) => {
+      const k = P(t, a + 0.3, a + 1.1), o = 1 - eio3(P(t, b - 0.7, b - 0.15));
+      const on = t > a && t < b;
+      R(`cap-e${i}`, `Step ${i + 1} of 4`, { left: '120px', top: '852px', op: on ? o : 0 }, P(t, a + 0.25, a + 0.9), 'txt eyebrow');
+      R(`cap-t${i}`, texts[i][0], { left: '120px', top: '882px', op: on ? o : 0 }, k, 'txt cap-title');
+      T(`cap-s${i}`, texts[i][1], { left: '120px', top: '952px', op: on ? Math.min(eo3(P(t, a + 0.7, a + 1.4)), o) : 0, transform: `translateY(${(1 - eo3(P(t, a + 0.7, a + 1.4))) * 14}px)` }, 'txt cap-sub');
+    });
+    // progress: four steps, the active one lit
+    const on = t > 11.4 && t < 58.3;
+    const pe = T('prog', '', { right: '120px', top: '898px', op: on ? W(t, 11.4, 58.3, 0.6, 0.5) : 0 }, 'txt prog');
+    if (!pe._built) {
+      pe.innerHTML = ['Connect', 'Stake', 'Earn', 'Withdraw'].map((s, i) => `<span><em>0${i + 1}</em>${s}<i></i></span>`).join('');
+      pe._built = true;
+    }
+    [...pe.children].forEach((sp, i) => {
+      const [a, b] = STEPS[i];
+      const active = t >= a && t < b;
+      sp.style.color = active ? '#fff' : t >= b ? 'rgba(255,255,255,.62)' : 'rgba(255,255,255,.34)';
+      sp.querySelector('i').style.transform = `scaleX(${t >= b ? 1 : active ? P(t, a, b) : 0})`;
+      sp.querySelector('i').style.opacity = active ? 1 : t >= b ? 0.35 : 0;
+    });
+  }
+
+  // ---- intro: 0 – 6.2 ----
+  function intro(t) {
+    if (t > 6.4) return;
+    const out = 1 - eio3(P(t, 5.5, 6.2));
+    const mk = eoX(P(t, 0.3, 1.7));
+    const lift = eio3(P(t, 1.8, 2.7));
+    const size = lerp(300, 210, lift) * lerp(0.82, 1, mk);
+    const cx = 960, cy = lerp(470, 318, lift) - (1 - out) * 40;
+    const m = el('mark', () => { const i = mark.cloneNode(); i.style.position = 'absolute'; i.style.zIndex = 20; return i; });
+    Object.assign(m.style, { width: `${size}px`, height: `${size}px`, left: `${cx - size / 2}px`, top: `${cy - size / 2}px`, opacity: mk * out, filter: `drop-shadow(0 20px 60px rgba(60,190,215,${0.35 + 0.25 * Math.sin(t * 2)}))` });
+    const gl = document.getElementById('glowC');
+    Object.assign(gl.style, { left: `${cx - 360}px`, top: `${cy - 360}px`, opacity: mk * out * 0.9 });
+    const y0 = 470 - (1 - out) * 40;
+    R('i-chip', '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7FDCEC;box-shadow:0 0 12px #7FDCEC;margin-right:14px;vertical-align:2px"></span>Live on Robinhood Chain', { left: '0', width: '1920px', textAlign: 'center', top: `${y0 - 20}px`, op: out }, P(t, 2.0, 2.8), 'txt eyebrow');
+    R('i-title', 'Tidewell is <span class="live">live</span>', { left: '0', width: '1920px', textAlign: 'center', top: `${y0 + 22}px`, op: out }, P(t, 2.2, 3.1), 'txt big');
+    T('i-sub', 'Earn a share of real swap fees. No emissions, no lockup.', { left: '0', width: '1920px', textAlign: 'center', top: `${y0 + 170}px`, op: out * eo3(P(t, 3.1, 3.9)), transform: `translateY(${(1 - eo3(P(t, 3.1, 3.9))) * 18}px)` }, 'txt lede');
+  }
+  // ---- value: 6.2 – 11.4 ----
+  function value(t) {
+    if (t < 6.0 || t > 11.6) return;
+    const out = 1 - eio3(P(t, 10.8, 11.4));
+    const dy = (1 - out) * -30;
+    R('v-e', 'Why Tidewell', { left: '160px', top: `${300 + dy}px`, op: out }, P(t, 6.3, 6.9), 'txt eyebrow');
+    R('v-1', 'Every fee is a real swap fee.', { left: '160px', top: `${342 + dy}px`, op: out }, P(t, 6.45, 7.3), 'txt line');
+    R('v-2', 'Nothing is printed to pay you.', { left: '160px', top: `${440 + dy}px`, op: out }, P(t, 7.1, 7.95), 'txt line');
+    R('v-3', '<span class="big" style="font-size:80px"><span class="live">Withdraw any time.</span></span>', { left: '160px', top: `${538 + dy}px`, op: out }, P(t, 7.75, 8.6), 'txt line');
+    T('v-s', 'Here is how to add liquidity, from the first click to your first fees.', { left: '160px', top: `${680 + dy}px`, op: out * eo3(P(t, 8.7, 9.5)), transform: `translateY(${(1 - eo3(P(t, 8.7, 9.5))) * 16}px)` }, 'txt lede');
+    const m = el('v-mark', () => { const i = mark.cloneNode(); i.style.position = 'absolute'; i.style.zIndex = 5; return i; });
+    const k = eo3(P(t, 6.2, 7.6));
+    Object.assign(m.style, { width: '600px', height: '600px', left: `${1400 + (1 - k) * 60}px`, top: `${240 + dy}px`, opacity: 0.12 * k * out, transform: `rotate(${(t - 6) * 1.5}deg)` });
+  }
+
+  // ---- step 1, connect: 11.4 – 18.0 ----
+  function step1(t) {
+    if (t < 11.4 || t > 18.2) return;
+    const op = W(t, 11.6, 17.9, 0.6, 0.5);
+    // The nav without its search box and status chip: the logo and the five
+    // destinations on the left, the wallet button on the right.
+    const cA = F.btnConnect, cB = F.btnConnected;
+    const barW = 600 + 300 + cA.w + 28; // CSS px
+    const s = 1.62, bw = barW * s, bx = (1920 - bw) / 2, by = 300 - (1 - eo3(P(t, 11.6, 12.3))) * 30;
+    const bar = el('navbar', () => { const d = document.createElement('div'); d.className = 'navbar'; return d; });
+    Object.assign(bar.style, { left: `${bx}px`, top: `${by}px`, width: `${bw}px`, height: `${64 * s}px`, opacity: op, zIndex: 10, borderRadius: '24px' });
+    V('nav-l', { x: bx, y: by, w: 600 * s, layers: [['navLeft', 1]], op, r: 24, shadow: 'none', bg: '#fff', z: 11 });
+    const right = bx + (barW - 28) * s;
+    const swap = eio3(P(t, 15.2, 15.5));
+    V('btn-a', { x: right - cA.w * s, y: by + 12 * s, w: cA.w * s, layers: [['btnConnect', 1]], op: op * (1 - swap), r: 14, shadow: 'none', bg: '#fff', z: 12 });
+    V('btn-b', { x: right - cB.w * s, y: by + 12 * s, w: cB.w * s, layers: [['btnConnected', 1]], op: op * swap, r: 14, shadow: 'none', bg: '#fff', z: 12 });
+    const pk = W(t, 13.7, 15.4, 0.3, 0.2);
+    const off = F.walletPop.offset;
+    const popX = right - cA.w * s + off.x * s, popY = by + (12 + off.y) * s;
+    const gp = V('pop', { x: popX, y: popY + (1 - eo3(P(t, 13.7, 14.0))) * 10, w: F.walletPop.w * s, layers: [['walletPop', 1]], op: pk, r: 18, z: 13 });
+    const btnC = [right - (cA.w * s) / 2, by + 12 * s + 20 * s];
+    const item = at(G('walletPop', popX, popY, F.walletPop.w * s), 'walletPop', 'item', 0.35, 0.5);
+    ring('ring1', { x: right - cB.w * s - 8, y: by + 12 * s - 8, w: cB.w * s + 16, h: 40 * s + 16 }, W(t, 15.6, 17.0, 0.3, 0.4));
+    CUR = { op: W(t, 12.3, 17.2, 0.3, 0.5), clicks: [13.5, 15.0], keys: [[12.3, 1180, 760], [13.4, btnC[0] - 20, btnC[1]], [14.1, btnC[0] - 20, btnC[1]], [14.9, item[0], item[1]], [15.8, item[0], item[1]], [17.0, item[0] + 160, item[1] + 220]] };
+  }
+
+  // ---- step 2, stake: 18.0 – 33.0 ----
+  function step2(t) {
+    if (t < 18.0 || t > 33.2) return;
+    const op = W(t, 18.2, 32.9, 0.6, 0.6);
+    // the vault list: large first, then aside
+    const ph = eio3(P(t, 20.6, 21.5));
+    const vw = lerp(1380, 840, ph), vx = lerp((1920 - 1380) / 2, 120, ph), vy = lerp(150, 230, ph) + (1 - eo3(P(t, 18.2, 18.8))) * 30;
+    const dimV = 1 - 0.55 * eio3(P(t, 24.4, 25.0)) * (1 - eio3(P(t, 31.4, 32.0)));
+    const gv = V('vaults', { x: vx, y: vy, w: vw, layers: [['vaults', 1]], op: op * dimV, z: 10 });
+    const r1 = box(gv, 'vaults', ['row1'], 4);
+    ring('ring-row', r1, W(t, 19.95, 20.7, 0.25, 0.35));
+    // the stake panel, panned like a scroll
+    const pw = 740, px = 1060 + (1 - eo3(P(t, 20.9, 21.6))) * 50, py = 96;
+    const camH = 740 / (pw / F.panelA.w);
+    const maxY = F.panelA.h - camH;
+    const camY = K(t, [[23.4, 0], [24.4, Math.min(maxY, 300)], [27.0, Math.min(maxY, 300)], [28.0, maxY]]);
+    const typed = P(t, 23.6, 23.7);
+    const gp = V('panel', { x: px, y: py, w: pw, cam: { y: camY, h: camH }, layers: [['panelA', 1 - typed], ['panelB', typed]], op: op * W(t, 20.9, 40, 0.6, 0.1), z: 12 });
+    const gSettled = G('panelA', 1060, py, pw, { y: camY, h: camH });
+    const eth = at(gSettled, 'panelA', 'routeEth');
+    const amt = at(gSettled, 'panelA', 'amount', 0.3, 0.5);
+    const gEnd = G('panelA', 1060, py, pw, { y: maxY, h: camH });
+    const stake = at(gEnd, 'panelB', 'stake');
+    ring('ring-rows', box(gSettled, 'panelB', ['share', 'weekly'], 4), W(t, 24.6, 25.8, 0.3, 0.3));
+    // the fee row and the lockup row under it (the lockup row's height is a
+    // quote row's, like the share and weekly rows above)
+    const tq = F.panelB.targets;
+    const feeB = box(gSettled, 'panelB', ['fee'], 4);
+    const rowH = (tq.weekly.h + 8) * gSettled.s;
+    const fb = { x: Math.min(feeB.x, box(gSettled, 'panelB', ['share'], 4).x), y: feeB.y, w: box(gSettled, 'panelB', ['share'], 4).w, h: feeB.h + rowH };
+    const fk = W(t, 25.9, 27.2, 0.3, 0.3);
+    ring('ring-fee', fb, fk);
+    T('chip-fee', 'Shown before you sign: <b>10% of fees</b>, never your deposit. <b>No lockup.</b>', { left: `${fb.x - 24}px`, top: `${fb.y + fb.h / 2}px`, op: fk, transform: `translate(-100%, -50%) translateX(${(1 - eo3(clamp(fk * 1.5))) * -16}px)`, zIndex: 31 }, 'chip');
+    // the confirmation, as the site showed it
+    const tk = W(t, 29.1, 31.9, 0.35, 0.4);
+    const ts = 1.45, tw = F.toastStake.w * ts;
+    V('toast-stake', { x: px + pw / 2 - tw / 2, y: py + 740 - 110 + (1 - eoB(P(t, 29.1, 29.5))) * 30, w: tw, layers: [['toastStake', 1]], op: op * tk, r: 10 * ts, z: 20, bg: '#0C1E24' });
+    CUR = { op: W(t, 18.9, 31.6, 0.3, 0.5), clicks: [19.9, 22.5, 23.3, 28.9], keys: [[18.9, 1560, 820], [19.8, r1.x + r1.w * 0.22, r1.y + r1.h / 2], [21.0, r1.x + r1.w * 0.22, r1.y + r1.h / 2], [21.6, 1000, 520], [22.4, eth[0], eth[1]], [22.6, eth[0], eth[1]], [23.2, amt[0], amt[1]], [23.8, amt[0], amt[1]], [24.6, 1850, 560], [27.9, 1850, 560], [28.8, stake[0], stake[1]], [30.0, stake[0], stake[1]], [31.4, stake[0] + 140, stake[1] + 120]] };
+  }
+
+  // ---- step 3, earn: 33.0 – 46.0 ----
+  function step3(t) {
+    if (t < 33.0 || t > 46.2) return;
+    const op = W(t, 33.2, 45.9, 0.6, 0.6);
+    const CK = [35.8, 38.6, 41.4];
+    const lay = (base) => {
+      const ws = [1, 0, 0, 0];
+      CK.forEach((c, i) => { const x = P(t, c, c + 0.12); ws[i + 1] = x; ws[i] = Math.min(ws[i], 1 - x); });
+      return ws.map((w, i) => [`${base}${i}`, w]);
+    };
+    const x = 120, w = 1680;
+    const ey = 140 + (1 - eo3(P(t, 33.2, 33.8))) * 30;
+    const ge = V('earn', { x, y: ey, w, layers: lay('earn'), op, z: 10 });
+    const my = ey + ge.h + 26 + (1 - eo3(P(t, 33.5, 34.1))) * 30;
+    const gm = V('mine', { x, y: my, w, layers: lay('mine'), op: op * W(t, 33.5, 60, 0.6, 0.1), z: 10 });
+    // pulses and gains at each checkpoint
+    CK.forEach((c, i) => {
+      const k = W(t, c, c + 1.1, 0.15, 0.7);
+      ring(`ring-earn${i}`, box(G('earn3', x, ey, w), 'earn3', ['claimable', 'earned'], 2), k);
+      const gain = Number(EARNED[i + 1].replace(/[$,]/g, '')) - Number(EARNED[i].replace(/[$,]/g, ''));
+      const [ex, eY] = at(G('earn3', x, ey, w), 'earn3', 'earned', 0.62, 0.3);
+      const pk = P(t, c + 0.1, c + 1.9);
+      T(`plus${i}`, `+${usd(gain)}`, { left: `${ex}px`, top: `${eY - eo3(pk) * 46}px`, op: pk > 0 && pk < 1 ? Math.min(1, pk * 6) * (1 - eio3(P(pk, 0.55, 1))) : 0, zIndex: 32 }, 'plus');
+    });
+    // the simulated trading that earned it
+    const vol = K(t, [[34.6, 0], [35.8, VOL[0]], [36.6, VOL[0]], [38.6, VOL[1]], [39.2, VOL[1]], [41.4, VOL[2]]], (q) => q);
+    const tk = W(t, 34.2, 45.8, 0.5, 0.5);
+    const tick = T('ticker', '', { left: `${x}px`, top: `${my + gm.h + 30}px`, op: op * tk, zIndex: 15, transform: `translateY(${(1 - eo3(P(t, 34.2, 34.8))) * 16}px)` }, 'ticker');
+    if (!tick._built) { tick.innerHTML = '<div><div class="k">Simulated on a mainnet fork</div><div class="n">Trades through the same ETH / USDG pool</div></div><div class="v mono" id="tv"></div><div class="n" id="tn"></div>'; tick._built = true; }
+    tick.querySelector('#tv').textContent = `$${(vol / 1e6).toFixed(1)}M traded`;
+    tick.querySelector('#tn').innerHTML = 'about one week of this pool’s<br>real trading volume';
+    CUR = null;
+  }
+
+  // ---- step 4, claim and withdraw: 46.0 – 58.5 ----
+  function step4(t) {
+    if (t < 46.0 || t > 58.7) return;
+    const op = W(t, 46.2, 58.4, 0.6, 0.6);
+    const x = 160, w = 1600;
+    // stats leave when the withdraw form opens
+    const gone = eio3(P(t, 51.3, 51.9));
+    const sy = 120 + (1 - eo3(P(t, 46.2, 46.8))) * 30 - gone * 40;
+    const sl = [['pstats0', 1 - P(t, 48.9, 49.2)], ['pstats1', P(t, 48.9, 49.2)]];
+    const gs = V('pstats', { x, y: sy, w, layers: sl, op: op * (1 - gone), z: 10 });
+    const statsH = G('pstats0', x, 0, w).h;
+    const my = lerp(120 + statsH + 22, 120, gone) + (1 - eo3(P(t, 46.5, 47.1))) * 30;
+    const ml = [
+      ['pmine0', 1 - P(t, 48.9, 49.2)],
+      ['pmine1', P(t, 48.9, 49.2) * (1 - P(t, 51.4, 51.5))],
+      ['pmine2', P(t, 51.4, 51.5) * (1 - P(t, 52.8, 52.9))],
+      ['pmine3', P(t, 52.8, 52.9) * (1 - P(t, 54.8, 55.1))],
+      ['pmine4', P(t, 54.8, 55.1)],
+    ];
+    const gm = V('pmine', { x, y: my, w, layers: ml, op, z: 11 });
+    // activity, at the end
+    const ak = W(t, 55.2, 58.4, 0.6, 0.6);
+    V('activity', { x, y: my + gm.h + 22 + (1 - eo3(P(t, 55.2, 55.8))) * 24, w, layers: [['activity', 1]], op: op * ak, z: 10 });
+    const g0 = G('pmine0', x, 120 + statsH + 22, w);
+    const claim = at(g0, 'pmine0', 'claim');
+    const wd = at(g0, 'pmine1', 'withdraw');
+    const g2 = G('pmine2', x, 120, w);
+    const all = at(g2, 'pmine2', 'all');
+    const go = at(g2, 'pmine3', 'go');
+    ring('ring-fees', box(G('pstats1', x, sy, w), 'pstats1', ['fees'], 2), W(t, 49.3, 50.4, 0.3, 0.3));
+    const ts = 1.45;
+    const toast = (id, frag, a, b) => { const tw = F[frag].w * ts; V(id, { x: 960 - tw / 2, y: 780 + (1 - eoB(P(t, a, a + 0.4))) * 30, w: tw, layers: [[frag, 1]], op: op * W(t, a, b, 0.35, 0.35), r: 10 * ts, z: 20, bg: '#0C1E24' }); };
+    toast('toast-claim', 'toastClaim', 48.4, 50.6);
+    toast('toast-wd', 'toastWithdraw', 54.0, 56.6);
+    CUR = { op: W(t, 46.9, 55.0, 0.3, 0.5), clicks: [48.1, 51.3, 52.7, 53.7], keys: [[46.9, 1520, 820], [48.0, claim[0], claim[1]], [50.4, claim[0], claim[1]], [51.2, wd[0], wd[1]], [51.6, wd[0], wd[1]], [52.6, all[0], all[1]], [52.9, all[0], all[1]], [53.6, go[0], go[1]], [54.2, go[0], go[1]], [55.0, go[0] + 120, go[1] + 160]] };
+  }
+
+  // ---- outro: 58.5 – 66 ----
+  function outro(t) {
+    if (t < 58.3) return;
+    const k = eoX(P(t, 58.7, 60.0));
+    const m = el('o-mark', () => { const i = mark.cloneNode(); i.style.position = 'absolute'; i.style.zIndex = 20; return i; });
+    const size = lerp(180, 230, k);
+    Object.assign(m.style, { width: `${size}px`, height: `${size}px`, left: `${960 - size / 2}px`, top: `${330 - size / 2}px`, opacity: k, filter: `drop-shadow(0 20px 60px rgba(60,190,215,${0.35 + 0.2 * Math.sin(t * 2)}))` });
+    const gl = document.getElementById('glowC');
+    Object.assign(gl.style, { left: '600px', top: '-30px', opacity: k * 0.8 });
+    R('o-t', 'Fees rise with the <span class="live">tide.</span>', { left: '0', width: '1920px', textAlign: 'center', top: '480px' }, P(t, 59.4, 60.3), 'txt big');
+    T('o-u', 'tidewell.live', { left: '0', width: '1920px', textAlign: 'center', top: '640px', op: eo3(P(t, 60.3, 61.1)), font: "700 40px/1 'Manrope'", letterSpacing: '.04em', color: '#7FDCEC' });
+    T('o-d', 'Tidewell has not yet been independently audited. Use it at your own risk, with funds you can afford to lose.<br>Demo recorded through the live site on a fork of Robinhood Chain mainnet; the trading shown is simulated.', { left: '260px', top: '958px', op: eo3(P(t, 61.0, 61.8)) }, 'txt disc');
+  }
+
+  function scene(t) {
+    // background drift
+    const ga = document.getElementById('glowA'), gb = document.getElementById('glowB');
+    ga.style.left = `${980 + 120 * Math.sin(t * 0.11)}px`; ga.style.top = `${-520 + 60 * Math.cos(t * 0.13)}px`;
+    gb.style.left = `${-420 + 90 * Math.cos(t * 0.09)}px`; gb.style.top = `${520 + 50 * Math.sin(t * 0.12)}px`;
+    document.getElementById('glowC').style.opacity = 0;
+    // the tide: high in the intro and outro, low under the steps
+    const base = K(t, [[0, 1150], [2.6, 930], [5.4, 930], [6.6, 1046], [57.8, 1046], [59.6, 905], [66, 900]]);
+    const amp = K(t, [[0, 16], [5.4, 16], [6.6, 8], [57.8, 8], [59.6, 16]]);
+    const ph = t * 0.9;
+    wb.setAttribute('d', fill(wave(base - 34, amp * 0.9, ph * 0.7 + 2, 0.0042, 0.02)));
+    wm.setAttribute('d', fill(wave(base - 16, amp, -ph * 0.8 + 1, 0.0051, 0.026)));
+    const front = wave(base, amp, ph, 0.0046, 0.03);
+    wf.setAttribute('d', fill(front)); wg.setAttribute('d', front); wc.setAttribute('d', front);
+    // grain moves every frame
+    // grain stays put: noise that changes every frame costs ten times the bitrate
+    // fades in from and out to black
+    document.getElementById('fade').style.opacity = Math.max(1 - P(t, 0, 0.8), P(t, 65.2, 66));
+  }
+
+  window.render = (t) => {
+    used = new Set();
+    CUR = null;
+    scene(t); intro(t); value(t); step1(t); step2(t); step3(t); step4(t); outro(t); captions(t);
+    for (const [id, e] of pool) if (!used.has(id)) e.style.display = 'none';
+    const c = document.getElementById('cursor'), rp = document.getElementById('ripple');
+    if (CUR && CUR.op > 0) {
+      const [cx, cy] = cursorAt(t, CUR.keys);
+      let press = 1, rk = -1;
+      for (const ct of CUR.clicks) { if (t > ct - 0.06 && t < ct + 0.14) press = 0.86; if (t >= ct && t < ct + 0.55) rk = P(t, ct, ct + 0.55); }
+      Object.assign(c.style, { display: '', opacity: CUR.op, transform: `translate(${cx - 3}px, ${cy - 3}px) scale(${1.15 * press})` });
+      if (rk >= 0) Object.assign(rp.style, { display: '', left: `${cx}px`, top: `${cy}px`, opacity: (1 - rk) * CUR.op, transform: `scale(${1 + eo3(rk) * 2.8})` });
+      else rp.style.display = 'none';
+    } else { c.style.display = 'none'; rp.style.display = 'none'; }
+    return true;
+  };
+  window.TOTAL = TOTAL;
+  window.CLICK_TIMES = [13.5, 15.0, 19.9, 22.5, 23.3, 28.9, 48.1, 51.3, 52.7, 53.7];
+  window.READY = true;
+})().catch((e) => { window.FAILED = String(e && e.stack || e); });
+</script>
+</body>
+</html>

@@ -65,6 +65,11 @@ describe('signedUsd', () => {
     expect(signedUsd(-812)).toBe('−$812');
     expect(signedUsd(0)).toBe('$0');
     expect(signedUsd(-0.3)).toBe('$0');
+    // At cents, the same figure has a sign, and tone agrees with the text.
+    expect(signedUsd(-0.4, 2)).toBe('−$0.40');
+    expect(tone(-0.4, 2)).toBe('down');
+    expect(signedUsd(-0.004, 2)).toBe('$0.00');
+    expect(tone(-0.004, 2)).toBe('');
   });
 });
 

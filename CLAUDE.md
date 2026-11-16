@@ -2947,3 +2947,44 @@ ALFA asked for a premium banner for an article, and the article's copy.
   `docs/articles/introducing-tidewell.x.txt` is the paste-ready form: one line
   per paragraph, heading or list item, no blank lines. The title goes in X's
   title field, not the body.
+
+---
+
+## 26. The launch video, and two bugs it found
+
+ALFA asked for a premium "Tidewell is live" video that shows how to add
+liquidity, through to earning and withdrawing any time.
+
+- **`brand/video/tidewell-is-live.mp4`**: 66 s, 1920×1080, 30 fps, H.264 +
+  AAC. An intro, four steps (connect, stake, earn, claim and withdraw), and
+  an outro that says Tidewell is not yet independently audited and that the
+  demo's trading is simulated. Built by `scripts/video/` (its README has the
+  steps); the soundtrack is synthesised, nothing licensed.
+- **Every UI frame is real.** The live build was driven through a 1 ETH
+  stake, a claim and a full withdrawal against the deployed vault and zap on
+  a fork of mainnet, and the video is composed from crops of those
+  screenshots. The fees came from about one week of the ETH / USDG 0.05%
+  pool's real volume ($17.4M) traded through the real UniversalRouter on the
+  fork: the stake earned $1.40, which matches the vault's real trailing rate
+  (4.8% after the fee) on $1.8K. The "$X traded" counter on screen is that
+  simulated volume, labelled as such.
+- **Framed around the stale banner, not by hiding it.** The indexer was 8
+  days behind, so every page carried the "figures are from 8 Nov" banner
+  and a market strip of week-old totals. The video shows only live vault
+  figures and the wallet's own stake (tight crops of the panel, the earnings
+  cards and the portfolio). The snapshot's lag was left as it was.
+- **The CoinGecko WETH logo was unreachable from the sandbox**, so the
+  recording answers that one image with a plain ETH diamond
+  (`scripts/video/eth-logo.png`). The live site shows CoinGecko's image.
+
+Two bugs on the live site, found while recording and fixed:
+
+- **The portfolio's Activity list had no styles at all.** `Activity.tsx`
+  used `.act-list`, `.act-what` and `.act-when`, which `globals.css` never
+  defined, so it rendered as a bulleted run-on line ("ETH / USDG0.4999 ETH +
+  905.11 USDG3m ago"). Defined now: one row per deposit, claim or withdrawal,
+  kind · pair and amounts · when.
+- **"Price impact on holdings" showed a red "$0".** It was coloured by
+  `tone(n, 2)` and printed by `signedUsd(n)` at whole dollars, so −$0.40 read
+  as a zero that lost. `signedUsd` takes the precision now and the card shows
+  cents ("−$0.40"), coloured at the same precision; a test holds the pair.

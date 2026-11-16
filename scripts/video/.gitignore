@@ -1,0 +1,8 @@
+# Built by cut.py from a recording; not sources.
+comp/frags/
+comp/fonts/
+comp/img/
+comp/frags.json
+rec/
+*.wav
+video-only.mp4
