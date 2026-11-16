@@ -102,6 +102,16 @@ export function price(n: number): string {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: n < 1 ? 4 : 2 })}`;
 }
 
+/**
+ * A token price that may be millionths of a dollar: four significant digits
+ * ("$0.000004864"), where price() would print "$0". From a cent, price().
+ */
+export function priceTiny(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 0.01) return price(n);
+  return `$${n.toLocaleString('en-US', { maximumSignificantDigits: 4 })}`;
+}
+
 /** 1656 -> "69d", 24 -> "1d", 1 -> "1h". Matches the prototype's age column. */
 export function ageLabel(hours: number): string {
   if (hours < 24) return `${Math.max(1, Math.floor(hours))}h`;

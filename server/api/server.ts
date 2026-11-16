@@ -28,6 +28,7 @@ import { buildSnapshot } from './snapshot';
 import { lagLabel } from '../../lib/format';
 import { keeperHealth, vaultWatchHealth } from '../keeper/health';
 import { isWalletAddress, walletHistory } from './wallet-history';
+import { createTokenCurveReader } from './token-curve';
 
 const USDG = process.env.USDG_ADDRESS ?? '';
 
@@ -87,6 +88,8 @@ export interface ServerOptions {
   anchorCacheMs?: number;
   /** How long /api/health reuses its pool and swap counts. 0 counts every time. */
   countsCacheMs?: number;
+  /** The token's launchpad curve reader (token-curve.ts); a test can pass its own, or null. */
+  tokenCurve?: ReturnType<typeof createTokenCurveReader>;
 }
 
 /** The client a request is from, for rate limiting (see the limiter below). */
@@ -111,6 +114,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
   let countsMemo: { pools: number; swaps: number } | undefined;
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
   const deployment = options.deployment !== undefined ? options.deployment : deploymentFor(CHAIN.id);
+  const tokenCurve = options.tokenCurve !== undefined ? options.tokenCurve : createTokenCurveReader((m) => app.log.warn(m));
 
   await app.register(cors, {
     // The browser reaches the API through nginx on the same origin, so CORS
@@ -419,6 +423,20 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     if (!isWalletAddress(address)) return reply.code(400).send({ error: 'not-an-address' });
     const history = await walletHistory(address, deployment?.vaults ?? []);
     return reply.header('cache-control', 'private, no-store').send(history);
+  });
+
+  /**
+   * The token on its launchpad curve (token-curve.ts): price, FDV, moves and
+   * volume read from the curve contract itself, which the indexer cannot see.
+   * Dollars at the same live ETH price the vaults use; with none, ETH only.
+   */
+  app.get('/api/token', async (_request, reply) => {
+    if (!tokenCurve) return reply.code(404).send({ error: 'no-token' });
+    const snap = await snapshot().catch(() => null);
+    const ethUsd = snap?.vaults.map((v) => v.live?.ethPriceUsd ?? null).find((p): p is number => p !== null && p > 0) ?? null;
+    const value = await tokenCurve.get(ethUsd);
+    if (!value) return reply.code(503).send({ error: 'unavailable', message: 'The token curve could not be read just now.' });
+    return reply.header('cache-control', 'public, max-age=10').send(value);
   });
 
   /**

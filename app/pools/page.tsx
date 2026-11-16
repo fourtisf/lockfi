@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Featured, MiniCards } from '@/components/pools/Featured';
 import { LivePayouts } from '@/components/pools/LivePayouts';
 import { PoolBoard } from '@/components/pools/PoolBoard';
+import { TokenCard } from '@/components/pools/TokenCard';
 import { BRAND } from '@/lib/site';
 
 export const metadata: Metadata = { title: `Pools — ${BRAND}` };
@@ -24,6 +25,8 @@ export default function PoolsPage() {
           </Link>
         </div>
       </div>
+
+      <TokenCard />
 
       <div className="hero">
         <Featured />

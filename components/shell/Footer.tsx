@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { CHAIN } from '@/lib/chain';
 import { BRAND } from '@/lib/site';
 import { Mark } from './Logo';
-import { CA_WARNING, CaChip, XLink } from './Socials';
+import { CA_WARNING, CaChip, TelegramLink, XLink } from './Socials';
 
 export function Footer() {
   return (
@@ -22,6 +22,7 @@ export function Footer() {
         <a href="#">Docs</a>
         <a href="#">Status</a>
         <XLink />
+        <TelegramLink />
       </div>
     </footer>
   );

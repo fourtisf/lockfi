@@ -3040,3 +3040,67 @@ the image cannot show a different CA from the site, and the script stops if
 it is unset. Plex Mono is a static font in the build, so the script has its
 own loader that refuses a file missing any of the address's characters
 (`outline` would otherwise skip them silently).
+
+---
+
+## 30. $TIDEWELL on the site, Telegram, and the community banner
+
+ALFA launched TIDEWELL on Pons (`ponsfamily.com/launchpad/<CA>`) and asked for
+it on the site, then for the Telegram channel on the site and a "community
+is now open" banner.
+
+### The token on its curve
+
+Read on chain before anything was built: **TIDEWELL has no Uniswap pool.**
+No `Initialize` names it in the last 30 million blocks; all 1,000,000,000
+tokens were minted at block 115,623,898 to Pons's curve
+`0x0659…7bf9`, which answers `token()` with the CA. So it is not on the
+boards (the indexer reads Uniswap pools) and **no vault can hold it**
+(vaults need a hookless v4 pool) until it graduates.
+
+What the curve exposes, found by matching selectors in its bytecode:
+`getReserves()` (ETH, tokens), `graduated()`, `feeBps()` (100),
+`graduationThreshold()` (4.2 ETH). The ETH reserve is the curve's balance
+plus exactly 1.68 ETH virtual. Its Buy event is (ETH in, tokens out, fee,
+fee) and its Sell event (tokens in, ETH out, fee, fee); the reserve keeps
+the ETH less both fees. **That reading was proven, not assumed**: replaying
+all 28 trades from the launch reserves landed on `getReserves()` to the wei.
+
+- `server/api/token-curve.ts` reads the curve's events since launch (held in
+  memory, topped up each read, at most every 15 s) and its reserves at the
+  same block, replays them and checks the replay against the reserves on
+  every read (`verified`). Served at `GET /api/token`, dollars at the vaults'
+  live ETH price. The arithmetic is pure, in `lib/token-curve.ts`, with tests
+  built on the real event words.
+- `components/pools/TokenCard.tsx`, top of Pools: price (four significant
+  digits, `priceTiny`), FDV labelled as price × total supply, the move and
+  volume "since launch · 28m" until a day old and over 24h after, trades,
+  real ETH in the curve, a price line, the CA to copy, **Buy on Pons** and
+  Explorer. If the replay ever disagrees with the reserves, the price still
+  shows and the change and the line are withheld. Graduated: it says so and
+  points at the boards. Simulator: CA and Buy only.
+- **No graduation progress bar.** Whether the 4.2 ETH threshold is measured
+  against the real ETH (0.42, about 10%) or the reserve with its virtual
+  1.68 (2.1, about 50%) was not determinable from the events; a bar that
+  might be five times wrong was left out.
+- Checked against the real chain through the API's own reader
+  (`npx tsx scripts/check-token-curve.mts 1808`): verified, $0.000004728,
+  FDV $4.7K, +43.9% since launch, $1.1K across 28 trades.
+
+### Telegram
+
+`TELEGRAM_URL` in `lib/site.ts` (`https://t.me/tidewellchannel`): an icon
+beside X in the top bar (hidden at 520px and below, where the bar has no
+room) and a link in the footer. The e2e shell test checks both.
+
+### The community banner
+
+`brand/x-post-community-{glass,gold}` (16:9, 1600 and 3200): "The community
+is now open.", the channel on a glass panel with Telegram's plane, and "Launch
+news, product updates and the only official links. Also on X: @usetidewell".
+`scripts/build-community-post.py` reads the channel and the handle from
+`lib/site.ts`.
+
+Verified: 512 unit tests, 48 browser tests, and the card rendered against
+the live curve at desktop and phone widths with no page errors and no
+sideways scroll.

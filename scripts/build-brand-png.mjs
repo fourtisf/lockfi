@@ -114,6 +114,12 @@ const JOBS = [
   ['x-post-ca-updated-glass.svg', 'x-post-ca-updated-glass-3200.png', 3200],
   ['x-post-ca-updated-gold.svg', 'x-post-ca-updated-gold-1600.png', 1600],
   ['x-post-ca-updated-gold.svg', 'x-post-ca-updated-gold-3200.png', 3200],
+  // "The community is now open" (scripts/build-community-post.py): X's
+  // in-feed 16:9 at 1600 and twice that.
+  ['x-post-community-glass.svg', 'x-post-community-glass-1600.png', 1600],
+  ['x-post-community-glass.svg', 'x-post-community-glass-3200.png', 3200],
+  ['x-post-community-gold.svg', 'x-post-community-gold-1600.png', 1600],
+  ['x-post-community-gold.svg', 'x-post-community-gold-3200.png', 3200],
 ];
 
 // `node scripts/build-brand-png.mjs x-header-tide` renders only the outputs

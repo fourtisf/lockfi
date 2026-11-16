@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { EXPLORER } from '@/lib/chain';
-import { TOKEN_CA, X_HANDLE, X_URL } from '@/lib/site';
+import { TELEGRAM_LABEL, TELEGRAM_URL, TOKEN_CA, X_HANDLE, X_URL } from '@/lib/site';
 
 /** The X logo, drawn in currentColor. */
 function XGlyph({ size = 16 }: { size?: number }) {
@@ -25,6 +25,40 @@ export function XButton() {
       title={`${X_HANDLE} on X`}
     >
       <XGlyph />
+    </a>
+  );
+}
+
+/** The Telegram plane, drawn in currentColor. */
+function TelegramGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+      <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z" />
+    </svg>
+  );
+}
+
+/** Icon link to Tidewell's Telegram channel, for the top bar. */
+export function TelegramButton() {
+  return (
+    <a
+      className="xbtn tgbtn"
+      href={TELEGRAM_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Tidewell on Telegram"
+      title={`Tidewell on Telegram · ${TELEGRAM_LABEL}`}
+    >
+      <TelegramGlyph />
+    </a>
+  );
+}
+
+/** Text link to Tidewell's Telegram channel, for the footer. */
+export function TelegramLink() {
+  return (
+    <a className="xlink tglink" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+      <TelegramGlyph size={13} /> Telegram
     </a>
   );
 }

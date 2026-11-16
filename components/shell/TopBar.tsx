@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { WalletButton } from '@/components/wallet/Wallet';
-import { CaChip, XButton } from './Socials';
+import { CaChip, TelegramButton, XButton } from './Socials';
 import { DATA_SOURCE } from '@/lib/data';
 import { lagLabel, usd, usdExact } from '@/lib/format';
 import { BRAND } from '@/lib/site';
@@ -112,6 +112,7 @@ export function TopBar() {
             )}
           </span>
           <XButton />
+          <TelegramButton />
           <WalletButton />
         </div>
       </div>

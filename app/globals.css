@@ -755,6 +755,8 @@ a.ca-v:hover{color:var(--ac)}
 .foot-ca{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .foot-warn{font-size:12px;color:var(--fg-3)}
 @media (max-width:640px){.xbtn{width:36px;height:36px}.foot-warn{flex-basis:100%}}
+/* The top bar has no room for a second social icon on a small phone; the footer keeps the Telegram link. */
+@media (max-width:520px){.tgbtn{display:none}}
 /* On a phone the CA chip keeps its place: stats that no longer fit wrap to a
    second row the strip's height hides, rather than the chip being clipped. */
 .ca-short{display:none}
@@ -804,3 +806,25 @@ details.dr-pools summary::-webkit-details-marker{display:none}
 details.dr-pools summary .dr-pools-more{color:var(--ac);font-weight:600;white-space:nowrap}
 details.dr-pools[open] summary{margin-bottom:10px}
 details.dr-pools[open] summary .dr-pools-more{display:none}
+
+/* $TIDEWELL on its launchpad curve (§30): the card at the top of Pools. */
+.tok-card{padding:20px 22px;margin-bottom:20px;display:grid;gap:16px}
+.tok-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.tok-mark{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;background:var(--ac-dim);flex:none}
+.tok-id{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.tok-id h2{margin:0;font-family:var(--mono);font-size:20px;font-weight:700;letter-spacing:-.01em}
+.tok-acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.tok-body{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:center}
+.tok-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin:0}
+.tok-stats>div{min-width:0}
+.tok-stats dt{font-size:12.5px;color:var(--fg-3);font-weight:600}
+.tok-stats dd{margin:4px 0 2px;font-size:20px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tok-sub{display:block;font-size:12px;color:var(--fg-3);overflow-wrap:anywhere}
+.tok-chart{color:var(--fg-3)}
+.tok-spark{display:block}
+.tok-foot{display:grid;gap:8px;border-top:1px solid var(--bd);padding-top:14px}
+.tok-foot .ca-row{max-width:520px}
+.tok-note{margin:0;font-size:12.5px;color:var(--fg-3);line-height:1.5}
+@media (max-width:1100px){.tok-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.tok-body{grid-template-columns:1fr}.tok-spark{width:100%!important}}
+@media (max-width:520px){.tok-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.tok-acts{margin-left:0;width:100%}.tok-acts .btn{flex:1;justify-content:center}}

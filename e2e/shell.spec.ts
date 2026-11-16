@@ -24,7 +24,10 @@ test.describe('shell', () => {
     await expect(x).toHaveAttribute('href', 'https://x.com/usetidewell');
     await expect(x).toHaveAttribute('target', '_blank');
     await expect(x).toHaveAttribute('rel', /noopener/);
-    await expect(page.locator('footer .xlink')).toHaveAttribute('href', 'https://x.com/usetidewell');
+    await expect(page.locator('footer .xlink').first()).toHaveAttribute('href', 'https://x.com/usetidewell');
+    // Telegram, in the top bar and the footer.
+    await expect(page.getByRole('link', { name: 'Tidewell on Telegram' })).toHaveAttribute('href', 'https://t.me/tidewellchannel');
+    await expect(page.locator('footer .tglink')).toHaveAttribute('href', 'https://t.me/tidewellchannel');
     // The CA, short in the strip and whole in the footer, linked to the
     // explorer, with the warning that guards against the fake CAs posted
     // around every launch.
