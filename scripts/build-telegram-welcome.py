@@ -8,7 +8,7 @@ finishes; every word outlined from the site's own fonts.
 
 Writes brand/tg-welcome-{glass,gold}.svg; the PNG step renders each at
 1600×900 and 2560×1440 (Telegram re-compresses anything larger than 2560).
-The domain, the X handle and the CA are read from lib/site.ts, so the banner
+The domain, the X handle, the Telegram channel and the CA are read from lib/site.ts, so the banner
 cannot list a link the site does not.
 """
 from __future__ import annotations
@@ -40,12 +40,13 @@ def const(name: str, pattern: str = r"'([^']+)'") -> str:
 
 DOMAIN = const('DOMAIN')
 X_HANDLE = const('X_HANDLE')
+TELEGRAM = const('TELEGRAM_LABEL')
 CA = const('TOKEN_CA', r"'(0x[0-9a-fA-F]{40})'")
 
 EYEBROW = 'OFFICIAL TELEGRAM'
 HEAD_1 = 'Welcome to the'
 HEAD_2 = 'Tidewell community.'
-ROWS = [('WEBSITE', DOMAIN), ('X', X_HANDLE), ('CA', CA)]
+ROWS = [('WEBSITE', DOMAIN), ('X', X_HANDLE), ('TELEGRAM', TELEGRAM), ('CA', CA)]
 FOOT = f'Never share your seed phrase. Only trust links posted here and on {DOMAIN}.'
 
 ACCENT = {
@@ -56,7 +57,7 @@ ACCENT = {
 sora = brand.load('Sora', 700, HEAD_1 + HEAD_2)
 manrope = brand.load('Manrope', 500, FOOT)
 manrope_b = brand.load('Manrope', 600, EYEBROW + ''.join(r[0] for r in ROWS))
-manrope_x = brand.load('Manrope', 700, DOMAIN + X_HANDLE)
+manrope_x = brand.load('Manrope', 700, DOMAIN + X_HANDLE + TELEGRAM)
 word = brand.load('Sora', 600, 'Tidewel')
 
 
@@ -128,14 +129,14 @@ def banner(fin: str) -> str:
                  f'{brand.mark_signature(fin, "lm")}</g>')
     parts.append(f'<path d="{text(word, "Tidewell", 30, ly + mark_w / 2 + 10.5, left + mark_w + 14, -0.02)}" fill="#FFFFFF"/>')
 
-    parts.append(f'<path d="{text(manrope_b, EYEBROW, 16, 214, left, 0.24)}" fill="{a1}"/>')
+    parts.append(f'<path d="{text(manrope_b, EYEBROW, 16, 196, left, 0.24)}" fill="{a1}"/>')
     parts.append(
         f'<defs><linearGradient id="h2" x1="{left:g}" y1="0" x2="{left + width(sora, HEAD_2, 74, -0.02):g}" y2="0" '
         f'gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="{a0}"/><stop offset="1" stop-color="{a1}"/>'
         f'</linearGradient></defs>'
     )
-    parts.append(f'<path d="{text(sora, HEAD_1, 74, 294, left - 3, -0.02)}" fill="#FFFFFF"/>')
-    parts.append(f'<path d="{text(sora, HEAD_2, 74, 374, left - 3, -0.02)}" fill="url(#h2)"/>')
+    parts.append(f'<path d="{text(sora, HEAD_1, 74, 274, left - 3, -0.02)}" fill="#FFFFFF"/>')
+    parts.append(f'<path d="{text(sora, HEAD_2, 74, 352, left - 3, -0.02)}" fill="url(#h2)"/>')
 
     # The official links, one per row, on a glass panel sized to the longest.
     label_w = 132.0
@@ -143,7 +144,7 @@ def banner(fin: str) -> str:
     row_h = 62.0
     vals = [(lab, val, plex if lab == 'CA' else manrope_x, 25.0 if lab == 'CA' else 30.0) for lab, val in ROWS]
     vw = max(width(font, val, size) for _, val, font, size in vals)
-    px, py = left, 420.0
+    px, py = left, 392.0
     pw, ph = pad + label_w + vw + pad, pad * 2 + row_h * len(vals) - 8
     parts.append(
         f'<rect x="{px:g}" y="{py:g}" width="{pw:.1f}" height="{ph:g}" rx="22" fill="#FFFFFF" fill-opacity=".07" '
@@ -161,13 +162,13 @@ def banner(fin: str) -> str:
 
     body_svg = '\n  '.join(parts)
     return brand.svg(body_svg, f'0 0 {W} {H}', W, H).replace(
-        'aria-label="Tidewell"', f'aria-label="Welcome to the Tidewell community. Website {DOMAIN}, X {X_HANDLE}, CA {CA}"')
+        'aria-label="Tidewell"', f'aria-label="Welcome to the Tidewell community. Website {DOMAIN}, X {X_HANDLE}, Telegram {TELEGRAM}, CA {CA}"')
 
 
 def main() -> None:
     for fin in ('glass', 'gold'):
         brand.write(os.path.join(brand.OUT, f'tg-welcome-{fin}.svg'), banner(fin))
-    print('links', DOMAIN, X_HANDLE, CA)
+    print('links', DOMAIN, X_HANDLE, TELEGRAM, CA)
 
 
 if __name__ == '__main__':
