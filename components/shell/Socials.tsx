@@ -80,8 +80,17 @@ export function CaChip({ compact = false }: { compact?: boolean }) {
   return (
     <span className="ca-chip" title={CA_WARNING}>
       <span className="ca-k">CA</span>
-      <a className="ca-v num" href={`${EXPLORER}/token/${ca}`} target="_blank" rel="noopener noreferrer">
-        {compact ? short : ca}
+      <a className="ca-v num" href={`${EXPLORER}/token/${ca}`} target="_blank" rel="noopener noreferrer" title={ca}>
+        {compact ? (
+          short
+        ) : (
+          // Whole where there is room; on a phone the 42 characters would push
+          // the page sideways, so the short form shows and Copy still copies all.
+          <>
+            <span className="ca-long">{ca}</span>
+            <span className="ca-short">{short}</span>
+          </>
+        )}
       </a>
       <button type="button" className="ca-copy" onClick={copy} aria-label="Copy contract address">
         {copied ? 'Copied' : 'Copy'}

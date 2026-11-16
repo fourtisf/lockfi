@@ -38,5 +38,9 @@ export const X_URL = 'https://x.com/usetidewell';
  * Set it here and only here: every place that prints the CA reads this
  * constant. Scammers post fake CAs around every launch, so the one on this
  * site must never drift between copies.
+ *
+ * TIDEWELL (symbol TIDEWELL, 18 decimals, 1,000,000,000 supply), read from
+ * the contract on Robinhood Chain before it was set here. Checksummed;
+ * lib/site.test.ts fails on a mistyped character.
  */
-export const TOKEN_CA: `0x${string}` | null = null;
+export const TOKEN_CA: `0x${string}` | null = '0x0040dbfd23df97c06FB9A73B59E298D7e5BcE198';

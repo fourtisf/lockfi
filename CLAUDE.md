@@ -2988,3 +2988,25 @@ Two bugs on the live site, found while recording and fixed:
   `tone(n, 2)` and printed by `signedUsd(n)` at whole dollars, so −$0.40 read
   as a zero that lost. `signedUsd` takes the precision now and the card shows
   cents ("−$0.40"), coloured at the same precision; a test holds the pair.
+
+---
+
+## 27. The token CA on the site
+
+ALFA launched the token and asked for its CA on the site:
+`0x0040dbfd23df97c06FB9A73B59E298D7e5BcE198`. Read from the contract on
+Robinhood Chain before it was set: it holds code and answers as an ERC-20
+named TIDEWELL, symbol TIDEWELL, 18 decimals, 1,000,000,000 supply.
+
+- `TOKEN_CA` in `lib/site.ts` holds it, checksummed, and is still the only
+  place it is written: the market strip and the footer read it, link it to the
+  explorer and copy it whole. `lib/site.test.ts` fails if a character is
+  mistyped (the checksum no longer matches).
+- **The footer printed all 42 characters, which pushed a 360px page 78px
+  sideways** (the overflow test caught it). Below 641px it shows the short
+  form, as the strip already did; Copy and the link still carry the whole
+  address. The e2e test checks the short form in the strip, the whole address
+  and explorer link in the footer, and no overflow.
+- §13's recommendation was to ship without a token; ALFA chose to launch one.
+  Nothing in the contracts changed: vaults pay swap fees to every staker,
+  holder or not, which is what the launch copy says.

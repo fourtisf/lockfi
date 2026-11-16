@@ -18,17 +18,20 @@ test.describe('shell', () => {
     expect(errors).toEqual([]);
   });
 
-  test('links the official X account and says the CA is coming soon', async ({ page }) => {
+  test('links the official X account and shows the token CA', async ({ page }) => {
     await page.goto('/pools');
     const x = page.getByRole('link', { name: '@usetidewell on X' });
     await expect(x).toHaveAttribute('href', 'https://x.com/usetidewell');
     await expect(x).toHaveAttribute('target', '_blank');
     await expect(x).toHaveAttribute('rel', /noopener/);
     await expect(page.locator('footer .xlink')).toHaveAttribute('href', 'https://x.com/usetidewell');
-    // No token yet: the CA says so, in the strip and the footer, with the
-    // warning that guards against the fake CAs posted around every launch.
-    await expect(page.locator('.strip .ca-chip')).toContainText('Coming soon');
-    await expect(page.locator('footer .ca-chip')).toContainText('Coming soon');
+    // The CA, short in the strip and whole in the footer, linked to the
+    // explorer, with the warning that guards against the fake CAs posted
+    // around every launch.
+    const ca = '0x0040dbfd23df97c06FB9A73B59E298D7e5BcE198';
+    await expect(page.locator('.strip .ca-chip')).toContainText('0x0040…E198');
+    await expect(page.locator('footer .ca-chip')).toContainText(ca);
+    await expect(page.locator('footer .ca-chip a')).toHaveAttribute('href', new RegExp(`/token/${ca}$`));
     await expect(page.locator('footer')).toContainText('Only trust the CA shown on this site and on @usetidewell');
   });
 
