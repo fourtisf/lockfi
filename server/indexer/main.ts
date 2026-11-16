@@ -92,6 +92,12 @@ async function main(): Promise<void> {
     // Swaps only for the last SWAP_WINDOW_DAYS; older ranges are read for
     // pools and liquidity alone (see poller.ts).
     swapWindowSeconds: env.swapWindowDays > 0 ? env.swapWindowDays * 86_400 : null,
+    // Pool state is valued for the pools the site can show (those that
+    // traded in the swap window) and never allowed to hold a pass for more
+    // than four minutes: on the live box, unbounded, a pass that ran it sat
+    // silent for 51.
+    poolStateLiveDays: env.swapWindowDays > 0 ? env.swapWindowDays : null,
+    poolStateTimeoutMs: 4 * 60_000,
     // Resolving the anchor scans a million pools; it was done on every pass.
     anchorRefreshMs: 10 * 60_000,
     // Vault rows were rebuilt after every pool pass, every few seconds.

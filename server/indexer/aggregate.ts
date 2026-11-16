@@ -436,10 +436,30 @@ export async function rebuildFeeHours(
  * The amounts are computed in double precision: TVL is a display figure, and
  * nothing exact (fees, `pool_fee_hourly`, §9) is derived from it.
  */
-export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
-  const { weth, usdg } = checkAnchors(anchors);
+export interface PoolStateOptions {
+  /**
+   * Value only pools that traded within this many days of the last swap read
+   * — the only pools the snapshot can show. Null (the default) values every
+   * pool that ever traded; the indexer passes its swap window.
+   */
+  liveDays?: number | null;
+  /**
+   * Give up after this long, rather than hold the indexer: a rebuild that
+   * cannot finish leaves pool state as it was, and the caller tries again
+   * later. Null for no limit (the tests).
+   */
+  timeoutMs?: number | null;
+}
 
-  return prisma.$executeRawUnsafe(`
+/** Thrown when a pool-state rebuild hit its time limit and changed nothing. */
+export class PoolStateTimeout extends Error {}
+
+export async function rebuildPoolState(anchors: PriceAnchors, options: PoolStateOptions = {}): Promise<number> {
+  const { weth, usdg } = checkAnchors(anchors);
+  const liveDays = options.liveDays ?? null;
+  if (liveDays !== null && !(Number.isFinite(liveDays) && liveDays > 0)) throw new Error(`bad liveDays: ${liveDays}`);
+
+  const sql = `
     WITH
     -- The most recent anchor price we have. One row.
     weth_usd AS (
@@ -450,9 +470,21 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
     -- lookup per pool that has a fee hour — every pool that ever swapped,
     -- since fee hours are built before this step — rather than a DISTINCT ON
     -- over every swap ever read, run every minute in the swap window.
+    --
+    -- And only pools that traded in the last ${liveDays ?? 'any number of'} days before the last
+    -- swap read: the snapshot shows nothing else, and valuing every pool that
+    -- ever traded — July's included — summed the liquidity of tens of
+    -- thousands of pools that are on no page. On the live box a pass that ran
+    -- this, with the scan below and no time limit, sat silent for 51 minutes.
+    live AS (
+      SELECT DISTINCT f.pool_id FROM pool_fee_hourly f
+      ${liveDays === null ? '' : `WHERE f.swaps > 0 AND f.hour >= (
+        SELECT date_trunc('hour', max(block_time)) - (${liveDays} * interval '1 day') FROM swap_events
+      )`}
+    ),
     last_swap AS (
       SELECT f.pool_id, ls.sqrt_price_x96, ls.tick, ls.liquidity, ls.block_time
-      FROM (SELECT DISTINCT pool_id FROM pool_fee_hourly) f
+      FROM live f
       CROSS JOIN LATERAL (
         SELECT sw.sqrt_price_x96, sw.tick, sw.liquidity, sw.block_time
         FROM swap_events sw
@@ -471,26 +503,35 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       SELECT COALESCE((SELECT block_num FROM swap_events ORDER BY block_num DESC LIMIT 1), 0) AS block
     ),
 
-    -- Net liquidity per range: every position in a range, summed.
-    ranges AS (
-      SELECT pool_id, tick_lower, tick_upper, SUM(liquidity_delta) AS l
-      FROM liquidity_events, horizon
-      WHERE block_num <= horizon.block
-        AND pool_id IN (SELECT pool_id FROM last_swap)
-      GROUP BY pool_id, tick_lower, tick_upper
-      HAVING SUM(liquidity_delta) <> 0
+    -- Each pool's liquidity history, read once and summed per range: net
+    -- liquidity, and what LPs deposited (additions' amounts; removals are
+    -- negative and left out). Per pool, through the (pool_id, block_time)
+    -- index: a pool's own events, not a scan of every liquidity change on
+    -- the chain since genesis — which the structure phase writes by the tens
+    -- of millions. Read once: ranges and supplied each reading it doubled
+    -- the random heap reads that are most of this step's cost.
+    range_sums AS MATERIALIZED (
+      SELECT ls.pool_id, r.tick_lower, r.tick_upper, r.l, r.in0, r.in1
+      FROM last_swap ls
+      CROSS JOIN LATERAL (
+        SELECT le.tick_lower, le.tick_upper,
+               SUM(le.liquidity_delta) AS l,
+               SUM(GREATEST(le.amount0, 0)) AS in0,
+               SUM(GREATEST(le.amount1, 0)) AS in1
+        FROM liquidity_events le
+        WHERE le.pool_id = ls.pool_id AND le.block_num <= (SELECT block FROM horizon)
+        GROUP BY le.tick_lower, le.tick_upper
+      ) r
     ),
 
-    -- Everything LPs have ever deposited, per token, in raw units: the
-    -- amounts each addition carried (removals are negative and left out).
+    -- Net liquidity per range: every position in a range, summed.
+    ranges AS (
+      SELECT pool_id, tick_lower, tick_upper, l FROM range_sums WHERE l <> 0
+    ),
+
+    -- Everything LPs have ever deposited, per token, in raw units.
     supplied AS (
-      SELECT pool_id,
-             SUM(GREATEST(amount0, 0)) AS in0,
-             SUM(GREATEST(amount1, 0)) AS in1
-      FROM liquidity_events, horizon
-      WHERE block_num <= horizon.block
-        AND pool_id IN (SELECT pool_id FROM last_swap)
-      GROUP BY pool_id
+      SELECT pool_id, SUM(in0) AS in0, SUM(in1) AS in1 FROM range_sums GROUP BY pool_id
     ),
 
     -- The price each pool's positions are valued at: the latest swap's, or
@@ -669,7 +710,27 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       tick           = EXCLUDED.tick,
       liquidity      = EXCLUDED.liquidity,
       updated_at     = EXCLUDED.updated_at
-  `);
+  `;
+
+  // SET LOCAL: both settings apply to this transaction's statements only.
+  //
+  // jit off: this statement is a few hundred expressions, and Postgres
+  // compiled them with LLVM on every run — 4.5 of 12.5 seconds on a
+  // million-pool database, measured, spent before the first row. It runs
+  // once and is gone; there is nothing for compiled code to be reused on.
+  const settings = [prisma.$executeRawUnsafe('SET LOCAL jit = off')];
+  if (options.timeoutMs) {
+    settings.push(prisma.$executeRawUnsafe(`SET LOCAL statement_timeout = ${Math.max(1, Math.floor(options.timeoutMs))}`));
+  }
+  try {
+    const results = await prisma.$transaction([...settings, prisma.$executeRawUnsafe(sql)]);
+    return results[results.length - 1];
+  } catch (error) {
+    if (options.timeoutMs && /statement timeout|canceling statement|57014/i.test(String((error as Error)?.message ?? error))) {
+      throw new PoolStateTimeout(`pool state rebuild passed ${Math.round(options.timeoutMs / 1000)}s and was cancelled; nothing changed`);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -679,7 +740,7 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
 export async function rebuildAggregates(
   anchors: PriceAnchors,
   bounds?: Bounds,
-  options: { poolState?: boolean; flows?: boolean } = {},
+  options: { poolState?: boolean; flows?: boolean; poolStateOptions?: PoolStateOptions } = {},
 ): Promise<void> {
   await rebuildAnchorPrices(anchors, bounds);
   // pool_flow_hourly is no longer rebuilt here: nothing has read it since
@@ -693,5 +754,5 @@ export async function rebuildAggregates(
   // poller skips it on most backfill passes and always runs it once caught
   // up — it is rebuilt from the tables below, so when it runs changes
   // nothing about what it produces.
-  if (options.poolState !== false) await rebuildPoolState(anchors);
+  if (options.poolState !== false) await rebuildPoolState(anchors, options.poolStateOptions);
 }

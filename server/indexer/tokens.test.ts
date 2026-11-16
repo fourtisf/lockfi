@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../db';
 import { isReachable, resetDatabase } from '../test/db';
-import { PENDING_DECIMALS, ensureTokens, hydrateTokens, networkFailure, type TokenFacts } from './discovery';
+import { PENDING_DECIMALS, ensureTokens, hydrateTokens, networkFailure, refreshSupplies, type TokenFacts } from './discovery';
 
 const TOKEN = '0x00000000000000000000000000000000000000ab';
 
@@ -82,5 +82,29 @@ describe('a token whose reads failed on every endpoint', () => {
     const row = await prisma.token.findUniqueOrThrow({ where: { address: TOKEN } });
     expect(row.decimals).toBe(PENDING_DECIMALS);
     expect(row.symbol).toBe('');
+  });
+});
+
+describe('refreshing supplies', () => {
+  it('does not let a token that reports no supply hold the queue', async () => {
+    const SILENT = '0x00000000000000000000000000000000000000cd';
+    const facts = (address: string, totalSupply: bigint | null): TokenFacts => ({
+      address, symbol: 'T', name: 'T', decimals: 18, totalSupply,
+    });
+    await ensureTokens([SILENT, TOKEN], new Date('2026-11-01T00:00:00Z'), async (a) => facts(a, null));
+    await prisma.token.update({ where: { address: SILENT }, data: { supplyReadAt: null } });
+    await prisma.token.update({ where: { address: TOKEN }, data: { supplyReadAt: new Date('2026-11-01T00:00:00Z') } });
+
+    const asked: string[] = [];
+    const read = async (a: string) => {
+      asked.push(a);
+      return facts(a, a === TOKEN ? 10n ** 24n : null);
+    };
+    const now = new Date('2026-11-02T00:00:00Z');
+    await refreshSupplies(now, { limit: 1, read });
+    await refreshSupplies(now, { limit: 1, read });
+    expect(asked).toEqual([SILENT, TOKEN]);
+    const row = await prisma.token.findUniqueOrThrow({ where: { address: TOKEN } });
+    expect(row.totalSupply?.toFixed()).toBe((10n ** 24n).toString());
   });
 });

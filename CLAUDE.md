@@ -2648,3 +2648,54 @@ error, from `bash deploy/data-source.sh status` or
   only https image bytes are kept.
 - The vault watcher interpolates swap times within a read chunk (minutes at
   the 24h edge on a first backfill).
+
+### The stall, found: 51 silent minutes in one pass
+
+ALFA's indexer log answered §22's open question. The last progress line was
+at 03:49:22, block 108,933,481, after passes of 1–2 seconds; then nothing
+until ALFA's deploy stopped the process at 04:40:45. After the restart it
+found the USD anchor at 04:41:22 and went silent again. So nothing crashed:
+one pass did not finish. `/api/health` agreed — swaps kept rising (517,874 →
+520,213) while the cursor stayed put, which places the hang after the swaps
+are written and before the cursor is.
+
+That is where the global work runs: the first pass after a start, and one
+pass every ten minutes. The anchor line comes from inside it, so the hang
+came after the anchor. The other steps were timed on a database built to
+the box's shape (1.1M pools, 12M liquidity events, 520K swaps, 30K traded
+pools, 5.7 GB) and each finished in a fraction of a second; only the pool
+state rebuild was slow, at 13 seconds here. The box was 51 minutes and
+counting. The gap is not explained from here: the box's disk, memory and
+table sizes were not measured. What can be said is that this step was the
+only unbounded one, and its cost grows with every liquidity event on the
+chain since genesis.
+
+- **It can no longer freeze the indexer.** It runs under
+  `statement_timeout` (4 min, `poolStateTimeoutMs`, set in `main.ts`). On
+  the limit it is cancelled, writes nothing, logs `pool state rebuild passed
+  240s and was cancelled; nothing changed`, and tries again in ten minutes,
+  while indexing carries on. A stale TVL is a far smaller loss than a frozen
+  indexer. Rebuilds are spaced by four times their own duration (at least
+  15 s), so a slow database spends most of its time indexing. With no limit
+  set (the tests) it rebuilds on every global pass, as before.
+- **It is 2.4× faster: 13.1 s → 5.5 s** on the same database, and it writes
+  identical rows for all 30,000 pools. 4.5 s of the 13 went to Postgres
+  compiling the query with LLVM before the first row (`jit`; one run, nothing
+  to reuse the compiled code on), so it now runs with `SET LOCAL jit = off`.
+  Most of the rest was reading every pool's liquidity history twice, once
+  for net liquidity and once for what LPs deposited. It is read once now
+  (`range_sums`), per pool, through the `(pool_id, block_time)` index.
+- **Only pools the site can show are valued**: those that traded in the
+  swap window (`poolStateLiveDays`, 8). Pools that stopped trading keep
+  their last row, and the snapshot does not list them.
+- **A slow pass names its step.** Once a minute while a pass stays in one
+  step, the log prints `still in pool state after 120s`, and likewise for
+  the anchor, token supplies, fee hours, classification or the cursor. A
+  quick pass prints nothing extra. The next hang will say where it is.
+
+And a smaller bug found on the way: `refreshSupplies` re-reads five tokens
+per global pass, oldest first with never-read ones at the front, and did not
+mark a token that reported no supply. Those tokens stayed at the front of
+the queue, the same five were asked on every refresh, and no other token's
+supply (the FDV column) was refreshed again. A token is marked as read now
+whether or not a supply came back, and a test fails without the fix.

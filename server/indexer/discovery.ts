@@ -368,7 +368,15 @@ export async function refreshSupplies(
   let updated = 0;
   for (const token of stale) {
     const facts = await read(token.address);
-    if (!facts.totalSupply) continue;
+    if (!facts.totalSupply) {
+      // Asked, and no supply came back: it waits its turn like any other.
+      // Left unmarked it stayed first in the queue — oldest read, nulls
+      // first — so the same few tokens that never report a supply were read
+      // on every refresh, five a time, and no other token's supply was ever
+      // refreshed again.
+      await prisma.token.update({ where: { address: token.address }, data: { supplyReadAt: now } });
+      continue;
+    }
     await prisma.token.update({
       where: { address: token.address },
       data: {

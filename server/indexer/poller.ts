@@ -17,7 +17,7 @@ import { POOL_MANAGER_ABI, STRUCTURE_TOPICS, V3_POOL_ABI } from '../chain/abi';
 import { prisma } from '../db';
 import { env } from '../env';
 import type { PriceAnchors } from './aggregate';
-import { rebuildAggregates } from './aggregate';
+import { PoolStateTimeout, rebuildAggregates, rebuildPoolState } from './aggregate';
 import {
   classifyPools,
   ensureTokens,
@@ -225,6 +225,15 @@ export interface PollerOptions {
    * replay criterion is stated.
    */
   swapWindowSeconds?: number | null;
+  /**
+   * Pool state's time limit, in ms (rebuildPoolStateBounded). Null — the
+   * default, and the tests' — sets none and rebuilds it on every pass that
+   * does global work, as before; the indexer process sets one, which also
+   * spaces rebuilds by their own duration.
+   */
+  poolStateTimeoutMs?: number | null;
+  /** Value only pools that traded in this many days (rebuildPoolState liveDays). Null: all. */
+  poolStateLiveDays?: number | null;
   /** Where token symbol/name/decimals come from. Defaults to the token contract. */
   tokenReader?: TokenReader;
   /**
@@ -293,6 +302,8 @@ export class Poller {
   private maxRange: bigint;
   private readonly configuredMax: bigint;
   private readonly swapWindowSeconds: number | null;
+  private readonly poolStateTimeoutMs: number | null;
+  private readonly poolStateLiveDays: number | null;
   /** Set by a block-span refusal: never asked above again. */
   private hardCap: bigint | null = null;
   private calmPasses = 0;
@@ -315,6 +326,8 @@ export class Poller {
   private lastLogoSweep = 0;
   private sweeping = false;
   private lastGlobalAt = 0;
+  /** When pool state may next be rebuilt (rebuildPoolStateBounded). */
+  private poolStateNextAt = 0;
   private lastListAt = 0;
   /** Pools stored before native ETH was understood get corrected once a run. */
   private nativeAdopted = false;
@@ -332,6 +345,8 @@ export class Poller {
     this.configuredMax = this.maxRange;
     this.structureMax = this.maxRange * 10n;
     this.swapWindowSeconds = options.swapWindowSeconds ?? null;
+    this.poolStateTimeoutMs = options.poolStateTimeoutMs ?? null;
+    this.poolStateLiveDays = options.poolStateLiveDays ?? null;
     this.anchorRefreshMs = options.anchorRefreshMs ?? 0;
     this.reorgDepth = BigInt(options.reorgDepth ?? CHAIN.reorgDepth);
     this.v3Pools = (options.v3Pools ?? []).map((a) => a.toLowerCase());
@@ -439,6 +454,50 @@ export class Poller {
    * between the two therefore re-does the range rather than skipping it,
    * which the upserts make harmless.
    */
+  /**
+   * Logs the step a pass is in, once a minute while it stays there. Nothing
+   * at all for a pass that is quick, which is nearly every pass.
+   */
+  private stepWatch(): { at(step: string): void; done(): void } {
+    let step = 'starting';
+    let since = Date.now();
+    const timer = setInterval(() => {
+      this.log(`  still in ${step} after ${Math.round((Date.now() - since) / 1000)}s`);
+    }, 60_000);
+    timer.unref?.();
+    return {
+      at: (next) => {
+        step = next;
+        since = Date.now();
+      },
+      done: () => clearInterval(timer),
+    };
+  }
+
+  /**
+   * Rebuild pool state under a time limit. Finished: the next one may run
+   * after four times as long as this one took (at least 15 s), so a slow
+   * database spends four fifths of its time indexing. Cut off: nothing
+   * changed, it says so, and it waits ten minutes before trying. With no
+   * limit set (the tests) there is no spacing either: every pass that does
+   * global work rebuilds it, exactly as before.
+   */
+  private async rebuildPoolStateBounded(anchors: PriceAnchors): Promise<void> {
+    const started = Date.now();
+    try {
+      await rebuildPoolState(anchors, { timeoutMs: this.poolStateTimeoutMs, liveDays: this.poolStateLiveDays });
+      if (!this.poolStateTimeoutMs) return;
+      const took = Date.now() - started;
+      const wait = Math.max(15_000, took * 4);
+      this.poolStateNextAt = Date.now() + wait;
+      if (took > 20_000) this.log(`  pool state rebuilt in ${(took / 1000).toFixed(1)}s; next in ${Math.round(wait / 1000)}s`);
+    } catch (error) {
+      if (!(error instanceof PoolStateTimeout)) throw error;
+      this.poolStateNextAt = Date.now() + 10 * 60_000;
+      this.log(`  ${error.message} — prices and depth stay as they were; trying again in 10 minutes`);
+    }
+  }
+
   /**
    * After passes that failed outright (not a refused range — an exception),
    * try a narrower window: if one stretch of chain is what fails, halving
@@ -751,25 +810,44 @@ export class Poller {
     const caughtUpNow = to >= head.number;
     const globalEvery = structureOnly ? STRUCTURE_GLOBAL_EVERY_MS : GLOBAL_EVERY_MS;
     const globalDue = caughtUpNow || Date.now() - this.lastGlobalAt >= globalEvery;
-    const anchors = structureOnly && !globalDue ? null : await this.anchors();
-    // Supplies first: the FDV figure in pool_state is computed from them, so
-    // refreshing after the rebuild would leave it a pass behind.
-    const suppliesRefreshed = globalDue
-      ? await refreshSupplies(head.timestamp, { read: this.tokenReader })
-      : 0;
-    // No anchor yet means no dollar figure is derivable — the raw rows above
-    // are still written, and the rebuild that prices them happens on whatever
-    // pass first finds USDG. Skipping the aggregation here is not data loss.
-    if (anchors) {
-      await rebuildAggregates(anchors, { fromBlock: from, toBlock: to }, { poolState: globalDue });
-    }
-    if (globalDue) {
-      await classifyPools();
-      this.lastGlobalAt = Date.now();
-    }
-
+    // A pass that runs long names the step it is in, once a minute: on the
+    // live box one pass sat silent for 51 minutes after its last line, and
+    // the log could not say where.
+    const watch = this.stepWatch();
     const lastBlockTime = blockTimes.get(to) ?? head.timestamp;
-    await writeCursor(POOL_MANAGER_CURSOR, to, lastBlockTime);
+    let suppliesRefreshed = 0;
+    try {
+      watch.at('the USD anchor');
+      const anchors = structureOnly && !globalDue ? null : await this.anchors();
+      // Supplies first: the FDV figure in pool_state is computed from them, so
+      // refreshing after the rebuild would leave it a pass behind.
+      watch.at('token supplies');
+      if (globalDue) suppliesRefreshed = await refreshSupplies(head.timestamp, { read: this.tokenReader });
+      // No anchor yet means no dollar figure is derivable — the raw rows above
+      // are still written, and the rebuild that prices them happens on whatever
+      // pass first finds USDG. Skipping the aggregation here is not data loss.
+      if (anchors) {
+        watch.at('fee hours');
+        await rebuildAggregates(anchors, { fromBlock: from, toBlock: to }, { poolState: false });
+        // Pool state on its own, bounded: it is the one step whose cost grows
+        // with the chain, and a rebuild that will not finish must cost a stale
+        // TVL for a while, never a frozen indexer — the likeliest place the
+        // box's 51 silent minutes went, with no time limit at all. Spaced by
+        // its own last duration, so a slow box spends most of its time
+        // indexing.
+        watch.at('pool state');
+        if (globalDue && Date.now() >= this.poolStateNextAt) await this.rebuildPoolStateBounded(anchors);
+      }
+      if (globalDue) {
+        watch.at('pool classification');
+        await classifyPools();
+        this.lastGlobalAt = Date.now();
+      }
+      watch.at('the cursor');
+      await writeCursor(POOL_MANAGER_CURSOR, to, lastBlockTime);
+    } finally {
+      watch.done();
+    }
     const tEnd = Date.now();
 
     // Adapt for the next pass. Only while backfilling: once the indexer is
