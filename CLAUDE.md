@@ -3025,3 +3025,18 @@ block read, with nothing on the page saying so in a sentence.
 What still carries §7's minimum: the top bar's data-status chip shows the lag
 ("Indexer 7d behind"), as §7 itself requires. Vault figures on Stakes come
 from the vault watcher and are live either way.
+
+---
+
+## 29. "CA updated on tidewell.live", the post image
+
+`brand/x-post-ca-updated-{glass,gold}` (16:9, 1600×900 and 3200×1800, the
+3200 under X's 5 MB): the headline, the whole CA on a glass panel in IBM
+Plex Mono, "$TIDEWELL · Robinhood Chain", and "Only trust the CA shown on
+tidewell.live and posted by @usetidewell." Built by
+`scripts/build-ca-post.py`, then `node scripts/build-brand-png.mjs
+x-post-ca-updated`. The address is read from `TOKEN_CA` in `lib/site.ts`, so
+the image cannot show a different CA from the site, and the script stops if
+it is unset. Plex Mono is a static font in the build, so the script has its
+own loader that refuses a file missing any of the address's characters
+(`outline` would otherwise skip them silently).

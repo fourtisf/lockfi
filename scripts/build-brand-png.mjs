@@ -108,6 +108,12 @@ const JOBS = [
   // in-feed 16:9 at 1600 and twice that.
   ['x-post-how-it-works.svg', 'x-post-how-it-works-1600.png', 1600],
   ['x-post-how-it-works.svg', 'x-post-how-it-works-3200.png', 3200],
+  // "CA updated on tidewell.live" (scripts/build-ca-post.py): X's in-feed
+  // 16:9 at 1600 and twice that.
+  ['x-post-ca-updated-glass.svg', 'x-post-ca-updated-glass-1600.png', 1600],
+  ['x-post-ca-updated-glass.svg', 'x-post-ca-updated-glass-3200.png', 3200],
+  ['x-post-ca-updated-gold.svg', 'x-post-ca-updated-gold-1600.png', 1600],
+  ['x-post-ca-updated-gold.svg', 'x-post-ca-updated-gold-3200.png', 3200],
 ];
 
 // `node scripts/build-brand-png.mjs x-header-tide` renders only the outputs
