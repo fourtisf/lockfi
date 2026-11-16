@@ -180,6 +180,15 @@ model IndexerCursor {
   @@map("indexer_cursors")
 }
 
+/// One-off work a migration asks of the indexer (§31): run once on the next
+/// global pass, then deleted. 'rebuild-fee-hours' rebuilds every fee hour.
+model IndexerTask {
+  name      String   @id
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("indexer_tasks")
+}
+
 // ------------------------------------------------------------- aggregations --
 
 /// Derived from swap_events by aggregation. Never incremented — see the header.

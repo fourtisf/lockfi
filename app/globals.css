@@ -828,3 +828,29 @@ details.dr-pools[open] summary .dr-pools-more{display:none}
 @media (max-width:1100px){.tok-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){.tok-body{grid-template-columns:1fr}.tok-spark{width:100%!important}}
 @media (max-width:520px){.tok-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.tok-acts{margin-left:0;width:100%}.tok-acts .btn{flex:1;justify-content:center}}
+
+/* Contracts, Docs and Status (§31): cards of rows and short definitions. */
+.pg-stack{display:grid;gap:20px}
+.pg-card{padding:22px 24px;display:grid;gap:12px;min-width:0}
+.pg-card .sect-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0}
+.pg-note{margin:0;font-size:13.5px;color:var(--fg-2);line-height:1.55}
+.pg-note code{font-size:12.5px}
+.pg-rows{display:grid;gap:10px;max-width:640px}
+.pg-dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0}
+.pg-dl>div{min-width:0}
+.pg-dl dt{font-size:12.5px;color:var(--fg-3);font-weight:600}
+.pg-dl dd{margin:4px 0 2px;font-size:18px;font-weight:600;overflow-wrap:anywhere}
+.pg-sub{display:block;font-size:12px;color:var(--fg-3)}
+.pg-doc{max-width:760px;gap:0;font-size:15px;line-height:1.65;color:var(--fg)}
+.pg-doc>*{margin:0}
+.pg-doc>*+*{margin-top:12px}
+.pg-doc h2{margin-top:28px;font-family:var(--disp);font-size:20px;letter-spacing:-.01em}
+.pg-doc ul,.pg-doc ol{padding-left:1.25em;display:grid;gap:8px}
+.pg-doc a{color:var(--ac);text-decoration:underline;text-underline-offset:2px}
+@media (max-width:760px){.pg-dl{grid-template-columns:1fr}}
+/* On a phone the label takes its own line, so neither it nor the address is cut. */
+@media (max-width:560px){
+  .pg-rows .ca-row{flex-wrap:wrap;row-gap:4px}
+  .pg-rows .ca-label{flex-basis:100%;max-width:none;white-space:normal}
+  .pg-rows .ca-addr{margin-left:0;margin-right:auto;white-space:nowrap}
+}

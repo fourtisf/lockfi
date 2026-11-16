@@ -108,6 +108,11 @@ export interface TokenLive {
   /** the replay of every trade since launch lands on the curve's reserves */
   verified: boolean;
   asOf: string;
+  /**
+   * Once graduated: the Uniswap v4 pool the token moved to, and whether a
+   * Tidewell vault can hold it (vaults need a pool without a hook).
+   */
+  uniswapPool?: { id: string; fee: number; hooks: string; vaultEligible: boolean } | null;
 }
 
 const DAY = 24 * 3600 * 1000;

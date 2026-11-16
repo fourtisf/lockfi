@@ -182,12 +182,16 @@ export function decodePoolManagerLog(log: RawLog, blockTime: Date): ChainEvent |
       };
     }
     case 'Swap':
+      // v4 emits the SWAPPER's balance delta: negative is what they paid into
+      // the pool. Everything downstream — the input side the fee is taken on,
+      // volume, flows — reads the pool's perspective (positive entered), as
+      // v3 emits it, so v4's signs are flipped here, once, as the log is read.
       return {
         kind: 'swap',
         ...at,
         poolId,
-        amount0: args.amount0 as bigint,
-        amount1: args.amount1 as bigint,
+        amount0: -(args.amount0 as bigint),
+        amount1: -(args.amount1 as bigint),
         sqrtPriceX96: args.sqrtPriceX96 as bigint,
         liquidity: args.liquidity as bigint,
         tick: Number(args.tick),

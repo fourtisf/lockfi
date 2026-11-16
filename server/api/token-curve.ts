@@ -10,7 +10,8 @@
  * the parts that need the past — are left out rather than guessed.
  */
 
-import { getAddress, parseAbi } from 'viem';
+import { getAddress, parseAbi, parseAbiItem, zeroAddress } from 'viem';
+import { CONTRACTS } from '../../lib/chain';
 import { TOKEN_CA, TOKEN_LAUNCH } from '../../lib/site';
 import { decodeCurveTrade, summariseCurve, type CurveTrade, type TokenLive } from '../../lib/token-curve';
 import { rpc } from '../chain/client';
@@ -23,6 +24,10 @@ const CURVE_ABI = parseAbi([
 
 const REFRESH_MS = 15_000;
 const LOG_CHUNK = 2_000_000n;
+const INITIALIZE = parseAbiItem(
+  'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)',
+);
+const DYNAMIC_FEE = 0x800000;
 
 export function createTokenCurveReader(log: (msg: string) => void = console.log) {
   if (!TOKEN_CA || !TOKEN_LAUNCH) return null;
@@ -39,6 +44,32 @@ export function createTokenCurveReader(log: (msg: string) => void = console.log)
   const seen = new Set<string>();
   let last: { at: number; value: TokenLive } | null = null;
   let inflight: Promise<TokenLive | null> | null = null;
+  let uniswapPool: TokenLive['uniswapPool'] = null;
+  let poolSearchedTo = BigInt(cfg.launchBlock) - 1n;
+
+  /**
+   * After graduation: the Uniswap v4 pool that names the token, searched
+   * from launch once and then only in new blocks. The first pool created is
+   * the graduation pool; anyone can open others later.
+   */
+  async function findUniswapPool(head: bigint): Promise<void> {
+    for (let from = poolSearchedTo + 1n; from <= head && !uniswapPool; from += LOG_CHUNK) {
+      const to = from + LOG_CHUNK - 1n < head ? from + LOG_CHUNK - 1n : head;
+      const found = [];
+      for (const args of [{ currency0: token }, { currency1: token }]) {
+        const logs = await rpc((c) => c.getLogs({ address: CONTRACTS.poolManager, event: INITIALIZE, args, fromBlock: from, toBlock: to }), 'initialize logs');
+        found.push(...logs);
+      }
+      found.sort((a, b) => Number((a.blockNumber ?? 0n) - (b.blockNumber ?? 0n)) || (a.logIndex ?? 0) - (b.logIndex ?? 0));
+      const first = found[0];
+      if (first) {
+        const fee = Number(first.args.fee);
+        const hooks = getAddress(first.args.hooks as string);
+        uniswapPool = { id: first.args.id as string, fee, hooks, vaultEligible: hooks === zeroAddress && (fee & DYNAMIC_FEE) === 0 };
+      }
+      poolSearchedTo = to;
+    }
+  }
 
   async function refresh(ethUsd: number | null): Promise<TokenLive | null> {
     if (!checked) {
@@ -93,7 +124,14 @@ export function createTokenCurveReader(log: (msg: string) => void = console.log)
       ethUsd,
     });
     if (!value.verified && !graduated) log(`token curve: the replay of ${trades.length} trades does not match getReserves; change and chart withheld`);
-    return value;
+    if (graduated && !uniswapPool) {
+      try {
+        await findUniswapPool(head);
+      } catch (error) {
+        log(`token curve: graduated, and the Uniswap pool could not be looked up: ${(error as Error).message.split('\n')[0]}`);
+      }
+    }
+    return { ...value, uniswapPool };
   }
 
   return {

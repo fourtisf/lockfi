@@ -179,9 +179,11 @@ function swapLog(args: {
     parseAbiParameters(
       'int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee',
     ),
+    // Callers describe the swap from the pool's side (positive entered); v4
+    // emits the swapper's, so the log carries the opposite signs, as on chain.
     [
-      args.amount0,
-      args.amount1,
+      -args.amount0,
+      -args.amount1,
       getSqrtRatioAtTick(args.tick),
       args.liquidity,
       args.tick,

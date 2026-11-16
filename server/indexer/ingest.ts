@@ -19,7 +19,7 @@
  * indexers unable to replay. It is not done here.
  */
 
-import { feeFromSwap, swapInputSide } from '../chain/price';
+import { feeFromSwap, lpFeePips, swapInputSide } from '../chain/price';
 import { amountsForLiquidity } from '../chain/tick-math';
 import { sortEvents, type ChainEvent, type Protocol } from './events';
 
@@ -168,7 +168,10 @@ export function planIngest(events: ChainEvent[], context: IngestContext): Ingest
 
       case 'swap': {
         const side = swapInputSide(event.amount0, event.amount1);
-        const pips = event.feePips ?? feePips.get(event.poolId) ?? 0;
+        // v4 reports what it charged, protocol fee included; LPs earn the
+        // pool's own fee (lpFeePips). v3 reports nothing; its tier is the fee.
+        const tier = feePips.get(event.poolId);
+        const pips = event.feePips !== null && event.feePips !== undefined ? lpFeePips(event.feePips, tier) : (tier ?? 0);
         const amountIn = side === 0 ? event.amount0 : side === 1 ? event.amount1 : 0n;
         plan.swaps.push({
           txHash: event.txHash,

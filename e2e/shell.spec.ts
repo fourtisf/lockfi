@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const ROUTES = ['/pools', '/stakes', '/positions', '/router', '/portfolio', '/brand'];
+const ROUTES = ['/pools', '/stakes', '/positions', '/router', '/portfolio', '/brand', '/contracts', '/docs', '/status'];
 const WIDTHS = [1600, 1180, 760, 360];
 
 test.describe('shell', () => {
@@ -36,6 +36,25 @@ test.describe('shell', () => {
     await expect(page.locator('footer .ca-chip')).toContainText(ca);
     await expect(page.locator('footer .ca-chip a')).toHaveAttribute('href', new RegExp(`/token/${ca}$`));
     await expect(page.locator('footer')).toContainText('Only trust the CA shown on this site and on @usetidewell');
+  });
+
+  // The footer's Contracts, Docs and Status lead to real pages (§31), not to
+  // placeholders.
+  test('the footer links to the contracts, docs and status pages', async ({ page }) => {
+    await page.goto('/pools');
+    for (const [name, path, heading] of [
+      ['Contracts', '/contracts', 'Contracts'],
+      ['Docs', '/docs', 'Docs'],
+      ['Status', '/status', 'Status'],
+    ] as const) {
+      await page.locator('footer').getByRole('link', { name, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`${path}$`));
+      await expect(page.getByRole('heading', { level: 1 })).toContainText(heading);
+      await page.goBack();
+    }
+    await page.goto('/contracts');
+    await expect(page.locator('#main')).toContainText('0x0040');
+    await expect(page.locator('#main')).toContainText('Vault');
   });
 
   test('/ redirects to the listing', async ({ page }) => {

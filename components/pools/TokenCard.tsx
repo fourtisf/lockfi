@@ -7,7 +7,7 @@ import { useTokenLive } from '@/hooks/useTokenLive';
 import { EXPLORER } from '@/lib/chain';
 import { DATA_SOURCE } from '@/lib/data';
 import { ageLabel, count, priceTiny, signedPct, tone, usd } from '@/lib/format';
-import { TOKEN_CA, TOKEN_LAUNCH } from '@/lib/site';
+import { BRAND, TOKEN_CA, TOKEN_LAUNCH } from '@/lib/site';
 
 function eth(n: number, digits = 3): string {
   return `${n.toLocaleString('en-US', { maximumFractionDigits: digits })} ETH`;
@@ -95,7 +95,15 @@ export function TokenCard() {
       ) : (
         <p className="tok-note">
           {graduated
-            ? `$${cfg.symbol} has graduated from the ${cfg.launchpad} curve to a Uniswap pool. Its figures join the boards as the indexer reads that pool.`
+            ? token?.uniswapPool
+              ? `$${cfg.symbol} has graduated from the ${cfg.launchpad} curve to a Uniswap v4 pool (${
+                  token.uniswapPool.fee & 0x800000 ? 'dynamic fee' : `${token.uniswapPool.fee / 10_000}% fee`
+                }). Its figures join the boards as the indexer reads that pool. ${
+                  token.uniswapPool.vaultEligible
+                    ? `The pool has no hook, so a ${BRAND} vault can hold it: staking opens when one is deployed.`
+                    : `The pool runs a hook, so a ${BRAND} vault cannot hold it.`
+                }`
+              : `$${cfg.symbol} has graduated from the ${cfg.launchpad} curve. Looking up its Uniswap pool…`
             : !live
               ? `Live price, FDV and volume show on the live site, read from the ${cfg.launchpad} curve on chain.`
               : failed

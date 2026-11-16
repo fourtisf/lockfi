@@ -17,7 +17,7 @@ import { POOL_MANAGER_ABI, STRUCTURE_TOPICS, V3_POOL_ABI } from '../chain/abi';
 import { prisma } from '../db';
 import { env } from '../env';
 import type { PriceAnchors } from './aggregate';
-import { PoolStateTimeout, rebuildAggregates, rebuildPoolState } from './aggregate';
+import { PoolStateTimeout, rebuildAggregates, rebuildFeeHours, rebuildPoolState } from './aggregate';
 import {
   classifyPools,
   ensureTokens,
@@ -36,6 +36,7 @@ import {
 } from './events';
 import { resolveUsdg } from './anchor';
 import { planIngest } from './ingest';
+import { runStartupTasks } from './tasks';
 import { refreshLogos } from './logos';
 import { ContractIndexer, type ContractsConfig } from './contracts';
 import { sweepLogos, type LogoSource } from './logo-sources';
@@ -331,6 +332,8 @@ export class Poller {
   private lastListAt = 0;
   /** Pools stored before native ETH was understood get corrected once a run. */
   private nativeAdopted = false;
+  /** One-off corrections a migration left (tasks.ts), run before the first pass. */
+  private startupTasksDone = false;
   private readonly contracts: ContractIndexer | null;
 
   constructor(options: PollerOptions) {
@@ -482,6 +485,22 @@ export class Poller {
    * limit set (the tests) there is no spacing either: every pass that does
    * global work rebuilds it, exactly as before.
    */
+  /**
+   * One-off work a migration asked for (indexer_tasks), each run once and
+   * then deleted. A task this version does not know is left for one that does.
+   */
+  private async runPendingTasks(anchors: PriceAnchors): Promise<void> {
+    const rows = await prisma.$queryRawUnsafe<{ name: string }[]>('SELECT name FROM indexer_tasks ORDER BY created_at');
+    for (const { name } of rows) {
+      if (name !== 'rebuild-fee-hours') continue;
+      const t = Date.now();
+      // Every hour, not just this pass's: the rows they sum were corrected.
+      await rebuildFeeHours(anchors);
+      await prisma.$executeRawUnsafe('DELETE FROM indexer_tasks WHERE name = $1', name);
+      this.log(`  fee hours rebuilt in full after a fix to how swaps are counted (${((Date.now() - t) / 1000).toFixed(1)}s)`);
+    }
+  }
+
   private async rebuildPoolStateBounded(anchors: PriceAnchors): Promise<void> {
     const started = Date.now();
     try {
@@ -512,6 +531,12 @@ export class Poller {
   }
 
   async runPass(): Promise<PassResult> {
+    if (!this.startupTasksDone) {
+      // Before this process ingests anything: the corrections assume every
+      // row they touch was written by the code before them.
+      for (const line of await runStartupTasks(this.log)) this.log(`  ${line}`);
+      this.startupTasksDone = true;
+    }
     const head = await this.source.getHeadBlock();
     let result: PassResult | undefined;
     try {
@@ -829,6 +854,12 @@ export class Poller {
       if (anchors) {
         watch.at('fee hours');
         await rebuildAggregates(anchors, { fromBlock: from, toBlock: to }, { poolState: false });
+        // One-off work a migration left (indexer_tasks): a fix to how rows
+        // are counted needs every hour rebuilt once, not just this pass's.
+        if (globalDue) {
+          watch.at('one-off rebuilds');
+          await this.runPendingTasks(anchors);
+        }
         // Pool state on its own, bounded: it is the one step whose cost grows
         // with the chain, and a rebuild that will not finish must cost a stale
         // TVL for a while, never a frozen indexer — the likeliest place the

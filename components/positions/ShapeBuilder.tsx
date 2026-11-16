@@ -76,9 +76,21 @@ function Builder() {
   // ?pool=<id>: the drawer's "Add CASHCAT liquidity" opens here on the token
   // the person clicked, not on whichever pool happens to be first. Read after
   // mount — the page is static, so the server renders the default.
+  // ?width=&bins=&rebalance=1: the portfolio's Rebalance opens here with the
+  // old position's width and bin count, centred on today's price.
+  const [rebalancing, setRebalancing] = useState(false);
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get('pool');
+    const q = new URLSearchParams(window.location.search);
+    const wanted = q.get('pool');
     if (wanted && stakeablePools.some((p) => p.id === wanted)) setPoolId(wanted);
+    const w = Number(q.get('width'));
+    if (Number.isFinite(w) && w >= 2 && w <= 60) {
+      setMinPct(-Math.round(w));
+      setMaxPct(Math.round(w));
+    }
+    const b = Number(q.get('bins'));
+    if (Number.isInteger(b) && b >= MIN_BINS && b <= MAX_BINS) setBins(b);
+    if (q.get('rebalance') === '1') setRebalancing(true);
     // Once, on arrival: later snapshots must not undo a choice made here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -341,6 +353,12 @@ function Builder() {
           >
             Mint position
           </button>
+        )}
+        {rebalancing && !minted && (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            Rebalancing: the same width and number of bins as the position you withdrew, centred on today&rsquo;s price.
+            Adjust anything before you mint.
+          </p>
         )}
         {minted && (
           <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>

@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { AuditNotice, SignGate } from '@/components/wallet/Wallet';
@@ -10,6 +11,8 @@ import { explorerTx, weiToNumber } from '@/lib/contracts/tx';
 import type { TokenMeta } from '@/lib/data/types';
 import { price, usd, usdFee } from '@/lib/format';
 import { tokenPriceRange, type WalletPosition } from '@/lib/positions';
+import { rebalanceHref } from '@/lib/rebalance';
+import { MAX_BINS, MIN_BINS } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
 
 /** "62.7", "0.004998", "12,480" — enough digits to be true, not so many they wrap. */
@@ -100,8 +103,10 @@ export function WalletPositions() {
 function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone: () => void }) {
   const { pools } = useMarket();
   const actions = useActions();
+  const router = useRouter();
   const [busy, setBusy] = useState<'collect' | 'withdraw' | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [rebalancing, setRebalancing] = useState(false);
   const token = p.currencies[p.tokenIndex];
   const pool = pools.find((x) => x.id.toLowerCase() === `v4:${p.poolId}`.toLowerCase());
   const meta: TokenMeta =
@@ -124,6 +129,25 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
       if (await fn()) {
         if (what === 'withdraw') setWithdrawing(false);
         onDone();
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // §6's rebalance prompt: an out-of-range position earns nothing. Withdraw
+  // it, then open Positions on the same pool with the same width and bins,
+  // centred on today's price — when that pool is on the Positions page.
+  const poolId = `v4:${p.poolId}`.toLowerCase();
+  const onPage = pools.some((x) => x.id.toLowerCase() === poolId && x.stakeable);
+  const href = rebalanceHref(poolId, p.tickLower, p.tickUpper, p.bins.length, MIN_BINS, MAX_BINS);
+  const rebalance = async () => {
+    setBusy('withdraw');
+    try {
+      if (await actions.removePosition(p, `Withdraw from ${name} to rebalance`)) {
+        setRebalancing(false);
+        onDone();
+        if (onPage) router.push(href);
       }
     } finally {
       setBusy(null);
@@ -188,11 +212,27 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
               >
                 {busy === 'collect' ? 'Collecting…' : 'Collect fees'}
               </button>
+              {!earning && (
+                <button
+                  className="btn btn-brand btn-sm"
+                  disabled={busy !== null}
+                  aria-expanded={rebalancing}
+                  onClick={() => {
+                    setRebalancing((r) => !r);
+                    setWithdrawing(false);
+                  }}
+                >
+                  Rebalance
+                </button>
+              )}
               <button
                 className="btn btn-quiet btn-sm"
                 disabled={busy !== null}
                 aria-expanded={withdrawing}
-                onClick={() => setWithdrawing((w) => !w)}
+                onClick={() => {
+                  setWithdrawing((w) => !w);
+                  setRebalancing(false);
+                }}
               >
                 Withdraw
               </button>
@@ -200,6 +240,33 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
           </SignGate>
         </td>
       </tr>
+      {rebalancing && (
+        <tr className="static wd-row">
+          <td colSpan={4}>
+            <div className="wd">
+              <p className="hint">
+                This position is out of range and earning nothing. Rebalancing is two steps: first withdraw all{' '}
+                {p.bins.length} {p.bins.length === 1 ? 'bin' : 'bins'} (
+                <span className="num">{holds(p, p.amount0, p.amount1)}</span>
+                {p.feesUsd !== null && p.feesUsd > 0 ? ', plus the fees to collect' : ''}) to this wallet in one transaction;
+                then{' '}
+                {onPage
+                  ? 'Positions opens on the same pool with the same width and number of bins, centred on today’s price, for you to mint again.'
+                  : 'mint a new range on the Positions page — this pool is not listed there yet.'}
+              </p>
+              <div className="row">
+                <button className="btn btn-brand btn-sm" disabled={busy !== null} onClick={() => void rebalance()}>
+                  {busy === 'withdraw' ? 'Withdrawing…' : 'Withdraw and rebalance'}
+                </button>
+                <button className="btn btn-quiet btn-sm" onClick={() => setRebalancing(false)} disabled={busy !== null}>
+                  Cancel
+                </button>
+              </div>
+              <AuditNotice />
+            </div>
+          </td>
+        </tr>
+      )}
       {withdrawing && (
         <tr className="static wd-row">
           <td colSpan={4}>

@@ -3114,3 +3114,100 @@ seed phrase. Only trust links posted here and on tidewell.live." For the
 channel's pinned first post. `scripts/build-telegram-welcome.py` reads the
 domain, the handle, the channel and the CA from `lib/site.ts`. The channel's profile photo
 is the existing `brand/icon-signature-glass-1024.png`.
+
+---
+
+## 31. Contracts, Docs and Status; v4 fees on the right side; rebalance; graduation
+
+ALFA, on the list of what the site still lacks: fix everything except the
+indexer's paid RPC, WalletConnect and the owner multisig, which are ALFA's
+to arrange.
+
+### The footer's three links lead somewhere
+
+Contracts, Docs and Status were placeholders. They are pages now:
+
+- **`/contracts`**: the token and its Pons curve; Tidewell's contracts from
+  `config/deployments.json`, with the audit line; the vault's controls read
+  live from the first vault (fee, the immutable cap, whether deposits are
+  open, owner, treasury) and the keeper; and the Uniswap contracts
+  underneath. Every address copies whole and links to the explorer; on a
+  phone the label takes its own line, so neither it nor the address is cut.
+- **`/docs`**: how Tidewell works, Stakes, Positions, how the numbers are
+  made, custody, the risk and how to start, as one page.
+- **`/status`**: `/api/health` every 15 s, read even when it answers 503:
+  indexer state, lag, last block, pools and swaps, the USDG anchor, the vault
+  watcher, the token curve and the keeper. The simulator says it has nothing
+  to report rather than inventing a status.
+
+The e2e suite renders all three, checks them for sideways scroll at every
+width, and follows the footer's links to them.
+
+### v4 swaps were counted from the swapper's side (§21's open item)
+
+§21 found two errors in how the indexer counted v4 fees, and left them open
+because fixing them changes stored rows.
+
+- **Signs.** v4's Swap event carries the swapper's signs (negative = paid
+  into the pool); `swap_events` holds the pool's, as v3 emits them.
+  `events.ts` now flips v4's at decode, so the fee is charged on the token
+  that entered and volume is counted on that side.
+- **Protocol fee.** The event's `fee` includes Uniswap's protocol fee (625
+  pips on the 0.05% ETH/USDG pool; LPs get 500). `lpFeePips`
+  (`server/chain/price.ts`) takes the key's fee for a static pool, which is
+  exactly the LPs' part. A dynamic-fee pool's event fee is kept: its LP and
+  protocol shares cannot be told apart from the event, so those pools may
+  still be overstated by the protocol's share where one is set.
+
+**The stored rows are corrected by the indexer, not by the migration.**
+`deploy.sh` migrates while the old indexer is still running and reloads it
+afterwards, so swaps the old code wrote during and after an UPDATE in the
+migration would have kept the wrong signs for good. The migration
+(`20261116140000_v4_swap_signs`) only creates `indexer_tasks` and leaves
+`fix-v4-swap-signs` in it. The new indexer runs it at startup, before its
+first pass, when every v4 row was written by the old code
+(`server/indexer/tasks.ts`). One transaction flips the rows, recomputes the
+fee on the input side, deletes the task and leaves `rebuild-fee-hours`, so
+it runs exactly once. The first global pass then rebuilds every fee hour and
+deletes that task. Both steps log a line.
+
+**Expect the fee figures on the boards to fall** after the first deploy,
+by the protocol fee's share on pools that charge one: a fifth on the
+ETH/USDG 0.05% pool. They were overstated. Vault figures come from the vault
+watcher (§21), which always read the signs correctly, and do not move.
+
+Tested: the decode, the fee taken in `planIngest`, the task on static,
+dynamic and v3 rows (v3 untouched), the task running once, and the migration
+holding no UPDATE. The migrations apply to a fresh database and leave
+exactly the one task. §9's replay suite is unchanged.
+
+### Rebalance (§6)
+
+An out-of-range position row in the portfolio has a **Rebalance** button.
+It says what happens in two steps. First it withdraws every bin to the
+wallet in one transaction, the same call as Withdraw all (§24). Then it
+opens Positions on the same pool with the same width and number of bins,
+centred on today's price, for a second signature. The width comes from the
+old ticks (`lib/rebalance.ts`), carried as
+`/positions?pool=&width=&bins=&rebalance=1`. A pool not on the Positions
+page is said so instead.
+
+Checked in a browser: the link opens Positions at the right width and bin
+count with the rebalancing hint. Not driven end to end on a fork: no
+out-of-range position was made for it.
+
+### $TIDEWELL graduation
+
+When the Pons curve reports `graduated()`, `/api/token` looks for the first
+Uniswap v4 pool initialised with the token since launch. It reports the
+pool's fee and hook, and whether a Tidewell vault can hold it: only with no
+hook and a static fee. The card on Pools says which. A vault still has to be
+deployed with `deploy/add-vaults.sh` (§23), which is ALFA's to run. Whether
+Pons graduates into a hookless pool is not knowable until it happens.
+
+### Not done, and why
+
+- **The indexer's RPC, WalletConnect, the multisig**: ALFA's, per the request.
+- **Alerts to Telegram** (indexer stalled, keeper overdue): need a bot token
+  from ALFA. `deploy/monitor.sh` already detects both.
+- **The external audit**: only an independent auditor can do it.

@@ -25,6 +25,7 @@ const TABLES = [
   'swap_events',
   'liquidity_events',
   'indexer_cursors',
+  'indexer_tasks',
   'pools',
   'token_logos',
   'tokens',

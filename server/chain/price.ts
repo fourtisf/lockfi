@@ -110,6 +110,24 @@ export function feeFromSwap(amountIn: bigint, feePips: number): bigint {
   return (amountIn * BigInt(feePips)) / 1_000_000n;
 }
 
+/** v4's dynamic-fee flag: a key carrying it has no fixed fee; its hook sets one per swap. */
+export const DYNAMIC_FEE_FLAG = 0x800000;
+
+/**
+ * The part of a v4 swap's fee that goes to LPs, in pips.
+ *
+ * The fee a v4 Swap event reports is the whole charge, Uniswap's protocol fee
+ * included: 625 pips on a 500-pip pool whose protocol fee is 125. For a
+ * static-fee pool the LPs' part is the key's fee, so it is that, never more
+ * than was charged. A dynamic-fee pool has no fixed fee to compare with, and
+ * what it charged is taken as the LPs' (no protocol fee is set on them here).
+ */
+export function lpFeePips(swapPips: number, tierPips: number | undefined): number {
+  if (swapPips <= 0) return 0;
+  if (tierPips === undefined || tierPips <= 0 || tierPips >= 1_000_000 || (tierPips & DYNAMIC_FEE_FLAG) !== 0) return swapPips;
+  return Math.min(swapPips, tierPips);
+}
+
 /**
  * Which side of the swap came in. Pool-perspective signs: positive means the
  * token entered the pool, so that is the side the fee was taken in.
