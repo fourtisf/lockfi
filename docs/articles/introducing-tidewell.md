@@ -1,138 +1,83 @@
-# Introducing Tidewell: liquidity that earns from real trading
+# Introducing Tidewell
 
-*Cover: `brand/article-cover-glass-1500.png` (or the gold finish), 5:2, offered on tidewell.live/brand.*
+*Cover: `brand/article-cover-glass-3000.png` (or the gold finish), 5:2, offered on tidewell.live/brand.*
 
-*Every claim below is true of Tidewell as built (CLAUDE.md §1, §7,
-§20–§24). No yield figure appears on purpose: §1 forbids a forward one, and a
-trailing one would be out of date the day after posting. The copy names no
-contracts and lists no addresses, at ALFA's request; the audit disclaimer
-stays, reworded, because a reader deciding whether to deposit needs it. If
-something changes — a new vault, an audit — change this before reposting.*
+*Do not paste this Markdown into X's article editor. The editor makes a new paragraph at every line break, so the blank lines below become empty paragraphs and the `**` and `-` stay as characters. Paste `introducing-tidewell.x.txt` instead (one line per paragraph, no blank lines), or use the copy page, which copies headings, lists and bold as formatting.*
+
+*Every claim below is true of Tidewell as built (CLAUDE.md §1, §7, §20–§24). No yield figure appears on purpose: §1 forbids a forward one, and a trailing one would be out of date the day after posting. It names no contracts and lists no addresses, at ALFA's request; the audit disclaimer stays, because a reader deciding whether to deposit needs it. If something changes (a new vault, an audit), change this before reposting.*
 
 ---
 
-## The post that links it (pick one)
+## The post that links it
 
-> Most DeFi yield is paid in a token printed to pay it. When the printing stops, so does the yield.
->
-> Tidewell pays LPs one thing: real swap fees from Uniswap v4 pools on Robinhood Chain. No emissions, ever.
->
-> Here's how it works 👇
-
-> Fees rise with the tide.
->
-> Tidewell is live on Robinhood Chain: stake from $10, or shape your own liquidity, and earn a share of every trade. Real fees, claimable any time, withdrawable any time.
->
-> Everything you need to know 👇
+> Introducing Tidewell, the liquidity layer for Robinhood Chain.
+> Provide liquidity to Uniswap v4 pools and earn a share of real swap fees. No emissions, no lockups, and you can withdraw at any time.
+> The full overview is below.
 
 ---
 
 ## The article
 
-**Title:** Introducing Tidewell: liquidity that earns from real trading
+**Title (X's title field):** Introducing Tidewell
 
-**Subtitle:** Stake or shape liquidity on Robinhood Chain. Every fee is a real swap fee. No emissions, ever.
+Tidewell is a liquidity layer for Robinhood Chain. Liquidity providers deposit into Uniswap v4 pools through Tidewell and earn a proportional share of the trading fees those pools generate.
 
-Most yield in DeFi is paid in a token printed to pay it. The number looks
-generous for as long as the printing lasts, and then it doesn't.
+There are no token emissions and no incentive programs. Every dollar of yield on Tidewell is a fee that a trader paid.
 
-Tidewell works the other way round. Every dollar an LP earns here is a swap
-fee somebody paid to trade. When the market is busy, fees rise. When it is
-quiet, they slow. Nothing props the number up, and nothing is hidden behind
-it.
+### Why real fees matter
 
-**Fees rise with the tide.**
+Much of the yield in DeFi is funded by issuing new tokens. It looks attractive while the issuance lasts and fades once it stops. Tidewell's returns come only from swap fees, so they follow trading activity. They rise when markets are busy and slow when markets are quiet, and every figure on the site can be traced to fees paid on chain.
 
-### What Tidewell is
+### Stakes: passive liquidity
 
-Tidewell is a liquidity layer for Robinhood Chain, built on Uniswap v4 pools.
-Traders pay a fee on every swap, and that fee goes to the people providing
-the liquidity. Tidewell gives you two ways to be one of them.
+A stake is a deposit into a Tidewell vault. Each vault serves a single pool and holds its liquidity across the full price range, so it earns on every trade and never falls out of range.
 
-### Stakes: deposit once, earn from every trade
+- **Flexible deposits.** Deposit ETH, the pool's other token, or both, from $10. A single-token deposit is balanced within the same transaction, and depositing both tokens avoids the swap entirely.
+- **Fees as they are earned.** Your share of fees is credited as the vault collects them. Claim at any time in the pool's own tokens, or compound them back into your stake.
+- **No lockup.** Withdraw at any time, with no exit fee. Leaving never forfeits fees you have already earned.
+- **A fixed protocol fee.** Tidewell retains 10% of the fees a vault collects and never takes from deposits. The fee is capped at 20% when each vault is created, and the cap cannot be raised.
 
-A stake goes into a Tidewell vault, one vault per pool.
+Two vaults are live today, on the ETH / USDG pools at the 0.05% and 0.046% fee tiers.
 
-- **One token in, from $10.** Deposit ETH, the pool's other token, or both
-  in the pool's ratio. With one token, about half is swapped for the other
-  in the same transaction. Depositing both skips the swap entirely.
-- **Always in range.** The vault holds your liquidity across the pool's whole
-  price range, so it earns on every trade the pool makes and never drifts
-  out of range.
-- **Fees credited the moment they are earned.** Your share is credited to
-  you as the vault collects it. Claim any time, in the pool's own tokens, or
-  compound it back into your stake.
-- **Withdraw any time.** No lockup, no exit fee, and leaving never forfeits
-  fees you have already earned.
+### Positions: concentrated liquidity
 
-Tidewell keeps 10% of the fees a vault collects, and never touches your
-deposit. That 10% is capped at 20%, fixed when each vault is created, and
-the cap can never be raised.
+Positions are for liquidity providers who want to decide where their liquidity sits.
 
-Live today: two vaults on the ETH / USDG pools (0.05% and 0.046% fee tiers).
+- **Shaped in one transaction.** Choose a price range and a shape: spot, curve or bid-ask. Tidewell splits it across up to 60 bins and mints them in a single transaction from one ETH deposit.
+- **Held in your wallet.** Each bin is a Uniswap v4 position NFT minted directly to you. Tidewell charges no fee on positions.
+- **Clear range status.** Concentrated liquidity earns more per dollar while the price is inside your range and nothing while it is outside. Your portfolio shows which, for every position.
+- **Full control.** Collect fees or withdraw at any time, across every bin in one transaction.
 
-### Positions: shape your own liquidity
+Positions are available for any token paired with ETH in a Uniswap v4 pool, including pools without a vault.
 
-For LPs who want to choose where their liquidity sits.
+### Transparent by design
 
-- **Pick a range and a shape**: spot, curve or bid-ask, split into up to 60
-  bins, all minted in one transaction from a single ETH deposit.
-- **Yours, in your wallet.** Each bin is a Uniswap v4 position NFT minted
-  straight to you. Tidewell takes no fee on positions.
-- **More per dollar, with a condition.** Concentrated liquidity earns more
-  for each dollar while the price is inside your range, and nothing while it
-  is outside. The portfolio says which, in the row, in red when you are out
-  of range.
-- **Collect fees and withdraw from your portfolio**, any time, every bin in
-  one transaction.
+Every number on Tidewell is built to be checked.
 
-Positions work on any token that trades against ETH in a Uniswap v4 pool,
-not only the pools that have a vault.
+- Yield is shown as fee yield over the trailing 7 days. It is never presented as APY and never projected forward.
+- Pools younger than 7 days are marked as estimates. With less than 24 hours of data, no figure is shown.
+- Vaults show what a full-range position actually earned, not the pool average.
+- Market capitalisation is shown as fully diluted value and labelled as such.
+- Your portfolio shows price impact on holdings, also known as impermanent loss, next to the fees you have earned.
+- If the data falls behind the chain, every page says so.
 
-### Numbers you can check
+### Non-custodial
 
-Most dashboards are built to make a number look big. Tidewell's are built so
-the number can be trusted:
+Only the wallet that made a deposit can withdraw it. There is no admin withdrawal function, no pause that can lock funds, and no upgradeable proxy on the vaults. The owner can pause new deposits, while withdrawals and claims stay open at all times.
 
-- Yield is **fee yield, trailing 7 days**. Never APY, never projected, never
-  one good day multiplied by 365.
-- A pool younger than a week is marked **est.**, with its age next to it.
-  Under 24 hours of data, there is no figure at all, just a dash.
-- A vault shows what a full-range stake actually earned, not the pool's
-  average.
-- Market cap is shown as **FDV** and labelled as such, because circulating
-  supply cannot be read on chain.
-- Your portfolio shows **price impact on holdings** (impermanent loss, by its
-  honest name) beside the fees you earned, not buried under them.
-- If the data is behind the chain, every page says so.
+### Risks
 
-### Your money stays yours
+Tidewell has not yet been independently audited. Use it at your own risk and only with funds you can afford to lose.
 
-- Only the wallet that deposited can withdraw. There is no admin withdraw
-  path, no pause that traps funds, and no upgradeable proxy on the vaults.
-- The owner can pause *new* deposits. Withdrawals and claims cannot be
-  paused by anyone.
+Providing liquidity also carries market risk. If a token's price falls, the value of your position falls with it. Fees offset this risk but do not remove it.
 
-**Be clear about the risk.** Tidewell has **not yet been independently
-audited**. Use it at your own risk, and with amounts you can afford to
-lose. Providing liquidity is not risk-free: if a token's price falls, your
-position's value falls with it. Fees soften that; they do not remove it.
+### Getting started
 
-### Get started
+1. Visit tidewell.live and connect your wallet on Robinhood Chain.
+2. To stake, open Stakes, choose a vault, select ETH, USDG or both, and confirm.
+3. To provide concentrated liquidity, open Positions, choose a token, set your range and shape, and mint.
+4. Track everything in Portfolio, including holdings, fees earned, claims and withdrawals.
 
-1. Go to **tidewell.live** and connect your wallet on Robinhood Chain.
-2. **To stake:** open *Stakes*, choose a vault, pick ETH, USDG or both, and
-   stake.
-3. **To shape:** open *Positions*, choose a token, set your range and shape,
-   and mint.
-4. **Track it:** *Portfolio* shows what you hold, the fees you have earned,
-   and Claim, Collect and Withdraw, all in one place.
+tidewell.live is the only official website, and official announcements come from @usetidewell.
 
-Only use **tidewell.live**, and follow **@usetidewell** for announcements.
-Anything else claiming to be Tidewell is not.
-
----
-
-Real fees. No emissions. Withdraw any time.
-
-**Fees rise with the tide.** → tidewell.live
+*Fees rise with the tide.*

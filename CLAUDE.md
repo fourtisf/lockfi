@@ -2940,3 +2940,10 @@ ALFA asked for a premium banner for an article, and the article's copy.
   audited**, carries **no yield figure** (§1 forbids a forward one; a
   trailing one would be stale the day after posting), and does not promote
   the router, which §22 recommends nobody uses until its new factory exists.
+- **Pasting it into X.** ALFA's first paste left large gaps: X's article
+  editor makes a paragraph at every line break, so the Markdown's blank lines
+  became empty paragraphs and its hard-wrapped lines split mid-sentence. The
+  article is rewritten in a more formal register, and
+  `docs/articles/introducing-tidewell.x.txt` is the paste-ready form: one line
+  per paragraph, heading or list item, no blank lines. The title goes in X's
+  title field, not the body.
