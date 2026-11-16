@@ -135,6 +135,9 @@ model SwapEvent {
   @@id([txHash, logIndex])
   @@index([poolId, blockTime])
   @@index([blockNum])
+  /// For the hours a pass touched (aggregate.ts hourRange): without an index
+  /// led by time, selecting them read every swap ever indexed.
+  @@index([blockTime])
   /// For "the pool's latest state": a DISTINCT ON (pool_id) ordered by
   /// position. Without it that query is a sort of the whole table on every
   /// pass, which is the difference between a second and a minute once the

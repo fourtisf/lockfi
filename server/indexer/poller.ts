@@ -439,6 +439,19 @@ export class Poller {
    * between the two therefore re-does the range rather than skipping it,
    * which the upserts make harmless.
    */
+  /**
+   * After passes that failed outright (not a refused range — an exception),
+   * try a narrower window: if one stretch of chain is what fails, halving
+   * isolates it to a few blocks and the log names it. Never below twice the
+   * re-scan, which still moves the cursor. Returns the new width.
+   */
+  narrowAfterFailure(): number {
+    const floor = this.reorgDepth * 2n > 1n ? this.reorgDepth * 2n : 2n;
+    this.blockRange = max(floor, this.blockRange / 2n);
+    this.calmPasses = 0;
+    return Number(this.blockRange);
+  }
+
   async runPass(): Promise<PassResult> {
     const head = await this.source.getHeadBlock();
     let result: PassResult | undefined;

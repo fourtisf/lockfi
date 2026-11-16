@@ -105,6 +105,9 @@ async function main(): Promise<void> {
 
   let backoffMs = 1_000;
   let lastTickAt = 0;
+  /** Passes failed in a row, and the last distinct reason logged in full. */
+  let failures = 0;
+  let lastReason = '';
   let shuttingDown = false;
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
@@ -119,6 +122,9 @@ async function main(): Promise<void> {
       const result = await poller.runPass();
       const passSeconds = ((Date.now() - passStarted) / 1000).toFixed(1);
       backoffMs = 1_000;
+      if (failures > 0) log(`passing again after ${failures} failed pass(es)`);
+      failures = 0;
+      lastReason = '';
       // Every pass while backfilling, not only the ones that found something:
       // on a 62-million-block chain most ranges are empty, and silence for an
       // hour is indistinguishable from a hang.
@@ -158,7 +164,21 @@ async function main(): Promise<void> {
     } catch (error) {
       // Log and keep going. The lag figure in the top bar is what tells a
       // user the numbers are behind; dying would leave them looking live.
-      log(`pass failed: ${(error as Error).message}`);
+      // Every line of it, and the stack, once per distinct reason: the first
+      // line alone ("… failed on all 4 endpoints:") named neither the
+      // endpoint's answer nor the step, and a stalled indexer whose log says
+      // only that cannot be diagnosed from outside the box.
+      failures++;
+      const reason = (error as Error)?.message ?? String(error);
+      if (reason !== lastReason || failures % 20 === 0) {
+        log(`pass failed (${failures} in a row): ${reason}`);
+        const stack = (error as Error)?.stack?.split('\n').slice(1, 8).join('\n');
+        if (stack) log(`  at:\n${stack}`);
+        lastReason = reason;
+      } else {
+        log(`pass failed again (${failures} in a row) — same reason`);
+      }
+      if (failures >= 3) log(`  narrowing the window to ${poller.narrowAfterFailure()} blocks to isolate it`);
       await sleep(backoffMs);
       backoffMs = Math.min(backoffMs * 2, 60_000);
     }

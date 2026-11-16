@@ -22,7 +22,7 @@ import type { MarketSnapshot } from '../../lib/data/types';
 import { prisma } from '../db';
 import { env } from '../env';
 import { POOL_MANAGER_CURSOR } from '../indexer/poller';
-import { resolveUsdg } from '../indexer/anchor';
+import { cachedUsdgResolver } from '../indexer/anchor';
 import { busKind, subscribeTicks } from './bus';
 import { buildSnapshot } from './snapshot';
 import { lagLabel } from '../../lib/format';
@@ -79,9 +79,36 @@ function serialise(snapshot: MarketSnapshot): string {
 export interface ServerOptions {
   /** What is deployed: config/deployments.json for this chain unless a test says otherwise. */
   deployment?: Deployment | null;
+  /**
+   * How long a discovered USD anchor is reused before it is looked for again
+   * (indexer/anchor.ts cachedUsdgResolver). 0 — the default, and the tests' —
+   * looks every time; the production entry point sets ten minutes.
+   */
+  anchorCacheMs?: number;
+  /** How long /api/health reuses its pool and swap counts. 0 counts every time. */
+  countsCacheMs?: number;
+}
+
+/** The client a request is from, for rate limiting (see the limiter below). */
+export function clientKey(request: { headers: Record<string, string | string[] | undefined>; ip: string }): string {
+  const real = request.headers['x-real-ip'];
+  if (typeof real === 'string' && real.trim() !== '') return real.trim();
+  // Without X-Real-IP, the LAST forwarded entry is the one a proxy added.
+  const forwarded = request.headers['x-forwarded-for'];
+  const last = typeof forwarded === 'string' ? forwarded.split(',').pop()?.trim() : undefined;
+  return last || request.ip;
+}
+
+/** A request from this machine that came through no proxy: the site's own server render. */
+export function isLocalRender(request: { headers: Record<string, string | string[] | undefined>; ip: string }): boolean {
+  const loopback = request.ip === '127.0.0.1' || request.ip === '::1' || request.ip === '::ffff:127.0.0.1';
+  return loopback && request.headers['x-real-ip'] === undefined && request.headers['x-forwarded-for'] === undefined;
 }
 
 export async function buildServer(options: ServerOptions = {}): Promise<FastifyInstance> {
+  const resolveAnchor = cachedUsdgResolver(options.anchorCacheMs ?? 0);
+  let countsAt = 0;
+  let countsMemo: { pools: number; swaps: number } | undefined;
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
   const deployment = options.deployment !== undefined ? options.deployment : deploymentFor(CHAIN.id);
 
@@ -101,8 +128,19 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
    * one NAT must not get throttled. This is here to stop a loop, not to
    * ration users.
    *
-   * `X-Forwarded-For` is trusted because nginx sets it and nothing else can
-   * reach the port — the API binds 127.0.0.1.
+   * Who a request is from: `X-Real-IP`, which nginx sets to the connecting
+   * address and overwrites whatever a client sent. Not the FIRST entry of
+   * `X-Forwarded-For`, which this used to read: nginx appends to that header
+   * (`$proxy_add_x_forwarded_for`), so its first entry is whatever the client
+   * chose, and a loop sending a fresh one per request was never limited —
+   * against /api/health, which counts every pool and swap on each call.
+   *
+   * The site's own server renders (lib/data/initial-snapshot.ts) reach the
+   * API directly on loopback with no proxy header. They are one process
+   * rendering for every visitor, and sharing one visitor's budget sent the
+   * site to a ten-minute-old remembered snapshot past 120 renders a minute;
+   * they are not limited. Nothing outside the box can look like them: the API
+   * binds 127.0.0.1 and nginx always sets X-Real-IP.
    */
   await app.register(rateLimit, {
     max: env.rateLimitMax,
@@ -112,10 +150,9 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     // which is exactly when every client reconnects at once.
     // The stream, and logos: a board is dozens of badges in one page view,
     // each a small cached read, and must not spend the snapshot's budget.
-    allowList: (request) => request.url.startsWith('/api/stream') || request.url.startsWith('/api/logo/'),
-    keyGenerator: (request) =>
-      (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
-      request.ip,
+    allowList: (request) =>
+      request.url.startsWith('/api/stream') || request.url.startsWith('/api/logo/') || isLocalRender(request),
+    keyGenerator: clientKey,
     // The object returned here is THROWN by the plugin, so it needs a
     // statusCode of its own — without one Fastify's error handler treats it
     // as an unhandled error and answers 500, which tells a client to retry
@@ -157,7 +194,7 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     if (building) return building;
     stale = false;
     const started = Date.now();
-    building = buildSnapshot({ usdgAddress: USDG || null })
+    building = buildSnapshot({ usdgAddress: USDG || null, resolveAnchor })
       .then((value) => {
         cached = { snapshot: value, at: Date.now() };
         if (value) listeners.forEach((push) => push(value));
@@ -255,14 +292,19 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
     const stuck =
       writtenAgo !== null &&
       (writtenAgo > env.stallSeconds || (behind && movedAgo > env.stallSeconds));
-    const [counts] = await prisma.$queryRaw<{ pools: number; swaps: number }[]>`
+    const fresh = (options.countsCacheMs ?? 0) > 0 && countsMemo && Date.now() - countsAt < (options.countsCacheMs ?? 0);
+    const [counts] = fresh ? [countsMemo] : await prisma.$queryRaw<{ pools: number; swaps: number }[]>`
       SELECT (SELECT COUNT(*) FROM pools)::int AS pools,
              (SELECT COUNT(*) FROM swap_events)::int AS swaps
     `;
+    if (!fresh && counts) {
+      countsMemo = counts;
+      countsAt = Date.now();
+    }
     // Which token is pricing the whole site, and how that was decided. This
     // is the single most consequential value in the system — a wrong anchor
     // makes every dollar figure wrong — so it is auditable from outside.
-    const anchor = await resolveUsdg(USDG || null);
+    const anchor = await resolveAnchor(USDG || null);
     // The keeper (P3/P4): read from what the chain recorded — each router's
     // last Observed event — not from the keeper process, which can be
     // "online" and landing nothing. Vaults need no keeper and are not checked.
@@ -431,7 +473,9 @@ export async function buildServer(options: ServerOptions = {}): Promise<FastifyI
 }
 
 export async function start(): Promise<FastifyInstance> {
-  const app = await buildServer();
+  // Discovery and the health counts are full scans of tables the indexer is
+  // writing millions of rows into; reused for minutes, not run per request.
+  const app = await buildServer({ anchorCacheMs: 10 * 60_000, countsCacheMs: 60_000 });
   await app.listen({ port: env.apiPort, host: env.apiHost });
 
   // Loud, and still serving. The old behaviour was to throw here, which took

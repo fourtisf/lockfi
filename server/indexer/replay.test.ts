@@ -384,13 +384,18 @@ describe('reserves that go negative leave the depth unknown', () => {
     await prisma.liquidityEvent.deleteMany({ where: { poolId: target.id } });
     const { rebuildAggregates } = await import('./aggregate');
     const { findAnchorPool } = await import('./discovery');
-    await rebuildAggregates({
-      weth: CONTRACTS.weth.toLowerCase(),
-      usdg: USDG.toLowerCase(),
-      wethDecimals: 18,
-      usdgDecimals: 6,
-      anchorPoolId: await findAnchorPool(USDG),
-    });
+    await rebuildAggregates(
+      {
+        weth: CONTRACTS.weth.toLowerCase(),
+        usdg: USDG.toLowerCase(),
+        wethDecimals: 18,
+        usdgDecimals: 6,
+        anchorPoolId: await findAnchorPool(USDG),
+      },
+      undefined,
+      // The flows are no longer rebuilt per pass; this test reads them.
+      { flows: true },
+    );
   });
 
   it('records zero depth rather than a negative or a guess', async () => {

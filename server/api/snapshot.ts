@@ -59,6 +59,8 @@ export interface SnapshotOptions {
    * own tokens, the same way the indexer does it.
    */
   usdgAddress?: string | null;
+  /** How the anchor is resolved; the API passes a cached resolver. */
+  resolveAnchor?: (configured?: string | null) => Promise<{ address: string | null }>;
 }
 
 interface PoolQueryRow {
@@ -130,9 +132,9 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
   const sql = `
     WITH params AS (
       SELECT
-        $1::timestamp                                       AS as_of,
-        $1::timestamp - interval '24 hours'                 AS since_24h,
-        $1::timestamp - (${YIELD_WINDOW_HOURS} * interval '1 hour') AS since_window
+        ($1::timestamptz AT TIME ZONE 'UTC')                 AS as_of,
+        ($1::timestamptz AT TIME ZONE 'UTC') - interval '24 hours' AS since_24h,
+        ($1::timestamptz AT TIME ZONE 'UTC') - (${YIELD_WINDOW_HOURS} * interval '1 hour') AS since_window
     ),
 
     -- Only pools that traded in the trailing window. The boards list nothing
@@ -174,7 +176,11 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
                sw.block_time AS traded_at
         FROM swap_events sw
         WHERE sw.pool_id = p.id AND sw.block_time <= m.moment
-        ORDER BY sw.block_num DESC, sw.log_index DESC
+        -- By time first, so the (pool_id, block_time) index answers it from
+        -- the moment backwards; ordered by block it walked every later swap
+        -- of the pool to find the moment. Block time never goes backwards,
+        -- so the row is the same.
+        ORDER BY sw.block_time DESC, sw.block_num DESC, sw.log_index DESC
         LIMIT 1
       ) last ON true
     ),
@@ -237,7 +243,9 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
         SELECT sw.block_time, sw.sqrt_price_x96
         FROM swap_events sw
         WHERE sw.pool_id = p.id AND sw.block_time > pr.since_24h AND sw.block_time <= pr.as_of
-        ORDER BY sw.block_num ASC, sw.log_index ASC
+        -- By time first, for the same index (see ratio_at): ordered by block
+        -- it walked the pool's whole history before the window.
+        ORDER BY sw.block_time ASC, sw.block_num ASC, sw.log_index ASC
         LIMIT 1
       ) ft
     ),
@@ -625,7 +633,7 @@ export async function buildSnapshot(
   // The anchor: pinned by configuration, or discovered from indexed tokens.
   // Without one nothing has a dollar figure, so there is nothing honest to
   // render — the same null the UI already handles.
-  const anchor = await resolveUsdg(options.usdgAddress);
+  const anchor = await (options.resolveAnchor ?? resolveUsdg)(options.usdgAddress);
   if (!anchor.address) return null;
 
   // The moment the figures describe: the last block whose SWAPS were read.

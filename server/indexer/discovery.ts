@@ -82,6 +82,15 @@ export interface TokenFacts {
   name: string;
   decimals: number;
   /**
+   * True when a read failed because no endpoint could be reached or each
+   * refused (rate limit, timeout) — not because the contract answered. The
+   * fallbacks above are then guesses about a token nobody heard from, and
+   * are not written: the token stays pending and is read again on the next
+   * pass that needs it. A token that answered with a revert is a fact, and
+   * its fallbacks stand.
+   */
+  transient?: boolean;
+  /**
    * `totalSupply()`, in the token's smallest units, or null if the contract
    * did not answer.
    *
@@ -100,10 +109,22 @@ export interface TokenFacts {
  * rather than skipped: a pool with an unreadable token still has real fees,
  * and dropping it would understate the chain totals.
  */
+/**
+ * True when a read failed for want of an answer — every endpoint timed out,
+ * refused the connection or rate-limited it — rather than because the
+ * contract answered badly. Anything else (a revert, no code, an undecodable
+ * reply) is the contract's answer, so a strange token can never keep a pass
+ * from completing.
+ */
+export function networkFailure(message: string): boolean {
+  return /HTTP request failed|took too long|timed? ?out|\b429\b|too many requests|rate.?limit|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|socket hang up|\b50[234]\b|bad gateway|service unavailable/i.test(message);
+}
+
 export async function readToken(address: string): Promise<TokenFacts> {
   const checksummed = getAddress(address);
   const fallback = `${address.slice(2, 6)}…${address.slice(-4)}`.toUpperCase();
 
+  let transient = false;
   const read = async <T>(
     functionName: 'symbol' | 'name' | 'decimals' | 'totalSupply',
   ): Promise<T | null> => {
@@ -112,7 +133,10 @@ export async function readToken(address: string): Promise<TokenFacts> {
         (c) => c.readContract({ address: checksummed, abi: ERC20_ABI, functionName }),
         `${functionName}(${address})`,
       )) as T;
-    } catch {
+    } catch (error) {
+      // totalSupply is re-read on its own cadence; only the facts that are
+      // written once decide whether this read can be trusted.
+      if (functionName !== 'totalSupply' && networkFailure(String((error as Error)?.message ?? error))) transient = true;
       return null;
     }
   };
@@ -126,6 +150,7 @@ export async function readToken(address: string): Promise<TokenFacts> {
 
   return {
     address: address.toLowerCase(),
+    ...(transient ? { transient: true } : {}),
     totalSupply: typeof totalSupply === 'bigint' && totalSupply > 0n ? totalSupply : null,
     // Trim: a token whose symbol is padded or absurdly long would break the
     // table layout, and the ticker is 14px/700 in a fixed column (§5).
@@ -147,6 +172,8 @@ export const PENDING_DECIMALS = -1;
  * Read the real facts of any of these tokens recorded lazily. Called for the
  * tokens of every pool a swap touches, before the swap is valued.
  */
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function hydrateTokens(addresses: Iterable<string>, read: TokenReader = readToken): Promise<number> {
   const wanted = [...new Set([...addresses].map((a) => a.toLowerCase()))];
   if (wanted.length === 0) return 0;
@@ -155,9 +182,26 @@ export async function hydrateTokens(addresses: Iterable<string>, read: TokenRead
     select: { address: true },
   });
   const now = new Date();
-  for (let i = 0; i < pending.length; i += 10) {
-    const facts = await Promise.all(pending.slice(i, i + 10).map((t) => read(t.address)));
+  let read10 = 0;
+  const retry: string[] = [];
+  const readAll = async (addresses: string[], onTransient: (address: string) => void) => {
+    const out: TokenFacts[] = [];
+    for (let i = 0; i < addresses.length; i += 10) {
+      for (const f of await Promise.all(addresses.slice(i, i + 10).map((a) => read(a)))) {
+        if (f.transient) onTransient(f.address);
+        else out.push(f);
+      }
+    }
+    return out;
+  };
+  // Once now, and once more after a breath for any nobody answered: a 429 is
+  // usually a burst. Still unanswered, a token stays pending and is read on
+  // the next pass that needs it (TokenFacts.transient).
+  const first = await readAll(pending.map((t) => t.address), (a) => retry.push(a));
+  const second = retry.length > 0 ? (await wait(1_500), await readAll(retry, () => {})) : [];
+  for (const facts of [first, second]) {
     for (const f of facts) {
+      read10++;
       await prisma.token.update({
         where: { address: f.address },
         data: {
@@ -170,7 +214,7 @@ export async function hydrateTokens(addresses: Iterable<string>, read: TokenRead
       });
     }
   }
-  return pending.length;
+  return read10;
 }
 
 /** Upsert tokens we have not seen. Existing rows are left alone. */
@@ -224,6 +268,14 @@ export async function ensureTokens(
     read10.push(...(await Promise.all(missing.slice(i, i + 10).map((address) => read(address)))));
   }
   for (const facts of read10) {
+    if (facts.transient) {
+      // Recorded without facts, to be read when a swap next needs it.
+      await prisma.token.createMany({
+        data: [{ address: facts.address, symbol: '', name: '', decimals: PENDING_DECIMALS, logoColor: brandColor(facts.address), launchpad: null, firstSeen: seenAt }],
+        skipDuplicates: true,
+      });
+      continue;
+    }
     await prisma.token.upsert({
       where: { address: facts.address },
       create: {

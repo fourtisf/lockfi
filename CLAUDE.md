@@ -2518,3 +2518,133 @@ exercised, and the simulation above runs them against the deployed vaults.
 - **Pool rows are still as of the indexer's last swap read** until it reaches
   the swap window; only vault figures are live.
 - The §12 questions, the token and the defensive domain are unchanged.
+
+---
+
+## 22. Audit: staking proven on a fork, eleven bugs fixed, and the stall
+
+ALFA: "audit all the code, make sure there are no bugs and staking works."
+Three independent reviews ran in parallel — the front end's stake flows, the
+server (API, indexer, keeper), and the Solidity — each told to verify every
+finding by reading the code path end to end, and each finding was then
+checked again here before anything changed. Staking itself was proven the
+only way that counts: the real site, real transactions, real contracts.
+
+### Staking works, end to end, on a fork of mainnet
+
+anvil (from npm, `@foundry-rs/anvil`) forked Robinhood Chain at head; the
+live build ran in Chromium with every chain request routed to the fork and a
+wallet that signs there (an impersonated, freshly funded address). Through
+the UI, against the deployed vaults and zap: **ETH**, **USDG** and
+**ETH + USDG** stakes each confirmed and minted shares (the two-token route
+took exactly the 36.43 USDG the vault matched to 0.02 ETH; the USDG route
+left no allowance and returned the zap's 0.003 USDG of leftovers); **Your
+stakes** showed the stake; **Withdraw 50%** returned both tokens; the
+**Portfolio** showed net value, fees earned, price impact and every deposit
+and withdrawal; **Withdraw all** from the Portfolio left zero shares. A
+second run staked 2 ETH, traded through the pool to earn fees, and
+**Claim** paid exactly the claimable in both tokens. 16/16 and 1/1, no page
+errors, 7 + 1 transactions — run again after the fixes below, same result.
+
+### Fixed — front end (all would have been seen by a staker)
+
+- **A stake showed as $0 and the portfolio as a 100% loss** while the read of
+  what the shares are worth was in flight or failed — on every load and after
+  every deposit or withdraw. That read is now `amountsKnown`; until it
+  answers the stake is unknown (an em dash), never $0, and "Your stakes" says
+  it is reading instead of "nothing staked".
+- **Compound checked the $10 minimum against the snapshot's ETH price** (as
+  old as the indexer's last swap read); it uses the live price like every
+  other signed action, and keeps 0.001 ETH for the second transaction's gas
+  when the claim is all the ETH a wallet has.
+- **The /stakes panel switched vault by itself** when the two vaults, 0.2
+  points apart, swapped rank on a snapshot, clearing what was typed. The
+  first vault shown is pinned.
+- **The drawer moved focus to its close button on every toast** — its focus
+  trap re-ran whenever `closeStake` was rebuilt. It reads it through a ref.
+- The matched field in the two-token route showed stale text when the typed
+  one was cleared; the activity list printed a 0.000048 USDG claim as
+  "0 USDG"; "0 stakes · each in both its pool's tokens" with nothing staked.
+
+### Fixed — server
+
+- **The rate limit could be bypassed** by sending a made-up `X-Forwarded-For`:
+  it keyed on the header's FIRST entry, which nginx leaves as the client sent
+  it. It keys on `X-Real-IP` (nginx overwrites it). The site's own server
+  renders, which reach the API on loopback with no proxy header, are no longer
+  limited — sharing one visitor's budget sent the site to a ten-minute-old
+  remembered snapshot past 120 renders a minute.
+- **Every 24h and 7d window shifted by the database's timezone.** Prisma binds
+  a Date as `timestamptz`; `$1::timestamp` converted it to the session's zone
+  while `block_time` is stored in UTC — at UTC+7, "24h" was 17 hours. Now
+  `$1::timestamptz AT TIME ZONE 'UTC'`; a test runs the snapshot under
+  Asia/Jakarta and requires identical figures (it fails without the fix).
+- **A token read that failed on every endpoint was saved as permanent fake
+  metadata** — "ABCD…1234", 18 decimals, priced 10¹² wrong for a 6-decimal
+  token. Network failures (`networkFailure`: HTTP errors, timeouts, 429) now
+  leave the token pending, retried once in the pass and again on the next
+  pass that needs it; nothing values a token whose decimals are unknown. A
+  contract that answers badly (revert, no code) is still a fact.
+- **Per-pass work that grew with the whole table**, which the swap window
+  grows by millions of rows: `pool_flow_hourly` (no reader since TVL came from
+  positions) is no longer rebuilt each pass; fee hours look up the anchor
+  price per touched hour instead of a window over every swap hour; the hour
+  filters are ranges an index serves (new `swap_events(block_time)` index,
+  migration `20261116120000_swap_time_index`); pool state finds each pool's
+  last swap by index instead of sorting every swap every minute; the
+  snapshot's 24h lookups order by time to use the `(pool_id, block_time)`
+  index; the API reuses the discovered anchor for ten minutes and the health
+  counts for a minute. §9's replay suite is byte-identical before and after.
+- The vault watcher's "head unreadable" note never cleared; the router page
+  now also refuses pools whose hook runs when liquidity is added (below).
+
+### The Solidity
+
+**Vault, Zap, Shaper: nothing exploitable** — delta signs, fee collection
+before every liquidity change, per-share rounding (payouts never exceed what
+was minted), reentrancy, `msg.value`, approvals and owner powers all checked.
+Two findings in **TidewellRouter**, which no team has used (no router exists):
+
+- **Medium — a compromised keeper can walk the TWAP.** Each observation is
+  capped at `maxTwapDeviationTicks` from the last, but nothing caps total
+  drift, and `minOut` is measured against the same average: a keeper key that
+  can act atomically (EIP-7702 is live on this chain) can drag it over an
+  hour and sandwich its own route. Needs the keeper key; fixing it needs a new
+  factory with a cumulative drift bound. **Recommendation: create no router
+  until that factory is deployed.** `docs/audit/SECURITY.md`'s "still needs
+  the real spot within the guard" does not hold for an atomic keeper.
+- **Low–medium — an add-liquidity hook can move the price under a route.**
+  The contract refuses swap hooks but not `beforeAddLiquidity` /
+  `afterAddLiquidity`, which run inside the deposit after the price check.
+  The router page now refuses those pools (`hookCanTakeLiquidity`, bits 10
+  and 11); the contract fix waits for the same new factory.
+
+### The indexer stall — not found from here
+
+Live `/api/health`: `stalled` at block 108,861,865 (8 Nov 01:43), 517,874
+swaps — it entered the 8-day swap window, wrote 226K swaps, then stopped. Not
+moving in 11 minutes of watching. Ruled out against the real chain: every log
+in the stuck range decodes (7,713 logs); no token there — the 28 new pools'
+and all 538 swapping pools' (384 tokens) — has a byte Postgres refuses; the
+fee valuation is bounded by `sane()`, so it cannot overflow its column; the
+contract pass cannot hold the pool cursor (it runs in a `finally` after the
+cursor is written). Most likely: the endpoints rate-limiting the box once the
+window phase began — it is the first phase that reads every newly traded
+token (four calls each, hundreds per pass) and every block's time — so the
+block-time step throws after its retries and the same range is retried
+forever. What changes for that: failures now log every line and the stack
+once per distinct reason; after three failures in a row the window halves to
+isolate a bad stretch; unanswered token reads no longer pass silently; the
+per-pass scans above are gone. **What is needed from the box:** the last
+error, from `bash deploy/data-source.sh status` or
+`runuser -u balast -- pm2 logs balast-indexer --lines 60`.
+
+### Not changed, on purpose
+
+- The USDG and two-token routes approve before the zap's loss check and the
+  deposit's simulation (which need the allowance to exist); a refused deposit
+  then leaves an exact, self-only allowance.
+- `launchpad-logos.ts` checks the host as written, not its DNS resolution;
+  only https image bytes are kept.
+- The vault watcher interpolates swap times within a read chunk (minutes at
+  the 24h edge on a first backfill).

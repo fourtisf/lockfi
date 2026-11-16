@@ -224,6 +224,26 @@ describe('buildSnapshot', () => {
     expect(snapshot.pools.some((p) => p.change24hPct !== 0)).toBe(true);
   });
 
+  it('measures the same windows whatever timezone the database runs in', async () => {
+    // Prisma binds a Date as timestamptz; cast to a plain timestamp it took
+    // the session's zone, so on a box whose Postgres runs at UTC+7 every
+    // "24h" figure covered 17 hours. block_time is stored in UTC.
+    const [{ db }] = await prisma.$queryRaw<{ db: string }[]>`SELECT current_database() AS db`;
+    const figures = (s: MarketSnapshot) =>
+      s.pools.map((p) => [p.id, p.fees24hUsd.toFixed(9), p.volume24hUsd.toFixed(9), p.trades24h, p.ageHours.toFixed(6)]);
+    const utc = figures((await buildSnapshot({ usdgAddress: USDG }))!);
+    try {
+      await prisma.$executeRawUnsafe(`ALTER DATABASE "${db}" SET timezone TO 'Asia/Jakarta'`);
+      await prisma.$disconnect(); // new sessions take the database's zone
+      const [{ tz }] = await prisma.$queryRaw<{ tz: string }[]>`SELECT current_setting('TimeZone') AS tz`;
+      expect(tz).toBe('Asia/Jakarta');
+      expect(figures((await buildSnapshot({ usdgAddress: USDG }))!)).toEqual(utc);
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER DATABASE "${db}" RESET timezone`);
+      await prisma.$disconnect();
+    }
+  });
+
   it('marks the fee tier in bips, from the pool\'s hundredths-of-a-bip on chain', () => {
     // 3000 pips on chain is 0.30%, which the UI renders from 30 bips.
     const tiers = snapshot.pools.map((p) => p.feeTierBps).sort((a, b) => a - b);

@@ -198,6 +198,20 @@ function touchedHours(bounds: Bounds | undefined, table: string): string {
 }
 
 /**
+ * A filter selecting the rows of the hours a pass touched, written so an index
+ * on block_time can serve it: a time range first, then the exact hours. The
+ * bare `date_trunc('hour', block_time) IN (...)` it replaces cannot use one, so
+ * every pass read the whole table.
+ */
+function hourRange(bounds: Bounds, alias: string): string {
+  const hours = touchedHours(bounds, 'swap_events');
+  return `
+    AND ${alias}.block_time >= (SELECT min(hour) FROM (${hours}) h)
+    AND ${alias}.block_time <  (SELECT max(hour) FROM (${hours}) h) + interval '1 hour'
+    AND date_trunc('hour', ${alias}.block_time) IN (${hours})`;
+}
+
+/**
  * Step 1 — `weth_usd_hourly`: WETH in USD, per hour, from the anchor pool.
  *
  * The last anchor swap in each hour sets that hour's price. Hours with no
@@ -211,9 +225,7 @@ export async function rebuildAnchorPrices(
   const { usdg, anchorPoolId } = checkAnchors(anchors);
   if (!anchorPoolId) return 0;
 
-  const hourFilter = bounds
-    ? `AND date_trunc('hour', sw.block_time) IN (${touchedHours(bounds, 'swap_events')})`
-    : '';
+  const hourFilter = bounds ? hourRange(bounds, 'sw') : '';
 
   return prisma.$executeRawUnsafe(`
     INSERT INTO weth_usd_hourly (hour, weth_usd)
@@ -295,25 +307,23 @@ export async function rebuildFeeHours(
 ): Promise<number> {
   const { weth, usdg } = checkAnchors(anchors);
 
-  const hourFilter = bounds
-    ? `AND date_trunc('hour', sw.block_time) IN (${touchedHours(bounds, 'swap_events')})`
-    : '';
+  const hourFilter = bounds ? hourRange(bounds, 'sw') : '';
 
   return prisma.$executeRawUnsafe(`
     WITH
-    -- The anchor price for each hour, carrying the last known one forward
-    -- across hours where the anchor pool did not trade. The window-function
-    -- gap fill is O(n log n); the correlated subquery it replaces was O(n^2).
-    dense AS (
-      SELECT h.hour, w.weth_usd,
-             count(w.weth_usd) OVER (ORDER BY h.hour) AS grp
-      FROM (SELECT DISTINCT date_trunc('hour', block_time) AS hour FROM swap_events) h
-      LEFT JOIN weth_usd_hourly w ON w.hour = h.hour
-    ),
+    -- The hours this rebuild values.
+    target AS (${touchedHours(bounds, 'swap_events')}),
+    -- The anchor price for each of them, carrying the last known one forward
+    -- across hours where the anchor pool did not trade: the latest non-null
+    -- price at or before the hour, one primary-key lookup per hour. It was a
+    -- window over every distinct hour in swap_events — a scan of the whole
+    -- table on every pass, which the swap window grows by millions of rows.
     weth_usd AS (
-      SELECT hour,
-             first_value(weth_usd) OVER (PARTITION BY grp ORDER BY hour) AS weth_usd
-      FROM dense
+      SELECT t.hour,
+             (SELECT w.weth_usd FROM weth_usd_hourly w
+               WHERE w.hour <= t.hour AND w.weth_usd IS NOT NULL
+               ORDER BY w.hour DESC LIMIT 1) AS weth_usd
+      FROM target t
     ),
 
     -- Each swap, with the USD price of both of its tokens at its own hour.
@@ -348,17 +358,20 @@ export async function rebuildFeeHours(
 
     -- Resolve each token's USD price from whichever side is the quote, and
     -- discard anything outside a sane bound rather than carrying it forward.
+    -- A token whose decimals are not known yet (pending, -1: its reads
+    -- failed on every endpoint) prices nothing: its ratio and its amounts
+    -- would both be off by powers of ten.
     usd AS (
       SELECT
         pool_id, hour, fee_amount, fee_token, amount0, amount1, dec0, dec1,
-        ${sane(
+        CASE WHEN dec0 < 0 OR dec1 < 0 THEN NULL ELSE ${sane(
           `COALESCE(quote0_usd, CASE WHEN quote1_usd IS NOT NULL THEN ratio * quote1_usd END)`,
           MAX_SANE_PRICE_USD,
-        )} AS price0_usd,
-        ${sane(
+        )} END AS price0_usd,
+        CASE WHEN dec0 < 0 OR dec1 < 0 THEN NULL ELSE ${sane(
           `COALESCE(quote1_usd, CASE WHEN quote0_usd IS NOT NULL AND ratio > 0 THEN quote0_usd / ratio END)`,
           MAX_SANE_PRICE_USD,
-        )} AS price1_usd
+        )} END AS price1_usd
       FROM priced
     )
 
@@ -433,12 +446,20 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
       SELECT weth_usd AS usd FROM weth_usd_hourly ORDER BY hour DESC LIMIT 1
     ),
 
-    -- Latest on-chain state per pool: the most recent swap wins.
+    -- Latest on-chain state per pool: the most recent swap wins. One index
+    -- lookup per pool that has a fee hour — every pool that ever swapped,
+    -- since fee hours are built before this step — rather than a DISTINCT ON
+    -- over every swap ever read, run every minute in the swap window.
     last_swap AS (
-      SELECT DISTINCT ON (pool_id)
-        pool_id, sqrt_price_x96, tick, liquidity, block_time
-      FROM swap_events
-      ORDER BY pool_id, block_num DESC, log_index DESC
+      SELECT f.pool_id, ls.sqrt_price_x96, ls.tick, ls.liquidity, ls.block_time
+      FROM (SELECT DISTINCT pool_id FROM pool_fee_hourly) f
+      CROSS JOIN LATERAL (
+        SELECT sw.sqrt_price_x96, sw.tick, sw.liquidity, sw.block_time
+        FROM swap_events sw
+        WHERE sw.pool_id = f.pool_id
+        ORDER BY sw.block_num DESC, sw.log_index DESC
+        LIMIT 1
+      ) ls
     ),
 
     -- How far swaps have been read. Liquidity past it is not counted yet:
@@ -658,10 +679,14 @@ export async function rebuildPoolState(anchors: PriceAnchors): Promise<number> {
 export async function rebuildAggregates(
   anchors: PriceAnchors,
   bounds?: Bounds,
-  options: { poolState?: boolean } = {},
+  options: { poolState?: boolean; flows?: boolean } = {},
 ): Promise<void> {
   await rebuildAnchorPrices(anchors, bounds);
-  await rebuildFlowHours(bounds);
+  // pool_flow_hourly is no longer rebuilt here: nothing has read it since
+  // pool state came to be computed from positions (rebuildPoolState), and its
+  // rebuild scanned swap_events and liquidity_events whole on every pass.
+  // rebuildFlowHours stays, for anyone who wants the flows (and its test).
+  if (options.flows) await rebuildFlowHours(bounds);
   await rebuildFeeHours(anchors, bounds);
   // Pool state is the one step that is NOT scoped to the hours a pass
   // touched: it reads every pool's last swap and sums every flow hour. The

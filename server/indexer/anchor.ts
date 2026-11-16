@@ -145,3 +145,21 @@ export async function resolveUsdg(configured?: string | null): Promise<AnchorRes
       `${mapped[1].address} has ${mapped[1].swaps}. Set USDG_ADDRESS to pin a different one.`,
   };
 }
+
+/**
+ * `resolveUsdg`, remembering a FOUND anchor for `ttlMs`. Discovery is a full
+ * aggregate over swap_events, and the API ran it on every snapshot build and
+ * every health check. A miss is never remembered, so a first sync still
+ * prices the moment USDG appears (§17). With `ttlMs` 0 it is plain
+ * `resolveUsdg`, which is what the tests use.
+ */
+export function cachedUsdgResolver(ttlMs: number): (configured?: string | null) => Promise<AnchorResolution> {
+  let last: { key: string; at: number; value: AnchorResolution } | null = null;
+  return async (configured) => {
+    const key = configured ?? '';
+    if (ttlMs > 0 && last && last.key === key && Date.now() - last.at < ttlMs) return last.value;
+    const value = await resolveUsdg(configured);
+    last = value.address ? { key, at: Date.now(), value } : null;
+    return value;
+  };
+}

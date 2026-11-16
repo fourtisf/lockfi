@@ -251,6 +251,32 @@ describe('rate limiting', () => {
     expect(refused.json().message).toMatch(/try again/i);
   });
 
+  it('cannot be escaped by sending a made-up X-Forwarded-For', async () => {
+    // nginx APPENDS the real address to whatever the client sent, and sets
+    // X-Real-IP itself. Keyed on the first X-Forwarded-For entry, a loop
+    // sending a fresh one per request was never limited.
+    const codes: number[] = [];
+    for (let i = 0; i < RATE_LIMIT_MAX + 4; i++) {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/snapshot',
+        headers: { 'x-forwarded-for': `10.9.${i >> 8}.${i & 255}, 192.0.2.250`, 'x-real-ip': '192.0.2.250' },
+      });
+      codes.push(response.statusCode);
+    }
+    expect(codes).toContain(429);
+  });
+
+  it("never limits the site's own server render, which comes straight from this machine", async () => {
+    // One process rendering for every visitor; sharing a visitor's budget
+    // sent the site to a ten-minute-old remembered snapshot under load.
+    const codes: number[] = [];
+    for (let i = 0; i < RATE_LIMIT_MAX + 4; i++) {
+      codes.push((await app.inject({ method: 'GET', url: '/api/snapshot' })).statusCode);
+    }
+    expect(codes).not.toContain(429);
+  });
+
   it('counts each client separately', async () => {
     // One loop must not lock everyone else out — which a shared bucket would.
     const response = await app.inject({

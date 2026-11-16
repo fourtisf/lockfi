@@ -143,6 +143,7 @@ export class VaultWatcher {
       this.say('head', `vault watcher: could not read the chain head — ${firstLine(error)}`);
       return;
     }
+    if (this.failing.delete('head')) this.log('vault watcher: the chain head is readable again');
     for (const deployment of this.vaults) {
       try {
         await this.watch(deployment, head);
