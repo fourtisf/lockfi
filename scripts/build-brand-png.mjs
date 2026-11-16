@@ -120,6 +120,12 @@ const JOBS = [
   ['x-post-community-glass.svg', 'x-post-community-glass-3200.png', 3200],
   ['x-post-community-gold.svg', 'x-post-community-gold-1600.png', 1600],
   ['x-post-community-gold.svg', 'x-post-community-gold-3200.png', 3200],
+  // The Telegram channel's welcome banner (scripts/build-telegram-welcome.py):
+  // 16:9 at 1600 and at 2560, the largest Telegram keeps without re-compressing.
+  ['tg-welcome-glass.svg', 'tg-welcome-glass-1600.png', 1600],
+  ['tg-welcome-glass.svg', 'tg-welcome-glass-2560.png', 2560],
+  ['tg-welcome-gold.svg', 'tg-welcome-gold-1600.png', 1600],
+  ['tg-welcome-gold.svg', 'tg-welcome-gold-2560.png', 2560],
 ];
 
 // `node scripts/build-brand-png.mjs x-header-tide` renders only the outputs

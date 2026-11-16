@@ -3104,3 +3104,13 @@ news, product updates and the only official links. Also on X: @usetidewell".
 Verified: 512 unit tests, 48 browser tests, and the card rendered against
 the live curve at desktop and phone widths with no page errors and no
 sideways scroll.
+
+### The Telegram welcome banner
+
+`brand/tg-welcome-{glass,gold}` (16:9, 1600 and 2560, the largest Telegram
+keeps without re-compressing): "Welcome to the Tidewell community.", the
+official links on one panel (website, X, the whole CA) and "Never share your
+seed phrase. Only trust links posted here and on tidewell.live." For the
+channel's pinned first post. `scripts/build-telegram-welcome.py` reads the
+domain, the handle and the CA from `lib/site.ts`. The channel's profile photo
+is the existing `brand/icon-signature-glass-1024.png`.
