@@ -150,7 +150,7 @@ export function RouterPanel() {
   if (signing) {
     if (q === '') liveProblem = 'Enter your token’s address or ticker.';
     else if (candidates.length === 0) liveProblem = 'No Uniswap v4 pool with an ETH side was found for that token.';
-    else if (!pool) liveProblem = 'Every pool found for that token has a hook that can rewrite liquidity, which the router refuses.';
+    else if (!pool) liveProblem = 'Every pool found for that token has a hook that acts when liquidity is added, which the router refuses: it could move the price under a route.';
     else if (!keeper)
       liveProblem = `A keeper address is needed to trigger routes, and ${BRAND}’s is not recorded in its deployment yet. Nothing can be created until it is.`;
     else if (!range) liveProblem = destination === 'narrow' ? 'Reading the pool’s price for the range…' : 'This pool has no usable range.';

@@ -94,9 +94,11 @@ export function walletStakes(
     const cur = live.get(r.deployment.poolId.toLowerCase());
     const meta = [describe(r.key.currency0, pool, ethPriceUsd, cur), describe(r.key.currency1, pool, ethPriceUsd, cur)];
     const num = (wei: bigint, decimals: number) => (decimals >= 0 ? weiToNumber(wei, decimals) : Number.NaN);
+    // Not read yet is unknown, not zero (WalletVaultReads.amountsKnown).
+    const held = (wei: bigint, decimals: number) => (r.amountsKnown === false ? Number.NaN : num(wei, decimals));
     const bySide: StakeSide[] = [0, 1].map((i) => ({
       symbol: meta[i].symbol,
-      amount: num(i === 0 ? r.amount0 : r.amount1, meta[i].decimals),
+      amount: held(i === 0 ? r.amount0 : r.amount1, meta[i].decimals),
       claimable: num(i === 0 ? r.claimable0 : r.claimable1, meta[i].decimals),
       priceUsd: meta[i].priceUsd,
     }));

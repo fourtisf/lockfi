@@ -88,13 +88,15 @@ export function useWalletVaults(): { vaults: WalletVault[]; loading: boolean; fa
 
   let k = 0;
   const vaults: WalletVault[] = held.map((r) => {
-    let amount0 = 0n;
-    let amount1 = 0n;
-    if (r.shares > 0n) {
-      const res = second.data?.[k++];
-      if (res?.status === 'success') [amount0, amount1] = res.result as readonly [bigint, bigint];
+    // No shares: worth nothing, and that is known. Shares: known only once
+    // the read of what they are worth has answered for this many shares.
+    if (r.shares === 0n) return { ...r, amount0: 0n, amount1: 0n, amountsKnown: true };
+    const res = second.data?.[k++];
+    if (res?.status === 'success') {
+      const [amount0, amount1] = res.result as readonly [bigint, bigint];
+      return { ...r, amount0, amount1, amountsKnown: true };
     }
-    return { ...r, amount0, amount1 };
+    return { ...r, amount0: 0n, amount1: 0n, amountsKnown: false };
   });
 
   return {

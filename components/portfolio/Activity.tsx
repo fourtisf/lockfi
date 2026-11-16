@@ -20,7 +20,10 @@ function amount(raw: string, decimals: number, symbol: string): string | null {
   const n = toNumber(BigInt(raw), decimals);
   if (!(n > 0)) return null;
   const eth = symbol === 'ETH' || symbol === 'WETH';
-  const digits = eth ? (n < 0.01 ? 6 : 4) : n < 1 ? 4 : 2;
+  const digits = eth ? (n < 0.01 ? 6 : 4) : n < 1 ? 6 : 2;
+  // Below what those digits can show, say so rather than print "0".
+  const floor = 10 ** -digits;
+  if (n < floor) return `<${floor.toFixed(digits)} ${symbol}`;
   return `${n.toLocaleString('en-US', { maximumFractionDigits: digits })} ${symbol}`;
 }
 

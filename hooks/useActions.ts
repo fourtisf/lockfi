@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { erc20Abi, parseEventLogs, zeroAddress, type TransactionReceipt } from 'viem';
-import { readContract, simulateContract, writeContract } from 'wagmi/actions';
+import { getBalance, readContract, simulateContract, writeContract } from 'wagmi/actions';
 import { useTx } from '@/hooks/useTx';
 import { useWallet } from '@/hooks/useWallet';
 import { CHAIN, CONTRACTS } from '@/lib/chain';
@@ -13,6 +13,7 @@ import { shapeToTickBins, tokenShareOfBins } from '@/lib/contracts/shaped';
 import { signingStatus, type MintAvailability } from '@/lib/contracts/status';
 import { stateViewAbi } from '@/lib/contracts/uniswap';
 import {
+  GAS_RESERVE_WEI,
   MAX_ZAP_LOSS_BPS,
   ethValueAt,
   formatEthDown,
@@ -340,6 +341,20 @@ export function useActions() {
         await claimOnce(label, account, vault);
 
         const native = ethIsNative(key);
+        // Stake back what was claimed, less what the wallet needs for the
+        // second transaction's gas when the claim is all the ETH it has —
+        // staking every wei of it would fail for want of gas.
+        let stakeBack = ethClaimed;
+        if (native) {
+          const balance = await getBalance(config, { address: account, chainId: CHAIN.id });
+          const spendable = balance.value > GAS_RESERVE_WEI ? balance.value - GAS_RESERVE_WEI : 0n;
+          if (spendable < stakeBack) stakeBack = spendable;
+          if (weiToNumber(stakeBack) < minEth) {
+            throw new Error(
+              `After keeping ${formatEthDown(GAS_RESERVE_WEI, 4)} ETH for gas, what was claimed is under the $${MIN_DEPOSIT_USD} minimum, so nothing is staked back.`,
+            );
+          }
+        }
         if (!native) {
           const allowance = await readContract(config, {
             address: WETH,
@@ -348,15 +363,15 @@ export function useActions() {
             args: [account, zap],
             chainId: CHAIN.id,
           });
-          if (allowance < ethClaimed) {
-            label = `Compound ${symbol} · let the zap spend ${formatEthDown(ethClaimed, 6)} WETH`;
+          if (allowance < stakeBack) {
+            label = `Compound ${symbol} · let the zap spend ${formatEthDown(stakeBack, 6)} WETH`;
             await send(label, () =>
-              writeContract(config, { address: WETH, abi: erc20Abi, functionName: 'approve', args: [zap, ethClaimed], account, chainId: CHAIN.id }),
+              writeContract(config, { address: WETH, abi: erc20Abi, functionName: 'approve', args: [zap, stakeBack], account, chainId: CHAIN.id }),
             );
           }
         }
-        label = `Compound ${symbol} · 2 of 2: stake ${formatEthDown(ethClaimed, 6)} ${native ? 'ETH' : 'WETH'}`;
-        await zapIn(label, account, vault, native ? zeroAddress : WETH, ethClaimed);
+        label = `Compound ${symbol} · 2 of 2: stake ${formatEthDown(stakeBack, 6)} ${native ? 'ETH' : 'WETH'}`;
+        await zapIn(label, account, vault, native ? zeroAddress : WETH, stakeBack);
         return true;
       } catch (err) {
         fail(label.includes('1 of 2') ? label : `${label} (what was claimed is in your wallet)`, err);

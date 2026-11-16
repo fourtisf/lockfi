@@ -123,6 +123,12 @@ export interface WalletVaultReads {
   /** What the shares would withdraw as right now, per currency. */
   amount0: bigint;
   amount1: bigint;
+  /**
+   * False while the read of what the shares are worth is in flight or failed:
+   * the two amounts above are then not known, and a stake must not be shown
+   * as worth $0 — or the portfolio reads it as a 100% loss.
+   */
+  amountsKnown: boolean;
 }
 
 type ReadResult = { status: 'success'; result: unknown } | { status: 'failure'; error: unknown };
@@ -134,7 +140,7 @@ type ReadResult = { status: 'success'; result: unknown } | { status: 'failure'; 
 export function parseWalletReads(
   deployment: VaultDeployment,
   results: readonly ReadResult[],
-): Omit<WalletVaultReads, 'amount0' | 'amount1'> | null {
+): Omit<WalletVaultReads, 'amount0' | 'amount1' | 'amountsKnown'> | null {
   if (results.length !== WALLET_READS_PER_VAULT || results.some((r) => r.status !== 'success')) return null;
   const [bal, total, claim, key] = results.map((r) => (r as { result: unknown }).result) as [
     bigint,

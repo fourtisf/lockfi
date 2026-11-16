@@ -69,6 +69,12 @@ export function StakeDrawer() {
     pool.stakeable &&
     openVaults.length > 0;
 
+  // closeStake is rebuilt whenever a toast or the search changes; the trap
+  // below must not re-run for that — it moved focus to the close button on
+  // every toast, mid-typing — so it reads the latest one through a ref.
+  const closeRef = useRef(closeStake);
+  closeRef.current = closeStake;
+
   // Escape closes, Tab cycles inside, focus returns where it came from.
   useEffect(() => {
     if (!open) return;
@@ -80,7 +86,7 @@ export function StakeDrawer() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        closeStake();
+        closeRef.current();
         return;
       }
       if (e.key !== 'Tab' || !node) return;
@@ -104,7 +110,7 @@ export function StakeDrawer() {
       document.removeEventListener('keydown', onKeyDown);
       returnFocusTo.current?.focus();
     };
-  }, [open, closeStake]);
+  }, [open]);
 
   // A vault read live shows its own figures (lib/vault-view.ts): what its
   // full-range position earned, and its pool's fees today. Otherwise the

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMarket } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
@@ -74,6 +74,13 @@ export function StakesBody() {
   }, [vaults, pools, filter, query]);
 
   const selected = rows.find((r) => r.vault.id === picked) ?? rows[0] ?? null;
+  // Pin the first choice: the rows re-rank on every snapshot (two vaults a
+  // fraction of a point apart swap places), and an unpinned panel would jump
+  // to the other vault and clear what was typed.
+  const shown = selected?.vault.id ?? null;
+  useEffect(() => {
+    if (picked === null && shown !== null) setPicked(shown);
+  }, [picked, shown]);
 
   const choose = (vault: Vault, pool: Pool) => {
     if (typeof window !== 'undefined' && window.matchMedia(PANEL_MEDIA).matches) openStake(pool.id);
@@ -308,7 +315,9 @@ function Earnings() {
                 <div className="s num">
                   {walletStakes.length === 1
                     ? claimableLabel(walletStakes[0])
-                    : `${walletStakes.length} stakes · each in both its pool's tokens`}
+                    : walletStakes.length === 0
+                      ? 'nothing staked yet'
+                      : `${walletStakes.length} stakes · each in both its pool's tokens`}
                 </div>
               </>
             ) : (

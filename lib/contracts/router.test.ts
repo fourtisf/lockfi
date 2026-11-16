@@ -63,6 +63,16 @@ describe('hookCanTakeLiquidity', () => {
     expect(hookCanTakeLiquidity('0x0000000000000000000000000000000000000001')).toBe(true);
     expect(hookCanTakeLiquidity('0x00000000000000000000000000000000000000c2')).toBe(true);
   });
+
+  it('also refuses a hook that runs when liquidity is added, even without a delta', () => {
+    // BEFORE_ADD_LIQUIDITY (bit 11) and AFTER_ADD_LIQUIDITY (bit 10) run
+    // inside the deposit, after the router has checked its price.
+    expect(hookCanTakeLiquidity('0x0000000000000000000000000000000000000800')).toBe(true);
+    expect(hookCanTakeLiquidity('0x0000000000000000000000000000000000000400')).toBe(true);
+    // A swap-only hook (BEFORE_SWAP, bit 7) is not about liquidity; the
+    // contract refuses swap hooks on its own.
+    expect(hookCanTakeLiquidity('0x0000000000000000000000000000000000000080')).toBe(false);
+  });
 });
 
 describe('buildRouterConfig', () => {

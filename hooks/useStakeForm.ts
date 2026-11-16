@@ -217,11 +217,14 @@ export function useStakeForm(pool: Pool | null) {
         const bal = balanceRaw(side);
         // Only said once there is something matched to show.
         const matched = route === 'both' && side.index !== anchor && matchedRaw !== null;
-        const shown = matched
-          ? matchedRaw !== null && side.decimals !== null
-            ? formatAmountDown(matchedRaw, side.decimals, Math.max(digitsFor(side), 6))
-            : ''
-          : amounts[side.index];
+        // In a two-token deposit the side not typed shows its match or
+        // nothing; it once showed whatever was last typed there, unmatched.
+        const shown =
+          route === 'both' && side.index !== anchor
+            ? matchedRaw !== null && side.decimals !== null
+              ? formatAmountDown(matchedRaw, side.decimals, Math.max(digitsFor(side), 6))
+              : ''
+            : amounts[side.index];
         return {
           side,
           // "amount" for the first field, "amount-2" for a second: stable ids for labels and tests.

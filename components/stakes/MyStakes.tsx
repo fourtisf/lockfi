@@ -16,11 +16,15 @@ import { BRAND } from '@/lib/site';
 import { MIN_DEPOSIT_USD, minDepositEth } from '@/lib/stake';
 import { claimableLabel, hasClaimable, holdingLabel, type WalletStake } from '@/lib/wallet/portfolio';
 import { feeTierLabel, pairLabel } from '@/lib/pair';
+import { liveEthPrice } from '@/lib/vault-view';
 
 export function MyStakes() {
-  const { pools, global } = useMarket();
+  const { pools, global, vaults } = useMarket();
   const { query } = useUi();
-  const { portfolio, source, stakes: walletStakes } = usePortfolio();
+  const { portfolio, source, stakes: walletStakes, loading } = usePortfolio();
+  // Compound's $10 minimum is measured at today's ETH price, from the vaults'
+  // live pool reads — never the snapshot's, which can be months old.
+  const ethPriceUsd = liveEthPrice(vaults, global.ethPriceUsd);
   const { status } = useWallet();
   const fromWallet = source === 'wallet';
 
@@ -58,7 +62,9 @@ export function MyStakes() {
               ? `Stakes appear here once ${BRAND}'s vaults are deployed and a wallet is connected.`
               : status === 'disconnected' || status === 'connecting'
                 ? 'Connect a wallet to see its stakes.'
-                : 'This wallet has nothing staked in a Tidewell vault.'}
+                : loading
+                  ? 'Reading this wallet’s stakes from the chain…'
+                  : 'This wallet has nothing staked in a Tidewell vault.'}
         </div>
       ) : (
       <div className="tbl-wrap" style={{ maxHeight: 'none' }}>
@@ -85,7 +91,7 @@ export function MyStakes() {
               const live = fromWallet ? walletStakes.find((s) => s.vaultId === stake.vaultId) : undefined;
               if (!pool && !live) return null;
               return live ? (
-                <WalletRow key={stake.vaultId} stake={live} pool={pool} ethPriceUsd={global.ethPriceUsd} />
+                <WalletRow key={stake.vaultId} stake={live} pool={pool} ethPriceUsd={ethPriceUsd} />
               ) : (
                 <PreviewRow key={stake.vaultId} stake={stake} pool={pool!} />
               );

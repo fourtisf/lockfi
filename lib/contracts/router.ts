@@ -67,13 +67,23 @@ export function pctToTicks(pct: number): number {
 }
 
 /**
- * Whether a pool's hook could rewrite a liquidity delta — the two
- * permissions the router refuses (the low two bits of a v4 hook address:
- * AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA and AFTER_ADD_LIQUIDITY_RETURNS_DELTA).
+ * Whether a pool's hook takes part when liquidity is added, which the site
+ * refuses to route into. Four v4 permission bits of the hook address:
+ *
+ *   bit 0, 1   AFTER_REMOVE / AFTER_ADD_LIQUIDITY_RETURNS_DELTA — the hook can
+ *              rewrite the delta (the contract refuses these too);
+ *   bit 10, 11 AFTER_ADD / BEFORE_ADD_LIQUIDITY — the hook RUNS inside the
+ *              router's deposit, with the PoolManager unlocked, after the
+ *              router has checked its price: it can swap the price away under
+ *              the deposit and back through the liquidity just added. The
+ *              deployed contract allows these (an independent review, Nov
+ *              2026); the site does not, until a factory that refuses them is
+ *              deployed.
  */
 export function hookCanTakeLiquidity(hooks: string): boolean {
   if (hooks.toLowerCase() === zeroAddress) return false;
-  return (BigInt(hooks) & 0b11n) !== 0n;
+  const bits = BigInt(hooks);
+  return (bits & 0b11n) !== 0n || (bits & (0b11n << 10n)) !== 0n;
 }
 
 /** Whether the pool has exactly one ETH side (native or WETH), as the router needs. */
@@ -108,7 +118,7 @@ export function buildRouterConfig(input: RouterFormInput): RouterConfigResult {
   const { key, range } = input;
   if (!hasOneEthSide(key)) return { ok: false, reason: 'The router needs a pool with exactly one ETH or WETH side.' };
   if (hookCanTakeLiquidity(key.hooks)) {
-    return { ok: false, reason: "This pool's hook can rewrite liquidity changes, so the router will not route into it." };
+    return { ok: false, reason: "This pool's hook acts when liquidity is added — it could move the price under a route — so the router will not route into it." };
   }
   const ts = key.tickSpacing;
   if (

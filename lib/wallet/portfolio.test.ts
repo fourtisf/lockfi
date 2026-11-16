@@ -22,6 +22,7 @@ function reads(over: Partial<WalletVaultReads> = {}): WalletVaultReads {
     ethIndex: 0,
     amount0: parseEther('1'), // ETH
     amount1: 5_000_000_000n, // 5,000 TKN at 6 decimals
+    amountsKnown: true,
     ...over,
   };
 }
@@ -211,5 +212,23 @@ describe('an ETH/USDG stake, valued from the vault watcher’s live read', () =>
     );
     expect(Number.isNaN(t.feesEarnedUsd)).toBe(true);
     expect(Number.isNaN(t.priceImpactUsd)).toBe(true);
+  });
+});
+
+describe('a stake whose worth has not been read yet', () => {
+  it('is unknown — never $0, and never a 100% loss in the totals', () => {
+    const [s] = walletStakes([reads({ amountsKnown: false })], [pool], 2500);
+    expect(Number.isNaN(s.stakedUsd)).toBe(true);
+    expect(s.priced).toBe(false);
+    const t = walletTotals(
+      [{ vault: VAULT, poolId: POOL_ID, deposited0: parseEther('1').toString(), deposited1: '5000000000', withdrawn0: '0', withdrawn1: '0', claimed0: '0', claimed1: '0', firstDepositAt: null }],
+      [s],
+      new Map([[POOL_ID, [
+        { address: zeroAddress, symbol: 'ETH', decimals: 18, priceUsd: 2500 },
+        { address: TOKEN, symbol: 'TKN', decimals: 6, priceUsd: 0.5 },
+      ]]]),
+    );
+    expect(Number.isNaN(t.priceImpactUsd)).toBe(true);
+    expect(Number.isNaN(t.netChangePct)).toBe(true);
   });
 });

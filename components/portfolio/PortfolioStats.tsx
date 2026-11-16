@@ -155,7 +155,7 @@ function WalletPortfolio() {
           {/* Paid in both of each pool's tokens; the total is their dollar value. */}
           <div className="v num">{known(portfolio.feesEarnedUsd) ? usdExact(portfolio.feesEarnedUsd, 2) : '—'}</div>
           <div className="d num">
-            {stakes.length === 1 ? claimableLabel(stakes[0]) : `in both tokens of ${stakes.length} pools`}
+            {stakes.length === 0 ? 'nothing staked yet' : stakes.length === 1 ? claimableLabel(stakes[0]) : `in both tokens of ${stakes.length} pools`}
           </div>
         </div>
       </div>
