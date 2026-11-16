@@ -144,6 +144,9 @@ export function hasClaimable(s: Pick<WalletStake, 'claimable0' | 'claimable1'>):
 function amountText(n: number, symbol: string): string {
   if (!Number.isFinite(n)) return `— ${symbol}`;
   const eth = symbol === 'ETH' || symbol === 'WETH';
+  // Below what six decimals can show, significant digits: fees on a small
+  // stake are 0.00000002 ETH for a while, and "0.000000 ETH" said none.
+  if (n > 0 && n < 0.000001) return `${n.toLocaleString('en-US', { maximumSignificantDigits: 3 })} ${symbol}`;
   const digits = eth ? (n > 0 && n < 0.01 ? 6 : 4) : n > 0 && n < 1 ? 6 : 2;
   return `${n.toLocaleString('en-US', { minimumFractionDigits: eth ? digits : 0, maximumFractionDigits: digits })} ${symbol}`;
 }

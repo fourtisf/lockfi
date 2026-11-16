@@ -317,7 +317,7 @@ export function StakeDrawer() {
                           {pairLabel(mintPool)} · {feeTierLabel(mintPool)}, minted to your wallet. It
                           earns that pool&rsquo;s fees while the price stays inside the range you
                           choose. It stays in your wallet, and your portfolio lists it with its
-                          fees, Collect fees and Remove.
+                          fees, Collect fees and Withdraw.
                         </p>
                       )}
                       {openVaults.length > 0 && (

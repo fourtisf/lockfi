@@ -11,6 +11,8 @@ import {
   tone,
   usd,
   usdExact,
+  usdFee,
+  FEE_DIGITS,
   weth,
 } from './format';
 
@@ -125,5 +127,25 @@ describe('weth and usdExact', () => {
     expect(weth(0.88, 2)).toBe('0.88 WETH');
     expect(usdExact(5_142_908)).toBe('$5,142,908');
     expect(usdExact(2521.08, 2)).toBe('$2,521.08');
+  });
+});
+
+describe('usdFee', () => {
+  it('shows a fee under a cent in its own digits, not as $0.00', () => {
+    // A $18 stake's fees after an hour: about $0.00007.
+    expect(usdFee(0.0000653)).toBe('$0.000065');
+    expect(usdFee(0.0042)).toBe('$0.0042');
+    expect(tone(0.0000653, FEE_DIGITS)).toBe('up');
+  });
+
+  it('shows cents from a cent, and zero as zero', () => {
+    expect(usdFee(0)).toBe('$0.00');
+    expect(usdFee(1234.567)).toBe('$1,234.57');
+    expect(usdFee(0.01)).toBe('$0.01');
+  });
+
+  it('bounds what it will print, and keeps unknown unknown', () => {
+    expect(usdFee(1e-9)).toBe('< $0.000001');
+    expect(usdFee(Number.NaN)).toBe('—');
   });
 });

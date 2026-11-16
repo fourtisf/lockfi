@@ -11,7 +11,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { signingStatus } from '@/lib/contracts/status';
 import { sharesForPct } from '@/lib/contracts/tx';
 import type { Pool, UserStake } from '@/lib/data/types';
-import { countdown, shortWallet, tone, usd, usdExact, weth } from '@/lib/format';
+import { countdown, shortWallet, tone, usd, usdExact, usdFee, weth } from '@/lib/format';
 import { BRAND } from '@/lib/site';
 import { MIN_DEPOSIT_USD, minDepositEth } from '@/lib/stake';
 import { claimableLabel, hasClaimable, holdingLabel, type WalletStake } from '@/lib/wallet/portfolio';
@@ -221,7 +221,7 @@ function WalletRow({ stake, pool, ethPriceUsd }: { stake: WalletStake; pool?: Po
           {/* Two tokens, as the vault pays them, and what they are worth together. */}
           <span className={claimable ? 'up' : undefined}>{claimableLabel(stake)}</span>
           <div className="hint" style={{ marginTop: 2 }}>
-            {Number.isFinite(stake.claimableUsd) ? usdExact(stake.claimableUsd, 2) : 'not priced yet'}
+            {Number.isFinite(stake.claimableUsd) ? usdFee(stake.claimableUsd) : 'not priced yet'}
           </div>
         </td>
         <td className="r">

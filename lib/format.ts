@@ -22,6 +22,25 @@ export function usdExact(n: number, fractionDigits = 0): string {
 }
 
 /**
+ * Dollars for fees, which on a small stake are fractions of a cent for hours:
+ * $18 at 5% a year earns about $0.0001 an hour. To the cent that is "$0.00",
+ * which reads as nothing earned while fees are arriving. Under a cent, two
+ * significant digits ("$0.000065"); from a cent, cents.
+ */
+export function usdFee(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  const a = Math.abs(n);
+  if (a === 0) return '$0.00';
+  const sign = n < 0 ? '−' : '';
+  if (a < 0.000001) return `${sign}< $0.000001`;
+  if (a < 0.01) return `${sign}$${a.toLocaleString('en-US', { maximumSignificantDigits: 2 })}`;
+  return usdExact(n, 2);
+}
+
+/** The precision usdFee shows, for tone(): a fee of $0.00007 is a gain, not a zero. */
+export const FEE_DIGITS = 8;
+
+/**
  * The sign a figure carries AT THE PRECISION IT IS SHOWN: 1 above zero, -1
  * below, 0 for anything that renders as zero. Zero is neither a gain nor a
  * loss, so it gets no sign and no colour — "+$0" in green and "−$0" in red

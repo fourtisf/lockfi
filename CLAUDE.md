@@ -2890,3 +2890,24 @@ more than a week to close eight days. Token hydration was suspected and
 ruled out: 200 real tokens read in 2.1–2.6 s the current way. The pass
 timings the progress lines print (`[logs, times, write, aggregate,
 contracts, other]`) will name the slow part; they are what is needed next.
+
+### Fees under a cent, and Withdraw
+
+ALFA, on the portfolio: "fee earned should be there" — Fees earned and
+Claimable read $0.00 and "0.000000 ETH + 0.000026 USDG". The fees were real:
+read from the vault, claimable was 0.0000000207 ETH + 0.000027 USDG, about
+$0.00007 — an $18 stake, 75 minutes old, at the vault's 5.4% a year. To the
+cent that is $0.00, and six decimals of ETH is 0.000000, so the page said
+nothing had been earned while fees were arriving.
+
+- `usdFee` (`lib/format.ts`) prints fee figures under a cent in two
+  significant digits ("$0.000065"), cents from a cent, and toned at
+  `FEE_DIGITS` so a fee of $0.00007 reads as a gain. Used for Fees earned,
+  Claimable now, a stake's claimable and a position's fees to collect.
+- Token amounts below 0.000001 print in significant digits
+  (`0.0000000207 ETH`), not as six zeros.
+- The Stakes page's "Your fees · last 7d" still said "payout history is not
+  read yet", a sentence older than `/api/wallet/:address`. It is **Fees
+  earned**, claimed plus claimable, the same sum the portfolio shows.
+- A position's **Remove** is **Withdraw**, at ALFA's request, as a stake
+  says it: Withdraw, Withdraw all, "Withdraw from PONS / ETH · 1.0128%".

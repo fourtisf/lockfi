@@ -8,7 +8,7 @@ import { useActions } from '@/hooks/useActions';
 import { useWalletPositions } from '@/hooks/useWalletPositions';
 import { explorerTx, weiToNumber } from '@/lib/contracts/tx';
 import type { TokenMeta } from '@/lib/data/types';
-import { price, usd, usdExact } from '@/lib/format';
+import { price, usd, usdFee } from '@/lib/format';
 import { tokenPriceRange, type WalletPosition } from '@/lib/positions';
 import { BRAND } from '@/lib/site';
 
@@ -44,7 +44,8 @@ function holds(p: WalletPosition, a0: bigint, a1: bigint): string {
  * chain (hooks/useWalletPositions.ts): one row per mint, however many bins
  * it was split into, with what it holds now, the fees it has earned and not
  * collected, whether the price is inside it — and Collect fees and Remove,
- * signed from this wallet against Uniswap's PositionManager.
+ * signed from this wallet against Uniswap's PositionManager — Withdraw, as
+ * a stake says it, not Uniswap's Remove.
  */
 export function WalletPositions() {
   const { positions, loading, failed, refetch } = useWalletPositions();
@@ -99,8 +100,8 @@ export function WalletPositions() {
 function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone: () => void }) {
   const { pools } = useMarket();
   const actions = useActions();
-  const [busy, setBusy] = useState<'collect' | 'remove' | null>(null);
-  const [removing, setRemoving] = useState(false);
+  const [busy, setBusy] = useState<'collect' | 'withdraw' | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   const token = p.currencies[p.tokenIndex];
   const pool = pools.find((x) => x.id.toLowerCase() === `v4:${p.poolId}`.toLowerCase());
   const meta: TokenMeta =
@@ -117,11 +118,11 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
   const hasFees = p.fees0 > 0n || p.fees1 > 0n;
   const earning = p.binsInRange > 0;
 
-  const run = async (what: 'collect' | 'remove', fn: () => Promise<boolean>) => {
+  const run = async (what: 'collect' | 'withdraw', fn: () => Promise<boolean>) => {
     setBusy(what);
     try {
       if (await fn()) {
-        if (what === 'remove') setRemoving(false);
+        if (what === 'withdraw') setWithdrawing(false);
         onDone();
       }
     } finally {
@@ -173,7 +174,7 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
         <td className="r num" data-label="Fees to collect">
           <span className={hasFees ? 'up' : undefined}>{holds(p, p.fees0, p.fees1)}</span>
           <div className="hint" style={{ marginTop: 2 }}>
-            {p.feesUsd === null ? 'not priced yet' : usdExact(p.feesUsd, 2)}
+            {p.feesUsd === null ? 'not priced yet' : usdFee(p.feesUsd)}
           </div>
         </td>
         <td className="r">
@@ -190,21 +191,21 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
               <button
                 className="btn btn-quiet btn-sm"
                 disabled={busy !== null}
-                aria-expanded={removing}
-                onClick={() => setRemoving((r) => !r)}
+                aria-expanded={withdrawing}
+                onClick={() => setWithdrawing((w) => !w)}
               >
-                Remove
+                Withdraw
               </button>
             </div>
           </SignGate>
         </td>
       </tr>
-      {removing && (
+      {withdrawing && (
         <tr className="static wd-row">
           <td colSpan={4}>
             <div className="wd">
               <p className="hint">
-                Removes all {p.bins.length} {p.bins.length === 1 ? 'bin' : 'bins'} in one transaction:{' '}
+                Withdraws all {p.bins.length} {p.bins.length === 1 ? 'bin' : 'bins'} in one transaction:{' '}
                 <span className="num">{holds(p, p.amount0, p.amount1)}</span>
                 {p.valueUsd !== null && <> (about <span className="num">{usd(p.valueUsd)}</span>)</>}, plus the fees
                 to collect, go to this wallet, and the position NFTs are burned. The least accepted is what each bin
@@ -214,11 +215,11 @@ function PositionRow({ position: p, onDone }: { position: WalletPosition; onDone
                 <button
                   className="btn btn-brand btn-sm"
                   disabled={busy !== null}
-                  onClick={() => void run('remove', () => actions.removePosition(p, `Remove ${name}`))}
+                  onClick={() => void run('withdraw', () => actions.removePosition(p, `Withdraw from ${name}`))}
                 >
-                  {busy === 'remove' ? 'Removing…' : 'Remove all'}
+                  {busy === 'withdraw' ? 'Withdrawing…' : 'Withdraw all'}
                 </button>
-                <button className="btn btn-quiet btn-sm" onClick={() => setRemoving(false)} disabled={busy !== null}>
+                <button className="btn btn-quiet btn-sm" onClick={() => setWithdrawing(false)} disabled={busy !== null}>
                   Cancel
                 </button>
               </div>

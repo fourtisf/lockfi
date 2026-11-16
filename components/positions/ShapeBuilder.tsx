@@ -345,7 +345,7 @@ function Builder() {
         {minted && (
           <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
             Minted to your wallet. It is listed in your <Link href="/portfolio">portfolio</Link>, with its value,
-            fees, Collect fees and Remove.
+            fees, Collect fees and Withdraw.
           </p>
         )}
         {!valid ? (

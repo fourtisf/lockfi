@@ -60,6 +60,13 @@ describe('walletStakes', () => {
     expect(claimableLabel(s)).toBe('0.0200 ETH + 10 TKN');
   });
 
+  it('prints a claimable too small for six decimals in significant digits', () => {
+    // The owner's first stake after an hour: 0.0000000207 ETH, which six
+    // decimals printed as "0.000000 ETH" — as if nothing had been earned.
+    const tiny = { sides: [{ claimable: 2.0738e-8, symbol: 'ETH' }, { claimable: 0.000027, symbol: 'USDG' }] } as unknown as Parameters<typeof claimableLabel>[0];
+    expect(claimableLabel(tiny)).toBe('0.0000000207 ETH + 0.000027 USDG');
+  });
+
   it('puts the ETH side first, whichever currency it is', () => {
     const weth = '0x0bd7d308f8e1639fab988df18a8011f41eacad73' as const;
     const [s] = walletStakes(

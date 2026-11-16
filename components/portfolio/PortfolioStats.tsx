@@ -10,7 +10,7 @@ import { PositionList } from '@/components/portfolio/PositionList';
 import { WalletPositions } from '@/components/portfolio/WalletPositions';
 import { useWalletPositions } from '@/hooks/useWalletPositions';
 import { MyStakes } from '@/components/stakes/MyStakes';
-import { signedPct, signedUsd, tone, usdExact, weth } from '@/lib/format';
+import { FEE_DIGITS, signedPct, signedUsd, tone, usdExact, usdFee, weth } from '@/lib/format';
 import { weekOverWeek } from '@/lib/portfolio';
 import { claimableLabel, walletTotals } from '@/lib/wallet/portfolio';
 
@@ -151,8 +151,8 @@ function WalletPortfolio() {
         </div>
         <div className="card stat">
           <div className="k">Fees earned</div>
-          <div className={`v num ${totals && known(totals.feesEarnedUsd) ? tone(totals.feesEarnedUsd, 2) : 'muted'}`}>
-            {totals && known(totals.feesEarnedUsd) ? usdExact(totals.feesEarnedUsd, 2) : '—'}
+          <div className={`v num ${totals && known(totals.feesEarnedUsd) ? tone(totals.feesEarnedUsd, FEE_DIGITS) : 'muted'}`}>
+            {totals && known(totals.feesEarnedUsd) ? usdFee(totals.feesEarnedUsd) : '—'}
           </div>
           <div className="d">
             {totals && known(totals.feesEarnedUsd)
@@ -179,7 +179,7 @@ function WalletPortfolio() {
         <div className="card stat">
           <div className="k">Claimable now</div>
           {/* Paid in both of each pool's tokens; the total is their dollar value. */}
-          <div className="v num">{known(portfolio.feesEarnedUsd) ? usdExact(portfolio.feesEarnedUsd, 2) : '—'}</div>
+          <div className="v num">{known(portfolio.feesEarnedUsd) ? usdFee(portfolio.feesEarnedUsd) : '—'}</div>
           <div className="d num">
             {stakes.length === 0 ? 'nothing staked yet' : stakes.length === 1 ? claimableLabel(stakes[0]) : `in both tokens of ${stakes.length} pools`}
           </div>

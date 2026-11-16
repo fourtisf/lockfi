@@ -10,12 +10,13 @@ import { usePortfolio } from '@/hooks/usePortfolio';
 import { useStakeForm } from '@/hooks/useStakeForm';
 import { signingStatus } from '@/lib/contracts/status';
 import type { Pool, Quote, Vault } from '@/lib/data/types';
-import { ageLabel, count, inHours, signedPct, tone, usd, usdExact, weth } from '@/lib/format';
+import { FEE_DIGITS, ageLabel, count, inHours, signedPct, tone, usd, usdExact, usdFee, weth } from '@/lib/format';
 import { weekOverWeek } from '@/lib/portfolio';
 import { BRAND } from '@/lib/site';
 import { dailyFromHalfDays } from '@/lib/stake';
 import { DATA_SOURCE } from '@/lib/data';
-import { claimableLabel, hasClaimable, totalClaimableUsd } from '@/lib/wallet/portfolio';
+import { claimableLabel, hasClaimable, totalClaimableUsd, walletTotals } from '@/lib/wallet/portfolio';
+import { useWalletHistory } from '@/hooks/useWalletHistory';
 import {
   FEE_YIELD_LABEL,
   YIELD_WINDOW_HOURS,
@@ -296,6 +297,11 @@ function Earnings() {
   const [busy, setBusy] = useState(false);
   const stakes = portfolio.stakes;
   const fromWallet = source === 'wallet';
+  // Fees earned, all time: claimed (the vaults' own events) plus claimable,
+  // at today's prices — the same sum the portfolio shows.
+  const { history, failed: historyFailed } = useWalletHistory();
+  const liveCurrencies = new Map(vaults.filter((v) => v.live).map((v) => [v.poolId.toLowerCase(), v.live!.currencies]));
+  const earned = fromWallet && history ? walletTotals(history.vaults, walletStakes, liveCurrencies).feesEarnedUsd : Number.NaN;
   // A stake the indexer cannot price makes the total unknown, not smaller.
   const staked = stakes.some((s) => !Number.isFinite(s.stakedUsd))
     ? Number.NaN
@@ -344,7 +350,7 @@ function Earnings() {
               // Vaults pay in both of a pool's tokens: the total in dollars,
               // and the tokens themselves underneath.
               <>
-                <div className="v num">{Number.isFinite(claimableUsd) ? usdExact(claimableUsd, 2) : '—'}</div>
+                <div className="v num">{Number.isFinite(claimableUsd) ? usdFee(claimableUsd) : '—'}</div>
                 <div className="s num">
                   {walletStakes.length === 1
                     ? claimableLabel(walletStakes[0])
@@ -368,13 +374,23 @@ function Earnings() {
         {fromWallet && claimTargets.length > 0 && <AuditNotice />}
       </div>
       <div>
-        <div className="k">Your fees · last 7d</div>
+        <div className="k">{fromWallet ? 'Fees earned' : 'Your fees · last 7d'}</div>
         {fromWallet ? (
-          // The wallet's payout history is not read from the chain yet. A $0
-          // here would claim it earned nothing.
+          // Unknown until the history is read: an em dash, never a $0 that
+          // would say nothing was earned.
           <>
-            <div className="v num muted">—</div>
-            <div className="s">payout history is not read yet</div>
+            <div className={`v num ${Number.isFinite(earned) ? tone(earned, FEE_DIGITS) : 'muted'}`}>
+              {Number.isFinite(earned) ? usdFee(earned) : '—'}
+            </div>
+            <div className="s">
+              {Number.isFinite(earned)
+                ? 'claimed plus claimable, all time'
+                : history === null
+                  ? historyFailed
+                    ? 'history could not be read — retrying'
+                    : 'reading your history…'
+                  : 'a pool is not priced yet'}
+            </div>
           </>
         ) : (
           <>
