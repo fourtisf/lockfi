@@ -200,6 +200,19 @@ const SIGNATURE: Asset[] = [
     ],
   },
   {
+    title: 'Article cover',
+    use: 'The cover for the launch article on X: 5:2, the shape X gives an Article\u2019s cover. 1500 \u00d7 600 and 3000 \u00d7 1200. The headline and the address, no yield figure.',
+    preview: 'article-cover-glass-1500.png',
+    ground: 'light',
+    wide: true,
+    files: [
+      { label: 'Glass 1500', file: 'article-cover-glass-1500.png' },
+      { label: 'Glass 3000', file: 'article-cover-glass-3000.png' },
+      { label: 'Gold 1500', file: 'article-cover-gold-1500.png' },
+      { label: 'Gold 3000', file: 'article-cover-gold-3000.png' },
+    ],
+  },
+  {
     title: 'Signature showcase',
     use: 'A hero image for launches and partner announcements.',
     preview: 'tidewell-signature-gold-showcase.png',

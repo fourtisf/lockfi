@@ -2911,3 +2911,31 @@ nothing had been earned while fees were arriving.
   earned**, claimed plus claimable, the same sum the portfolio shows.
 - A position's **Remove** is **Withdraw**, at ALFA's request, as a stake
   says it: Withdraw, Withdraw all, "Withdraw from PONS / ETH · 1.0128%".
+
+---
+
+## 25. The launch article: a cover and its copy
+
+ALFA asked for a premium banner for an article, and the article's copy.
+
+- **The cover** is `brand/article-cover-{glass,gold}`, 5:2 — the shape X
+  gives an Article's cover — rendered at 1500 × 600 and 3000 × 1200
+  (`scripts/build-article-cover.py`, then `node scripts/build-brand-png.mjs
+  article-cover`, the same pattern as the "How it works" post image). The
+  Signature mark large on the right, lit, above the mark's own tide rising
+  left to right, its light broken on the water; on the left the lockup, the
+  eyebrow INTRODUCING TIDEWELL, the headline "Liquidity that earns / from
+  real trading." (the second line in the finish's accent), and "Stake or
+  shape liquidity on Robinhood Chain. Every fee is a real swap fee. No
+  emissions, ever."; the address on the water. Every word outlined from the
+  site's own fonts. Offered on `/brand` and in the kit; the e2e test that
+  fetches every file `/brand` offers passes.
+- **The copy** is `docs/articles/introducing-tidewell.md`: two versions of
+  the post that links it, then the article — what Tidewell is, Stakes,
+  Positions, the honest-numbers rules, custody, the risk, how to start, and
+  the contract addresses (checked against `config/deployments.json` and for
+  their checksums). Every claim is a property of the contracts and the site
+  as built; it says plainly that the contracts are **not yet independently
+  audited**, carries **no yield figure** (§1 forbids a forward one; a
+  trailing one would be stale the day after posting), and does not promote
+  the router, which §22 recommends nobody uses until its new factory exists.

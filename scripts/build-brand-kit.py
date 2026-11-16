@@ -64,6 +64,10 @@ DOWNLOADS = [
     'x-header-tide-glass-3000.png',
     'x-header-tide-gold-1500.png',
     'x-header-tide-gold-3000.png',
+    'article-cover-glass-1500.png',
+    'article-cover-glass-3000.png',
+    'article-cover-gold-1500.png',
+    'article-cover-gold-3000.png',
 ]
 
 

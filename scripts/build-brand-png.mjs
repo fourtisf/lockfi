@@ -98,6 +98,12 @@ const JOBS = [
   ['x-header-tide-glass.svg', 'x-header-tide-glass-3000.png', 3000],
   ['x-header-tide-gold.svg', 'x-header-tide-gold-1500.png', 1500],
   ['x-header-tide-gold.svg', 'x-header-tide-gold-3000.png', 3000],
+  // The launch article's cover (scripts/build-article-cover.py): X's 5:2
+  // Article cover at 1500 and twice that.
+  ['article-cover-glass.svg', 'article-cover-glass-1500.png', 1500],
+  ['article-cover-glass.svg', 'article-cover-glass-3000.png', 3000],
+  ['article-cover-gold.svg', 'article-cover-gold-1500.png', 1500],
+  ['article-cover-gold.svg', 'article-cover-gold-3000.png', 3000],
   // The "How it works" post image (scripts/build-how-it-works.py): X's
   // in-feed 16:9 at 1600 and twice that.
   ['x-post-how-it-works.svg', 'x-post-how-it-works-1600.png', 1600],
