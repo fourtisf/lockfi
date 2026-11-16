@@ -3010,3 +3010,18 @@ named TIDEWELL, symbol TIDEWELL, 18 decimals, 1,000,000,000 supply.
 - §13's recommendation was to ship without a token; ALFA chose to launch one.
   Nothing in the contracts changed: vaults pay swap fees to every staker,
   holder or not, which is what the launch copy says.
+
+---
+
+## 28. The stale-data banner, removed at ALFA's request
+
+ALFA asked for the "These figures are from 9 Nov 2026, not today" banner to
+go. It is removed (`StaleBanner`, its CSS and `lib/stale.ts`, recoverable
+from git). **ALFA's call, over §20's reasoning** that the top-bar chip alone
+had not stopped a reader taking a four-month-old day as today's: with the
+indexer behind, pool prices, 24h moves, volumes and yields are as of the last
+block read, with nothing on the page saying so in a sentence.
+
+What still carries §7's minimum: the top bar's data-status chip shows the lag
+("Indexer 7d behind"), as §7 itself requires. Vault figures on Stakes come
+from the vault watcher and are live either way.
