@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SimProvider } from './data/sim-provider';
 import type { Pool } from './data/types';
-import { byChange, byMarketCap, fullDayMove, mcRanked, poolsOfToken, tokenRows } from './pools';
+import { byChange, byFeeYield, byMarketCap, fullDayMove, mcRanked, poolsOfToken, stakePoolFor, tokenRows, YIELD_RANK_MIN_DEPTH_USD } from './pools';
 
 const base = new SimProvider().getSnapshot()!.pools[0];
 
@@ -117,5 +117,45 @@ describe('byChange', () => {
 
   it('treats a simulator pool with no reference age as a full-day move', () => {
     expect(fullDayMove({ ...base, change24hPct: 2, change24hRefHours: undefined })).toBe(true);
+  });
+});
+
+describe('stakePoolFor', () => {
+  it("opens the token's pool that has a vault, not the deeper one the row shows", () => {
+    // CASHCAT on the live board: its row is its USDG pool, its vault on its ETH pool.
+    const usdg = pool('usdg', REAL, 440_000);
+    const eth = pool('eth', REAL, 220_000);
+    const pools = [usdg, eth, pool('thin', REAL, 6_000)];
+    expect(stakePoolFor(pools, new Set(['eth']), usdg).id).toBe('eth');
+  });
+
+  it('keeps the row\'s pool when it has the vault, or when no pool of the token does', () => {
+    const usdg = pool('usdg', REAL, 440_000);
+    const eth = pool('eth', REAL, 220_000);
+    expect(stakePoolFor([usdg, eth], new Set(['usdg', 'eth']), usdg).id).toBe('usdg');
+    expect(stakePoolFor([usdg, eth], new Set(['other']), usdg).id).toBe('usdg');
+  });
+
+  it('never sends a token to a copycat\'s vault', () => {
+    const real = pool('real', REAL, 440_000);
+    const copy = pool('copy', COPYCAT, 9_000);
+    expect(stakePoolFor([real, copy], new Set(['copy']), real).id).toBe('real');
+  });
+});
+
+describe('byFeeYield', () => {
+  const at = (id: string, tvlUsd: number, pct: number | null): Pool => ({
+    ...pool(id, REAL, tvlUsd),
+    feeYield: pct === null ? { basis: 'insufficient', reason: 'young' } : { basis: 'trailing7d', pct },
+  });
+
+  it('ranks a yield on dust after every pool deep enough to mean it', () => {
+    // The live Pools page: $0.004 of depth, $11 of fees, 6,360,813,412%.
+    const dust = at('dust', 0.004, 6_360_813_412);
+    const real = at('real', 220_000, 40);
+    const fair = at('fair', YIELD_RANK_MIN_DEPTH_USD, 12);
+    const thin = at('thin', 500, 900);
+    const none = at('none', 900_000, null);
+    expect([dust, thin, none, fair, real].sort(byFeeYield).map((p) => p.id)).toEqual(['real', 'fair', 'dust', 'thin', 'none']);
   });
 });

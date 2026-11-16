@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { usePools } from '@/components/providers/MarketProvider';
+import { usePools, useVaults } from '@/components/providers/MarketProvider';
 import { useUi } from '@/components/providers/UiProvider';
 import { Change } from '@/components/ui/Change';
 import { FlashTd } from '@/components/ui/FlashTd';
@@ -18,7 +18,7 @@ import {
   feeYieldValue,
   yieldPct,
 } from '@/lib/yield';
-import { byChange, byMarketCap, mcRanked, MC_MAX_DEPTH_MULTIPLE, tokenRows } from '@/lib/pools';
+import { byChange, byFeeYield, byMarketCap, mcRanked, MC_MAX_DEPTH_MULTIPLE, stakePoolFor, tokenRows } from '@/lib/pools';
 
 type Variant = 'trending' | 'established';
 
@@ -72,6 +72,9 @@ export function PoolBoard({
   boardId: string;
 }) {
   const pools = usePools();
+  const vaults = useVaults();
+  // A token's Stake opens the pool its vault is on, when it has one.
+  const vaultPoolIds = useMemo(() => new Set(vaults.map((v) => v.poolId)), [vaults]);
   const { query, openStake } = useUi();
   const [filter, setFilter] = useState<'all' | Quote>('all');
   // Highest market cap first, by default: ALFA's call, asked for twice, over
@@ -143,7 +146,8 @@ export function PoolBoard({
       // fee yield (§1) — volume is trivially washed.
       return board.sort((a, b) => b.pool.volume24hUsd - a.pool.volume24hUsd);
     }
-    return board.sort((a, b) => yieldPct(b.pool.feeYield) - yieldPct(a.pool.feeYield));
+    // Thin pools after the rest: a yield on dust is arithmetic, not a ranking.
+    return board.sort((a, b) => byFeeYield(a.pool, b.pool));
   }, [pools, filter, query, variant, sort]);
 
   // An empty board has four different causes, and the live site meets all of
@@ -286,7 +290,7 @@ export function PoolBoard({
                 leader={i === 0}
                 variant={variant}
                 registerRef={register(`${boardId}-${pool.id}`)}
-                onOpen={() => openStake(pool.id)}
+                onOpen={() => openStake(stakePoolFor(pools, vaultPoolIds, pool).id)}
               />
             ))}
           </tbody>
@@ -315,7 +319,9 @@ function Row({
   onOpen: () => void;
 }) {
   const age = ageLabel(pool.ageHours);
-  const qualifier = feeYieldQualifier(pool.feeYield, age);
+  // An estimate says how many hours it stands on: the pool's age, or what
+  // has been read of it, whichever is shorter (snapshot coverage).
+  const qualifier = feeYieldQualifier(pool.feeYield, ageLabel(pool.feeYield.basis === 'estimate' ? pool.feeYield.windowHours : pool.ageHours));
   const yieldText = feeYieldValue(pool.feeYield);
 
   return (

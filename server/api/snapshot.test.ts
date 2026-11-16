@@ -342,6 +342,60 @@ describe('buildSnapshot', () => {
   });
 });
 
+describe('a trailing window the indexer has only partly read', () => {
+  // The live site, right after its sync entered the swap window: about eight
+  // hours of trading read, divided over seven days. Every yield read low —
+  // "pool avg 0.2%" — and §7 forbids a figure from under 24h of data at all.
+  const keep = async (f: () => Promise<void>) => {
+    await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS pool_fee_hourly_keep');
+    await prisma.$executeRawUnsafe('CREATE TABLE pool_fee_hourly_keep AS SELECT * FROM pool_fee_hourly');
+    try {
+      await f();
+    } finally {
+      await prisma.$executeRawUnsafe('TRUNCATE pool_fee_hourly');
+      await prisma.$executeRawUnsafe('INSERT INTO pool_fee_hourly SELECT * FROM pool_fee_hourly_keep');
+      await prisma.$executeRawUnsafe('DROP TABLE pool_fee_hourly_keep');
+    }
+  };
+
+  it('shows no figure from under 24 read hours, and says why', async () => {
+    await keep(async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM pool_fee_hourly WHERE hour < (SELECT max(hour) FROM pool_fee_hourly) - interval '10 hours'`);
+      const s = (await buildSnapshot({ usdgAddress: USDG }))!;
+      const old = s.pools.filter((p) => p.ageHours >= MIN_DATA_HOURS);
+      expect(old.length).toBeGreaterThan(0);
+      for (const p of old) expect(p.feeYield, p.token.symbol).toEqual({ basis: 'insufficient', reason: 'unread' });
+    });
+  });
+
+  it('annualises over the hours read, as an estimate, when there are more than 24', async () => {
+    await keep(async () => {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM pool_fee_hourly WHERE hour < (SELECT max(hour) FROM pool_fee_hourly) - interval '47 hours'
+           AND hour >= (SELECT max(hour) FROM pool_fee_hourly) - interval '400 hours'`,
+      );
+      const s = (await buildSnapshot({ usdgAddress: USDG }))!;
+      const week = s.pools.filter((p) => p.ageHours >= YIELD_WINDOW_HOURS && p.tvlUsd > 0);
+      expect(week.length).toBeGreaterThan(0);
+      for (const p of week) {
+        expect(p.feeYield.basis, p.token.symbol).toBe('estimate');
+        if (p.feeYield.basis !== 'estimate') continue;
+        expect(p.feeYield.windowHours).toBeGreaterThan(46);
+        expect(p.feeYield.windowHours).toBeLessThan(50);
+        // The figure is fees over the read hours, not over a week.
+        expect(p.feeYield.pct).toBeCloseTo((p.feesWindowUsd / p.tvlUsd) * ((365 * 24) / p.feeYield.windowHours) * 100, 6);
+      }
+    });
+  });
+
+  it('is back to the full trailing week once every hour is read', async () => {
+    const s = (await buildSnapshot({ usdgAddress: USDG }))!;
+    expect(s.pools.filter((p) => p.feeYield.basis === 'trailing7d').length).toBe(
+      snapshot.pools.filter((p) => p.feeYield.basis === 'trailing7d').length,
+    );
+  });
+});
+
 describe('v4PoolKey', () => {
   it('rebuilds the key whose hash is the pool id, native ETH included', async () => {
     const { v4PoolKey } = await import('./snapshot');

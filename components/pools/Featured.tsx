@@ -6,6 +6,7 @@ import { AreaChart, Spark } from '@/components/ui/Sparkline';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { count, usd, usdExact } from '@/lib/format';
 import { yieldPct } from '@/lib/yield';
+import { stakePoolFor, yieldRanked } from '@/lib/pools';
 
 /** The history is 14 buckets of 12 hours: the trailing week. */
 const BUCKET_HOURS = 12;
@@ -59,8 +60,14 @@ export function Featured() {
 
 /** Most traded and highest fee yield — both open the stake drawer. */
 export function MiniCards() {
-  const { pools } = useMarket();
-  const { openStake } = useUi();
+  const { pools, vaults } = useMarket();
+  const { openStake: openPool } = useUi();
+  // A token's Stake opens the pool its vault is on, when it has one.
+  const vaultPoolIds = new Set(vaults.map((v) => v.poolId));
+  const openStake = (id: string) => {
+    const p = pools.find((x) => x.id === id);
+    openPool(p ? stakePoolFor(pools, vaultPoolIds, p).id : id);
+  };
 
   // No pools is a real state, not an error: an indexer still reading the
   // blocks before the PoolManager existed has found none yet. reduce() with no
@@ -68,7 +75,8 @@ export function MiniCards() {
   const mostTraded = pools.length
     ? pools.reduce((a, b) => (b.volume24hUsd > a.volume24hUsd ? b : a))
     : null;
-  const ranked = pools.filter((p) => p.feeYield.basis === 'trailing7d');
+  // A full week of fees, and depth enough for the figure to mean something.
+  const ranked = pools.filter((p) => p.feeYield.basis === 'trailing7d' && yieldRanked(p));
   const bestYield = ranked.length
     ? ranked.reduce((a, b) => (yieldPct(b.feeYield) > yieldPct(a.feeYield) ? b : a))
     : null;

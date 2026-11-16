@@ -7,7 +7,7 @@ import { useUi } from '@/components/providers/UiProvider';
 import { TokenBadge } from '@/components/ui/TokenBadge';
 import { AuditNotice, SignGate } from '@/components/wallet/Wallet';
 import { useStakeForm } from '@/hooks/useStakeForm';
-import { signingStatus } from '@/lib/contracts/status';
+import { mintAvailability, signingStatus } from '@/lib/contracts/status';
 import { ageLabel, price, usd } from '@/lib/format';
 import { Change } from '@/components/ui/Change';
 import { BRAND } from '@/lib/site';
@@ -60,14 +60,26 @@ export function StakeDrawer() {
     .map((v) => pools.find((p) => p.id === v.poolId))
     .filter((p): p is NonNullable<typeof p> => p !== undefined && p.id !== pool?.id)
     .sort((a, b) => b.tvlUsd - a.tvlUsd);
-  // Exactly the note's "no vault for this pool" case — not a pool still on its
-  // launchpad curve, nor one with no ETH side — while other vaults are open.
-  const noVaultHere =
-    pool !== null &&
-    !canStake &&
-    stakingLaunched &&
-    pool.stakeable &&
-    openVaults.length > 0;
+  // A vault is per pool, and a token trades in many: the one with a vault may
+  // be another of this token's pools. Then the token CAN be staked — there.
+  const vaultSibling = siblings.find((p) => p.id !== pool?.id && vaultPools.has(p.id)) ?? null;
+  // A stakeable pool with no vault, while staking has launched: either the
+  // token's vault is on another pool (above), or the token has none at all.
+  const noVaultHere = pool !== null && !canStake && stakingLaunched && pool.stakeable;
+  const tokenHasNoVault = noVaultHere && vaultSibling === null;
+  // Where a token with no vault can still be added by hand: the deepest of
+  // its pools the shaper can mint into (a v4 pool with an ETH side). That is
+  // the token the person clicked — not the ETH / USDG vaults, which are a
+  // different pair, and which this drawer used to send them to.
+  const mintPool =
+    pool === null
+      ? null
+      : DATA_SOURCE === 'live'
+        ? (siblings.find((p) => p.stakeable && mintAvailability(p).ok) ?? null)
+        : pool;
+  const positionsHref = (p: { id: string } | null) =>
+    p ? `/positions?pool=${encodeURIComponent(p.id)}` : '/positions';
+  const vaultPairs = [...new Set(openVaults.map((p) => pairLabel(p)))];
 
   // closeStake is rebuilt whenever a toast or the search changes; the trap
   // below must not re-run for that — it moved focus to the close button on
@@ -224,8 +236,10 @@ export function StakeDrawer() {
                       </span>
                     ) : (
                       <>
-                        {feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours)) && (
-                          <span className="est">{feeYieldQualifier(pool.feeYield, ageLabel(pool.ageHours))}</span>
+                        {feeYieldQualifier(pool.feeYield, ageLabel(pool.feeYield.basis === 'estimate' ? pool.feeYield.windowHours : pool.ageHours)) && (
+                          <span className="est">
+                            {feeYieldQualifier(pool.feeYield, ageLabel(pool.feeYield.basis === 'estimate' ? pool.feeYield.windowHours : pool.ageHours))}
+                          </span>
                         )}
                         {feeYieldReason(pool.feeYield) && <span className="est">{feeYieldReason(pool.feeYield)}</span>}
                       </>
@@ -268,22 +282,59 @@ export function StakeDrawer() {
                         graduates.
                       </p>
                     </>
-                  ) : (
+                  ) : vaultSibling ? (
                     <>
-                      <b>No vault for this pool yet — staking is open on {openVaults.length === 1 ? 'this pool' : 'these'}:</b>
+                      <b>
+                        {pool.token.symbol} is staked through its {pairLabel(vaultSibling)} ·{' '}
+                        {feeTierLabel(vaultSibling)} pool
+                      </b>
                       <p className="hint">
-                        A stake goes into a {BRAND} vault, and a vault is deployed per pool.{' '}
-                        {pairLabel(pool)} has none yet, so nothing can be staked here — the figures
-                        above are the pool&rsquo;s own.
+                        A {BRAND} vault is deployed per pool, and {pool.token.symbol}&rsquo;s is on
+                        its {pairLabel(vaultSibling)} · {feeTierLabel(vaultSibling)} pool. The one
+                        shown here, {pairLabel(pool)} · {feeTierLabel(pool)}, is a separate pool
+                        with its own liquidity and fees, and has no vault.
                       </p>
                       <div className="dr-vaults">
-                        {openVaults.map((p) => (
-                          <button key={p.id} className="btn btn-ghost" onClick={() => openStake(p.id)}>
-                            <TokenBadge token={p.token} /> {pairLabel(p)} · {feeTierLabel(p)} fee
-                            <span className="muted"> {feeYieldValue(p.feeYield)}</span>
-                          </button>
-                        ))}
+                        <button className="btn btn-ghost" onClick={() => openStake(vaultSibling.id)}>
+                          <TokenBadge token={vaultSibling.token} /> Stake in {pairLabel(vaultSibling)} ·{' '}
+                          {feeTierLabel(vaultSibling)} fee
+                        </button>
                       </div>
+                    </>
+                  ) : (
+                    <>
+                      <b>{pool.token.symbol} has no {BRAND} vault yet</b>
+                      <p className="hint">
+                        A stake goes into a {BRAND} vault, and a vault is deployed per pool
+                        {vaultPairs.length > 0 ? <> — so far only for {vaultPairs.join(', ')}</> : null}.
+                        Until {pool.token.symbol} has one, it cannot be staked here. The figures
+                        above are its pool&rsquo;s own, read from the chain.
+                      </p>
+                      {mintPool && (
+                        <p className="hint">
+                          <b>You can still add {pool.token.symbol} liquidity yourself.</b> On
+                          Positions, one ETH deposit becomes a Uniswap v4 position in{' '}
+                          {pairLabel(mintPool)} · {feeTierLabel(mintPool)}, minted to your wallet. It
+                          earns that pool&rsquo;s fees while the price stays inside the range you
+                          choose. It is yours to manage from your wallet; the {BRAND} portfolio
+                          does not list it yet.
+                        </p>
+                      )}
+                      {openVaults.length > 0 && (
+                        <>
+                          <p className="hint">
+                            Or stake in an open vault — a different pair, not {pool.token.symbol}:
+                          </p>
+                          <div className="dr-vaults">
+                            {openVaults.map((p) => (
+                              <button key={p.id} className="btn btn-ghost" onClick={() => openStake(p.id)}>
+                                <TokenBadge token={p.token} /> {pairLabel(p)} · {feeTierLabel(p)} fee
+                                <span className="muted"> {feeYieldValue(p.feeYield)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
@@ -337,10 +388,10 @@ export function StakeDrawer() {
                     <p className="hint">and {siblings.length - 8} smaller pools</p>
                   )}
                   {siblings.some((p) => p.feeYield.basis === 'insufficient') && (
-                    <p className="hint">&ldquo;—&rdquo; means a pool has under 24 hours of fees, or its depth is not known yet: too little for an honest yield figure.</p>
+                    <p className="hint">&ldquo;—&rdquo; means under 24 hours of fees have been read for a pool, or its depth is not known yet: too little for an honest yield figure.</p>
                   )}
                   {siblings.some((p) => p.feeYield.basis === 'estimate') && (
-                    <p className="hint">&ldquo;est.&rdquo; marks a pool younger than 7 days: its yield is worked out from the hours it has, not a full week.</p>
+                    <p className="hint">&ldquo;est.&rdquo; marks under 7 days of fees — a pool younger than a week, or one not yet read for a full week: its yield is worked out from the hours there are.</p>
                   )}
                 </details>
               )}
@@ -374,8 +425,12 @@ export function StakeDrawer() {
               <p className="dr-f-why">
                 {!stakingLaunched
                   ? `Staking opens when ${BRAND} vaults launch.`
-                  : noVaultHere
-                      ? `No vault for ${pairLabel(pool)} — stake in an open vault instead.`
+                  : vaultSibling && noVaultHere
+                    ? `${pool.token.symbol} stakes through its ${pairLabel(vaultSibling)} · ${feeTierLabel(vaultSibling)} pool.`
+                    : tokenHasNoVault
+                      ? mintPool
+                        ? `${pool.token.symbol} has no vault yet — add its liquidity yourself, or stake in an open vault.`
+                        : `${pool.token.symbol} has no vault yet.`
                       : 'No vault to stake into for this pool yet.'}
               </p>
             ) : form.problem && (form.mode === 'preview' || form.walletStatus === 'ready') ? (
@@ -389,7 +444,7 @@ export function StakeDrawer() {
                 className="btn btn-ghost"
                 onClick={() => {
                   closeStake();
-                  router.push('/positions');
+                  router.push(positionsHref(mintPool));
                 }}
               >
                 Build custom
@@ -401,9 +456,24 @@ export function StakeDrawer() {
                   </button>
                 </SignGate>
               ) : (
-                // A pool with no vault while others have one: the main button
-                // takes you to the vaults that exist, rather than sitting grey.
-                noVaultHere ? (
+                // A pool with no vault: the main button goes where this token
+                // CAN go — its vault's pool, or adding its liquidity by hand —
+                // and only failing both, to the vaults that exist.
+                vaultSibling && noVaultHere ? (
+                  <button className="btn btn-brand" onClick={() => openStake(vaultSibling.id)}>
+                    Stake {pool.token.symbol}
+                  </button>
+                ) : tokenHasNoVault && mintPool ? (
+                  <button
+                    className="btn btn-brand"
+                    onClick={() => {
+                      closeStake();
+                      router.push(positionsHref(mintPool));
+                    }}
+                  >
+                    Add {pool.token.symbol} liquidity
+                  </button>
+                ) : tokenHasNoVault && openVaults.length > 0 ? (
                   <button
                     className="btn btn-brand"
                     onClick={() => {
@@ -411,7 +481,7 @@ export function StakeDrawer() {
                       router.push('/stakes');
                     }}
                   >
-                    Go to open vaults
+                    See open vaults
                   </button>
                 ) : (
                 <button

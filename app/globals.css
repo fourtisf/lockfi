@@ -336,6 +336,7 @@ td.fd{animation:fd 1.1s ease-out}
 .vlist{display:flex;flex-direction:column}
 .vhead,.vault{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) 112px minmax(0,.8fr) minmax(0,.7fr);align-items:center;gap:16px;padding:12px 20px}
 .vhead{font-size:12.5px;color:var(--fg-3);font-weight:600;border-bottom:1px solid var(--bd)}
+.vlist-note{margin:0;padding:14px 20px 16px;border-top:1px solid var(--bd);font-size:12.5px;line-height:1.55}
 .vault{width:100%;text-align:left;border-bottom:1px solid var(--bd-n);position:relative;transition:background var(--t-hover)}
 .vault:last-child{border-bottom:0}
 .vault:hover{background:var(--panel-2)}

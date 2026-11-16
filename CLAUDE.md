@@ -2699,3 +2699,120 @@ mark a token that reported no supply. Those tokens stayed at the front of
 the queue, the same five were asked on every refresh, and no other token's
 supply (the FDV column) was refreshed again. A token is marked as read now
 whether or not a supply came back, and a test fails without the fix.
+
+---
+
+## 23. Staking the token you clicked, two ETH/USDG vaults, and yields from hours read
+
+ALFA, on the live Stakes page: what is the difference between the two
+ETH / USDG rows, and why does choosing PONS or CASHCAT land on ETH / USDG —
+it should be the token clicked.
+
+### Two ETH / USDG vaults are two pools
+
+The same pair trades in several Uniswap pools, one per fee tier: 0.05% and
+0.046% here. Each is its own market with its own liquidity, trading and fees,
+and each vault adds to and earns from its own pool only, so their figures
+differ (on 16 Nov the 0.05% pool paid $1.2K of fees in 24h, the 0.046% pool
+$146). The vault list now says so under the rows whenever a pair appears more
+than once (`SamePairNote` in `StakesBody.tsx`).
+
+### Why a click on CASHCAT ended on ETH / USDG
+
+A vault is per pool, and the only vaults deployed are the two ETH / USDG
+ones. CASHCAT's drawer therefore said "no vault for this pool", listed the
+ETH / USDG vaults, and its main button, **Go to open vaults**, went to
+`/stakes`, which opens on ETH / USDG. Every step was true; the person still
+clicked CASHCAT and was handed a different pair.
+
+- **A token with a vault opens it.** The boards show each token through its
+  deepest pool, which need not be the pool with the vault: CASHCAT's deepest
+  pairs it with USDG, and a vault on its ETH pool is still CASHCAT's.
+  `stakePoolFor` (`lib/pools.ts`) opens the deepest of the token's pools that
+  has a vault, else the row's pool. Grouped by address, so a copycat's vault
+  never catches the real token's click.
+- **A token without one says so, and offers that token.** The drawer reads
+  "CASHCAT has no Tidewell vault yet", says vaults exist only for the pairs
+  listed, and offers adding CASHCAT liquidity itself: **Add CASHCAT
+  liquidity** opens `/positions?pool=<id>` on the token's deepest pool the
+  shaper can mint into (v4, ETH side), and the copy says the position NFT is
+  the wallet's to manage and not listed in the portfolio yet. The open vaults
+  follow as "a different pair, not CASHCAT". The Positions page reads
+  `?pool=` once on arrival.
+- **Opening another of the token's pools by hand** while its vault is on a
+  sibling says where the vault is and offers **Stake CASHCAT**.
+
+### Giving a token a vault: `deploy/add-vaults.sh`
+
+What actually makes "click CASHCAT, stake CASHCAT" true is a CASHCAT vault,
+and deploying one needs the owner's machine. `contracts/script/AddVaults.s.sol`
+deploys vaults alone, beside the zap and shaper already live (both take the
+vault as an argument). `deploy/add-vaults.sh CASHCAT PONS` runs it on the
+server:
+
+- `deploy/vault-pools.mjs` picks each token's pool from the site's own pool
+  list: the deepest a vault can hold (v4, hookless, not on a launchpad curve,
+  no vault yet), or the deepest paired with ETH when that holds at least a
+  quarter as much, so a stake can start from ETH without settling for a thin
+  pool (AAPL's ETH pool holds $2K beside $401K against USDG). A symbol
+  several contracts share is refused unless one holds ten times the depth of
+  the next: four contracts call themselves CASHCAT, five PONS.
+- Owner, treasury, fee and cap are read from the first vault on chain, so
+  every vault answers to one owner. It simulates, deploys on `DEPLOY`, checks
+  code at every address, takes blocks from the receipts (§20's L1-block trap)
+  and prints the record.
+- `node scripts/apply-deployment.mjs 4663 --add-vaults <file>` appends the
+  record to `config/deployments.json` and refuses a second vault for a pool
+  that has one. It is not run on the box: `deploy.sh` updates the checkout
+  with `git checkout`, which aborts over a locally edited tracked file even
+  when the edit equals what it would write (tested). The record comes back,
+  is committed, and the box deploys, as the first deployment did.
+
+**Run on a fork of mainnet**, through the real UI (anvil, the live build with
+the fork's vaults in its config, every chain request routed to the fork):
+`AddVaults` deployed CASHCAT / ETH 2% and PONS / ETH 1.0128% vaults for
+0.00038 ETH; the board's CASHCAT Stake opened **CASHCAT / ETH** (not its
+deeper USDG pool) with routes ETH | CASHCAT | ETH + CASHCAT; 0.01 ETH staked
+through the deployed zap and minted shares; the portfolio listed the stake;
+**Withdraw all** returned 0.0048 ETH and 199.97 CASHCAT, shares to zero. AI
+(no vault anywhere) showed the new drawer, and **Add AI liquidity** opened
+Positions on AI / ETH. `add-vaults.sh` itself ran end to end against the
+fork (NVDA and AAPL, both landing on their USDG pools). **Nothing was
+deployed on mainnet** — that is ALFA's to run.
+
+### A yield worked out from eight hours, spread over a week
+
+The vault rows read "pool avg 0.2%": the snapshot's `feeHistory` had fees in
+its last 12-hour bucket only. The indexer is stuck just inside the swap
+window (§22), so it had read about eight hours of the trailing week, and the
+yield divided those hours' fees over 168. Every yield on the site was low by
+the same factor — and §7 forbids a figure from under 24 hours of data at all.
+
+The snapshot now measures what it has read: the hours with any swap in the
+window, found by stepping `pool_fee_hourly`'s hour index (at most ~170
+probes, not a scan of the window's rows), and a run of
+`COVERAGE_GAP_HOURS` (3) silent hours on every pool at once — on a chain that
+trades every few seconds, hours not read — starts the window after it. The
+yield's window is capped at the pool's age and at that, by one SQL expression
+(`WINDOW_HOURS_SQL`) used for the figure and the hours it reports. Under 24
+hours read: an em dash, reason `unread` ("under 24h read yet"). Under a week:
+`est.` with the hours it stands on, in the drawer and the boards as in the
+vault list. Tested both ways; the tests fail with the gap check disabled.
+
+### 6,360,813,412%
+
+The Pools page crowned Moth "Highest fee yield" — $11 of fees on $0.004 of
+depth. Fees over a fraction of a cent is arithmetic, not an opportunity.
+Pools under `YIELD_RANK_MIN_DEPTH_USD` ($10K) still show their figure but
+never rank above deeper ones (`byFeeYield`), and the card picks only from
+pools above it.
+
+### Also found
+
+- **ALFA's own stake landed**: 0.005 ETH and 9.09 USDG into the 0.05% vault
+  at block 115,519,631, through the deployed zap. The Stakes page still read
+  "$0 · 0 stakers" because the vault events are read by the indexer's
+  contract pass, which runs after each pool pass, and the pool pass is the
+  one stuck since 8 Nov (§22; the fix is pushed, not yet deployed). The row
+  now says "stakers not read yet" when the chain shows a stake the indexer
+  has not counted.

@@ -58,18 +58,21 @@ export function feeYieldQualifier(y: FeeYield, ageText: string): string | null {
 /** Why there is no yield figure, in a few words for under the dash. */
 export function feeYieldReason(y: FeeYield): string | null {
   if (y.basis !== 'insufficient') return null;
-  return y.reason === 'no-depth' ? 'depth not known yet' : 'under 24h of fees';
+  if (y.reason === 'no-depth') return 'depth not known yet';
+  if (y.reason === 'unread') return 'under 24h read yet';
+  return 'under 24h of fees';
 }
 
 /** Why a pool shows an em dash, for the title attribute. */
 export function feeYieldTitle(y: FeeYield): string {
   switch (y.basis) {
     case 'insufficient':
-      return y.reason === 'no-depth'
-        ? "This pool's depth is not known yet, so there is nothing honest to divide its fees by."
-        : 'Less than 24h of fee data. No yield figure is honest yet.';
+      if (y.reason === 'no-depth') return "This pool's depth is not known yet, so there is nothing honest to divide its fees by.";
+      if (y.reason === 'unread')
+        return 'The indexer has read under 24 hours of trading so far (it is still catching up). No yield figure is honest yet.';
+      return 'Less than 24h of fee data. No yield figure is honest yet.';
     case 'estimate':
-      return `Pool is younger than 7 days. Annualised from ${Math.round(
+      return `Under 7 days of fees: the pool is younger than a week, or the indexer has not read a full week of it yet. Annualised from ${Math.round(
         y.windowHours,
       )}h of fees — arithmetic, not a forecast.`;
     default:

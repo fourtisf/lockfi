@@ -51,6 +51,24 @@ const SPARK_BUCKETS = 14;
 export const STALE_REFERENCE_HOURS = 6;
 const SPARK_BUCKET_HOURS = YIELD_WINDOW_HOURS / SPARK_BUCKETS; // 12h
 
+/**
+ * Hours with no swap on any pool that count as hours not read (coverage, in
+ * the pools query). This chain trades every few seconds; three silent hours
+ * on every pool at once is the indexer not having read them.
+ */
+export const COVERAGE_GAP_HOURS = 3;
+
+/**
+ * The hours a pool's yield is annualised over: the trailing week, cut to the
+ * pool's age and to what has been read of the window. One expression, used
+ * for the figure and for the window it reports, so the two cannot disagree.
+ */
+const WINDOW_HOURS_SQL = `LEAST(
+        ${YIELD_WINDOW_HOURS}::numeric,
+        GREATEST(1, EXTRACT(EPOCH FROM (pr.as_of - p.created_at)) / 3600),
+        GREATEST(1, EXTRACT(EPOCH FROM (pr.as_of - cov.read_from)) / 3600)
+      )`;
+
 export interface SnapshotOptions {
   /** Wallet to build the portfolio for. Without one the portfolio is empty. */
   wallet?: string | null;
@@ -90,6 +108,8 @@ interface PoolQueryRow {
   fees_24h_usd: number;
   fees_window_usd: number;
   window_hours: number;
+  /** Hours of the trailing window the indexer has read without a gap (coverage CTE). */
+  read_hours: number;
   volume_24h_usd: number;
   trades_24h: number;
   /** Computed in SQL (§4.2). Null when there is no depth to divide by. */
@@ -135,6 +155,42 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
         ($1::timestamptz AT TIME ZONE 'UTC')                 AS as_of,
         ($1::timestamptz AT TIME ZONE 'UTC') - interval '24 hours' AS since_24h,
         ($1::timestamptz AT TIME ZONE 'UTC') - (${YIELD_WINDOW_HOURS} * interval '1 hour') AS since_window
+    ),
+
+    -- How much of the trailing window has actually been read. Swaps are read
+    -- for the last SWAP_WINDOW_DAYS only (§19), so a sync that has just
+    -- entered that window has read hours of it, not seven days — and those
+    -- hours' fees spread over a week understated every yield on the site:
+    -- the vault list read "pool avg 0.2%" from about eight hours of trading.
+    -- The chain trades every hour, so ${COVERAGE_GAP_HOURS} or more hours with no swap on
+    -- any pool are hours not read, and the window starts after the last such
+    -- gap. The hours are found by stepping the hour index — at most ~170
+    -- probes — not by scanning every pool's fee rows in the window.
+    hours_read AS (
+      WITH RECURSIVE h(hour) AS (
+        (SELECT f.hour FROM pool_fee_hourly f, params pr
+          WHERE f.hour >= date_trunc('hour', pr.since_window) AND f.hour <= pr.as_of
+          ORDER BY f.hour LIMIT 1)
+        UNION ALL
+        SELECT (SELECT f.hour FROM pool_fee_hourly f, params pr
+                 WHERE f.hour > h.hour AND f.hour <= pr.as_of
+                 ORDER BY f.hour LIMIT 1)
+        FROM h WHERE h.hour IS NOT NULL
+      )
+      SELECT hour FROM h WHERE hour IS NOT NULL
+    ),
+    coverage AS (
+      SELECT GREATEST(
+        (SELECT since_window FROM params),
+        COALESCE(
+          (SELECT max(g.hour) FROM (
+             SELECT hour, lag(hour) OVER (ORDER BY hour) AS prev FROM hours_read
+           ) g
+           WHERE g.hour - COALESCE(g.prev, date_trunc('hour', (SELECT since_window FROM params)) - interval '1 hour')
+                 > (${COVERAGE_GAP_HOURS} * interval '1 hour')),
+          (SELECT since_window FROM params)
+        )
+      ) AS read_from
     ),
 
     -- Only pools that traded in the trailing window. The boards list nothing
@@ -355,11 +411,11 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       f.fees_24h_usd::float8    AS fees_24h_usd,
       f.fees_window_usd::float8 AS fees_window_usd,
       -- The window is capped at the pool's own age: a 30-hour-old pool is
-      -- annualised over 30 hours, not over 168 it never had (§7).
-      LEAST(
-        ${YIELD_WINDOW_HOURS}::numeric,
-        GREATEST(1, EXTRACT(EPOCH FROM (pr.as_of - p.created_at)) / 3600)
-      )::float8 AS window_hours,
+      -- annualised over 30 hours, not over 168 it never had (§7). And at
+      -- what the indexer has read of it (coverage, above), for the same
+      -- reason: hours nobody read are not hours nobody traded.
+      ${WINDOW_HOURS_SQL}::float8 AS window_hours,
+      (EXTRACT(EPOCH FROM (pr.as_of - cov.read_from)) / 3600)::float8 AS read_hours,
       f.volume_24h_usd::float8  AS volume_24h_usd,
       f.trades_24h,
 
@@ -368,9 +424,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
         WHEN COALESCE(ps.tvl_usd, 0) <= 0 THEN NULL
         ELSE (
           f.fees_window_usd / ps.tvl_usd
-          * ((365 * 24)::numeric / LEAST(
-              ${YIELD_WINDOW_HOURS}::numeric,
-              GREATEST(1, EXTRACT(EPOCH FROM (pr.as_of - p.created_at)) / 3600)))
+          * ((365 * 24)::numeric / ${WINDOW_HOURS_SQL})
           * 100
         )
       END::float8 AS fee_yield_pct,
@@ -378,6 +432,7 @@ async function queryPools(usdg: string, asOf: Date): Promise<PoolQueryRow[]> {
       s.spark
     FROM pools_live p
     CROSS JOIN params pr
+    CROSS JOIN coverage cov
     JOIN tokens t0 ON lower(t0.address) = lower(p.token0)
     JOIN tokens t1 ON lower(t1.address) = lower(p.token1)
     LEFT JOIN pool_state ps ON ps.pool_id = p.id
@@ -413,12 +468,17 @@ export function classifyYield(row: {
   fee_yield_pct: number | null;
   age_hours: number;
   window_hours: number;
+  /** Hours of the window read without a gap; absent means all of it. */
+  read_hours?: number;
   tvl_usd: number;
 }): FeeYield {
   if (row.age_hours < MIN_DATA_HOURS) return { basis: 'insufficient', reason: 'young' };
+  // An old pool the indexer has read less than a day of: no figure either.
+  if ((row.read_hours ?? YIELD_WINDOW_HOURS) < MIN_DATA_HOURS) return { basis: 'insufficient', reason: 'unread' };
   if (row.tvl_usd <= 0) return { basis: 'insufficient', reason: 'no-depth' };
   if (row.fee_yield_pct === null) return { basis: 'insufficient', reason: 'young' };
-  if (row.age_hours < YIELD_WINDOW_HOURS) {
+  // Short of a week — the pool's age, or what has been read of it.
+  if (row.window_hours < YIELD_WINDOW_HOURS) {
     return { basis: 'estimate', pct: row.fee_yield_pct, windowHours: row.window_hours };
   }
   return { basis: 'trailing7d', pct: row.fee_yield_pct };

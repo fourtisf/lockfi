@@ -168,6 +168,7 @@ export function StakesBody() {
                   onChoose={() => choose(vault, pool)}
                 />
               ))}
+              <SamePairNote pools={rows.map((r) => r.pool)} />
             </div>
           )}
         </section>
@@ -231,7 +232,10 @@ function VaultRow({
       </span>
       <span className="cell">
         {usd(v.stakedUsd)}
-        <small>{count(vault.stakers)} stakers</small>
+        {/* The staker count comes from the indexer's reading of the vault's
+            events; the amount, from the chain directly. While the indexer is
+            behind, the count can say 0 beside a stake that exists. */}
+        <small>{vault.stakers === 0 && v.stakedUsd > 0 ? 'stakers not read yet' : `${count(vault.stakers)} stakers`}</small>
       </span>
       {LIVE ? (
         // Real vaults credit fees per share as they are collected: there is
@@ -247,6 +251,35 @@ function VaultRow({
         </span>
       )}
     </button>
+  );
+}
+
+/**
+ * Two vaults on one pair look like a mistake — "ETH / USDG" twice, with
+ * different numbers. They are two pools: one pair can trade in several, each
+ * with its own trading fee, its own liquidity and its own trading, and a
+ * vault adds to and earns from its own pool only.
+ */
+function SamePairNote({ pools }: { pools: Pool[] }) {
+  const byPair = new Map<string, Pool[]>();
+  for (const p of pools) byPair.set(pairLabel(p), [...(byPair.get(pairLabel(p)) ?? []), p]);
+  const repeated = [...byPair.entries()].filter(([, ps]) => ps.length > 1);
+  if (repeated.length === 0) return null;
+  return (
+    <p className="hint vlist-note">
+      {repeated.map(([pair, ps]) => (
+        <span key={pair}>
+          <b>
+            {ps.length === 2 ? 'Two' : ps.length === 3 ? 'Three' : ps.length} {pair} vaults
+          </b>{' '}
+          — the same pair in {ps.length === 2 ? 'two' : ps.length === 3 ? 'three' : ps.length} separate pools, at a{' '}
+          {ps.map((p) => feeTierLabel(p)).join(' and a ')} trading fee.{' '}
+        </span>
+      ))}
+      Each pool is its own market, with its own liquidity, trading and fees, and each vault
+      adds to and earns from its own pool only — so their figures differ. Either can be
+      withdrawn at any time.
+    </p>
   );
 }
 

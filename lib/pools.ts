@@ -1,4 +1,5 @@
 import type { Pool } from './data/types';
+import { yieldPct } from './yield';
 
 /** One board row: a token, shown through its deepest pool. */
 export interface TokenRow {
@@ -47,6 +48,39 @@ export function tokenRows(pools: Pool[]): TokenRow[] {
 export function poolsOfToken(pools: Pool[], pool: Pool): Pool[] {
   const key = pool.token.address.toLowerCase();
   return pools.filter((p) => p.token.address.toLowerCase() === key).sort(deeper);
+}
+
+/**
+ * Below this much depth a pool's fee yield is still shown — it is arithmetic
+ * — but never ranked above deeper pools. A yield is fees over depth, and the
+ * smallest depths on this chain are fractions of a cent: the live Pools page
+ * crowned a pool holding $0.004 "Highest fee yield" at 6,360,813,412%, from
+ * $11 of fees.
+ */
+export const YIELD_RANK_MIN_DEPTH_USD = 10_000;
+
+/** Whether a pool's fee yield ranks among the others (YIELD_RANK_MIN_DEPTH_USD). */
+export function yieldRanked(p: Pool): boolean {
+  return p.feeYield.basis !== 'insufficient' && p.tvlUsd >= YIELD_RANK_MIN_DEPTH_USD;
+}
+
+/** Highest fee yield first, pools too thin to rank after the rest, each tier by yield. */
+export function byFeeYield(a: Pool, b: Pool): number {
+  const tier = Number(yieldRanked(b)) - Number(yieldRanked(a));
+  return tier !== 0 ? tier : yieldPct(b.feeYield) - yieldPct(a.feeYield);
+}
+
+/**
+ * The pool a token's Stake button opens. A vault is deployed per pool, and the
+ * boards show each token through its deepest pool — which need not be the one
+ * with the vault: CASHCAT's deepest pool pairs it with USDG, and a vault on
+ * its ETH pool is still CASHCAT's. Opening the row's own pool then said "no
+ * vault" about a token that has one. So: the deepest of the token's pools
+ * that has a vault, else the pool the row shows.
+ */
+export function stakePoolFor(pools: Pool[], vaultPoolIds: ReadonlySet<string>, pool: Pool): Pool {
+  if (vaultPoolIds.has(pool.id)) return pool;
+  return poolsOfToken(pools, pool).find((p) => vaultPoolIds.has(p.id)) ?? pool;
 }
 
 /**

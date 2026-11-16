@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { zeroHash } from 'viem';
 import { useReadContract } from 'wagmi';
 import { useMarket } from '@/components/providers/MarketProvider';
@@ -67,6 +67,15 @@ function Builder() {
 
   const stakeablePools = pools.filter((p) => p.stakeable);
   const [poolId, setPoolId] = useState(stakeablePools[0]?.id ?? pools[0].id);
+  // ?pool=<id>: the drawer's "Add CASHCAT liquidity" opens here on the token
+  // the person clicked, not on whichever pool happens to be first. Read after
+  // mount — the page is static, so the server renders the default.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('pool');
+    if (wanted && stakeablePools.some((p) => p.id === wanted)) setPoolId(wanted);
+    // Once, on arrival: later snapshots must not undo a choice made here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [amount, setAmount] = useState('2.5');
   const [shape, setShape] = useState<ShapeId>('spot');
   const [minPct, setMinPct] = useState(-15);

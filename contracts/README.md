@@ -99,6 +99,36 @@ After an audit, deploy new vaults with `TIDEWELL_AUDIT_REPORT=<report>`
 instead; the site drops the unaudited notice for a deployment that records
 one.
 
+### More vaults, later
+
+A vault is per pool, so a token can only be staked once a vault exists on
+one of its pools. `script/AddVaults.s.sol` deploys vaults alone, beside the
+existing zap and shaper (they serve every vault). The guided way, on the
+server:
+
+```bash
+bash /var/www/balast/deploy/add-vaults.sh CASHCAT PONS
+```
+
+For each token it picks its deepest hookless pool, or its deepest one paired
+with ETH when that holds at least a quarter as much (`deploy/vault-pools.mjs`,
+which reads the site's own pool list and refuses a symbol several contracts
+share unless one holds nearly all the depth). An exact pool id
+(`v4:0x…`) is taken as given. The new vaults copy the first vault's owner,
+treasury, fee and cap from chain. It simulates, deploys on `DEPLOY`, checks
+each vault holds code, takes each block from its receipt, and prints
+`contracts/deployments/4663-added-vaults.json`, which is published with:
+
+```bash
+node scripts/apply-deployment.mjs 4663 --add-vaults contracts/deployments/4663-added-vaults.json
+```
+
+That appends the vaults to `config/deployments.json` and refuses a second
+vault for a pool that already has one. Do not run it on the server itself:
+`deploy.sh` updates the checkout with `git checkout`, which refuses to run
+over a locally edited tracked file, even one identical to what it would
+write. Send the printed record back, commit it, then deploy.
+
 ### Publishing a deployment to the site
 
 ```bash
