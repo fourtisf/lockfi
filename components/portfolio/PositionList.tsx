@@ -77,7 +77,7 @@ export function PositionList() {
         <div className="empty">
           <b>No positions yet</b>
           {source === 'wallet' || source === 'snapshot'
-            ? `Positions minted with ${BRAND}'s shape builder are Uniswap v4 NFTs in your own wallet. Listing them here comes with the indexer; your stakes are listed above.`
+            ? `Positions minted with ${BRAND}'s shape builder are Uniswap v4 NFTs in your own wallet. Connect it to see them here, with their range, value and fees.`
             : status === 'disconnected' || status === 'connecting'
               ? 'Connect a wallet to see its positions.'
               : 'Positions appear here once they can be read for this wallet.'}

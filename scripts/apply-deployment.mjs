@@ -82,7 +82,11 @@ cfg[chainId] = {
   audited: Boolean(dep.audited),
   auditReport: dep.auditReport || null,
   zap: addr(dep.zap),
+  // Where a wallet's minted positions are read from (lib/positions.ts): the
+  // receipts' blocks when contracts.sh recorded them, else the deployment's.
+  zapDeployedBlock: dep.zap ? Number(dep.zapBlock ?? dep.block) : null,
   shaper: addr(dep.shaper),
+  shaperDeployedBlock: dep.shaper ? Number(dep.shaperBlock ?? dep.block) : null,
   routerFactory: addr(dep.routerFactory),
   // The factory's own creation block when recorded (contracts.sh takes it from
   // the receipt), else the deployment's first block, which is earlier.

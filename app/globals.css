@@ -443,6 +443,7 @@ td.fd{animation:fd 1.1s ease-out}
 .pnl-row .tok{flex:1 1 auto}
 /* The status line says why a position earns nothing; it must wrap, not clip. */
 .pnl-row .tok .s{white-space:normal;overflow:visible;max-width:none}
+.pos-tbl .tok .s{white-space:normal;overflow:visible;max-width:none}
 .pnl-row:last-child{border-bottom:0}
 .alert{margin-top:14px;padding:12px 14px;background:var(--red-dim);border:1px solid var(--red-bd);border-radius:var(--r-s);font-size:13.5px;color:var(--red)}
 .alert b{cursor:pointer;text-decoration:underline}

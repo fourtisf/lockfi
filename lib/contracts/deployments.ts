@@ -24,7 +24,11 @@ export interface Deployment {
   /** Where the audit report is, when there is one. */
   auditReport?: string | null;
   zap: `0x${string}` | null;
+  /** Block the zap was deployed in: where a wallet's ZapMinted events are read from. */
+  zapDeployedBlock?: number | null;
   shaper: `0x${string}` | null;
+  /** Block the shaper was deployed in: where a wallet's ShapeMinted events are read from. */
+  shaperDeployedBlock?: number | null;
   routerFactory: `0x${string}` | null;
   /** Block the router factory was deployed in, where its event scan starts. */
   routerFactoryDeployedBlock?: number | null;

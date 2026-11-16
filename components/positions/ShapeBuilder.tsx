@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { zeroHash } from 'viem';
 import { useReadContract } from 'wagmi';
 import { useMarket } from '@/components/providers/MarketProvider';
@@ -20,7 +22,7 @@ import type { ShapeId } from '@/lib/data/types';
 import { price as fmtPrice } from '@/lib/format';
 import { MAX_BINS, MIN_BINS, SHAPES, shapeWeights } from '@/lib/shapes';
 import { BRAND } from '@/lib/site';
-import { yieldPct } from '@/lib/yield';
+import { feeYieldReason, yieldPct } from '@/lib/yield';
 import { feeTierLabel, pairLabel } from '@/lib/pair';
 
 const SHAPE_ICONS: Record<ShapeId, number[]> = {
@@ -64,6 +66,10 @@ function Builder() {
   const actions = useActions();
   const { act } = useUi();
   const [busy, setBusy] = useState(false);
+  // After a mint confirms: the position is in the wallet, and the portfolio
+  // should show it at once rather than at its next 20-second read.
+  const [minted, setMinted] = useState(false);
+  const queryClient = useQueryClient();
 
   const stakeablePools = pools.filter((p) => p.stakeable);
   const [poolId, setPoolId] = useState(stakeablePools[0]?.id ?? pools[0].id);
@@ -163,8 +169,12 @@ function Builder() {
     }
     if (!target || amountWei === null) return;
     setBusy(true);
+    setMinted(false);
     try {
-      await actions.mintShaped({ target, weights, minPct, maxPct, amountWei }, pool.token.symbol);
+      if (await actions.mintShaped({ target, weights, minPct, maxPct, amountWei }, pool.token.symbol)) {
+        setMinted(true);
+        void queryClient.invalidateQueries({ queryKey: ['wallet-positions'] });
+      }
     } finally {
       setBusy(false);
     }
@@ -332,6 +342,12 @@ function Builder() {
             Mint position
           </button>
         )}
+        {minted && (
+          <p className="hint" style={{ textAlign: 'center', marginTop: 8 }}>
+            Minted to your wallet. It is listed in your <Link href="/portfolio">portfolio</Link>, with its value,
+            fees, Collect fees and Remove.
+          </p>
+        )}
         {!valid ? (
           <p className="hint down" style={{ textAlign: 'center', marginTop: 8 }} role="alert">
             {problems[0]}
@@ -427,6 +443,8 @@ function Builder() {
             <div className={`v num${known ? ' up' : ' muted'}`}>
               {known ? `${estYield.toFixed(0)}%` : '—'}
               {known && <span className="est">est. · from {trailing.toFixed(0)}% trailing</span>}
+              {/* A dash says why: §7 allows no figure from under a day of fees. */}
+              {!known && feeYieldReason(pool.feeYield) && <span className="est">{feeYieldReason(pool.feeYield)}</span>}
             </div>
           </div>
           <div>
@@ -449,6 +467,15 @@ function Builder() {
         </div>
 
         <p className="hint">
+          {!known && pool.feeYield.basis === 'insufficient' && (
+            <>
+              {pool.feeYield.reason === 'unread'
+                ? `No estimate yet: the indexer has read under 24 hours of this pool's last week — it is still catching up with the chain — and a yield from less than a day of fees would be a guess. It appears once a day has been read. `
+                : pool.feeYield.reason === 'no-depth'
+                  ? `No estimate yet: this pool's depth is not known, so there is nothing honest to divide its fees by. `
+                  : `No estimate yet: this pool has under 24 hours of fees. `}
+            </>
+          )}
           Est. fee yield scales this pool&rsquo;s trailing 7d fees by how tightly your range
           concentrates them. It is arithmetic on past fees, not a forecast, and it earns nothing
           while price sits outside the range.

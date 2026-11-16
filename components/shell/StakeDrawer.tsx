@@ -316,8 +316,8 @@ export function StakeDrawer() {
                           Positions, one ETH deposit becomes a Uniswap v4 position in{' '}
                           {pairLabel(mintPool)} · {feeTierLabel(mintPool)}, minted to your wallet. It
                           earns that pool&rsquo;s fees while the price stays inside the range you
-                          choose. It is yours to manage from your wallet; the {BRAND} portfolio
-                          does not list it yet.
+                          choose. It stays in your wallet, and your portfolio lists it with its
+                          fees, Collect fees and Remove.
                         </p>
                       )}
                       {openVaults.length > 0 && (

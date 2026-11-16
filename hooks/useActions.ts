@@ -11,7 +11,8 @@ import { deploymentFor } from '@/lib/contracts/deployments';
 import type { RouterConfig } from '@/lib/contracts/router';
 import { shapeToTickBins, tokenShareOfBins } from '@/lib/contracts/shaped';
 import { signingStatus, type MintAvailability } from '@/lib/contracts/status';
-import { stateViewAbi } from '@/lib/contracts/uniswap';
+import { positionManagerAbi, stateViewAbi } from '@/lib/contracts/uniswap';
+import { encodeCollect, encodeRemove, removeMinimums, type WalletPosition } from '@/lib/positions';
 import {
   GAS_RESERVE_WEI,
   MAX_ZAP_LOSS_BPS,
@@ -494,5 +495,60 @@ export function useActions() {
     [need, routerFactory, config, send, fail],
   );
 
-  return { stake, stakeOne, depositBoth, withdraw, claim, claimAll, compound, mintShaped, createRouter };
+  /**
+   * A minted position's uncollected fees, every bin at once, principal left
+   * where it is: one PositionManager call, simulated first.
+   */
+  const collectPosition = useCallback(
+    async (position: WalletPosition, label: string): Promise<boolean> => {
+      try {
+        const account = need();
+        const args = [encodeCollect(position.bins, position.key, account), txDeadline()] as const;
+        const pm = CONTRACTS.positionManager as Address;
+        await simulateContract(config, { address: pm, abi: positionManagerAbi, functionName: 'modifyLiquidities', args, account, chainId: CHAIN.id });
+        await send(label, () =>
+          writeContract(config, { address: pm, abi: positionManagerAbi, functionName: 'modifyLiquidities', args, account, chainId: CHAIN.id }),
+        );
+        return true;
+      } catch (err) {
+        fail(label, err);
+        return false;
+      }
+    },
+    [config, need, send, fail],
+  );
+
+  /**
+   * Close a minted position: every bin burned — liquidity out, fees
+   * collected — and both tokens to the wallet, in one call. Minimums from
+   * the pool's price read now, within the same ±0.5% band a mint uses.
+   */
+  const removePosition = useCallback(
+    async (position: WalletPosition, label: string): Promise<boolean> => {
+      try {
+        const account = need();
+        const [sqrtPriceX96] = await readContract(config, {
+          address: CONTRACTS.stateView as Address,
+          abi: stateViewAbi,
+          functionName: 'getSlot0',
+          args: [position.poolId],
+          chainId: CHAIN.id,
+        });
+        const bins = position.bins.map((b) => ({ tokenId: b.tokenId, ...removeMinimums(b, sqrtPriceX96) }));
+        const args = [encodeRemove(bins, position.key, account), txDeadline()] as const;
+        const pm = CONTRACTS.positionManager as Address;
+        await simulateContract(config, { address: pm, abi: positionManagerAbi, functionName: 'modifyLiquidities', args, account, chainId: CHAIN.id });
+        await send(label, () =>
+          writeContract(config, { address: pm, abi: positionManagerAbi, functionName: 'modifyLiquidities', args, account, chainId: CHAIN.id }),
+        );
+        return true;
+      } catch (err) {
+        fail(label, err);
+        return false;
+      }
+    },
+    [config, need, send, fail],
+  );
+
+  return { stake, stakeOne, depositBoth, withdraw, claim, claimAll, compound, mintShaped, createRouter, collectPosition, removePosition };
 }

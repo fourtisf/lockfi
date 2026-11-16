@@ -7,6 +7,8 @@ import { useWalletHistory } from '@/hooks/useWalletHistory';
 import { Activity } from '@/components/portfolio/Activity';
 import { FeeHeatmap } from '@/components/portfolio/FeeHeatmap';
 import { PositionList } from '@/components/portfolio/PositionList';
+import { WalletPositions } from '@/components/portfolio/WalletPositions';
+import { useWalletPositions } from '@/hooks/useWalletPositions';
 import { MyStakes } from '@/components/stakes/MyStakes';
 import { signedPct, signedUsd, tone, usdExact, weth } from '@/lib/format';
 import { weekOverWeek } from '@/lib/portfolio';
@@ -117,21 +119,33 @@ function WalletPortfolio() {
   const currencies = new Map(vaults.filter((v) => v.live).map((v) => [v.poolId.toLowerCase(), v.live!.currencies]));
   const totals = history ? walletTotals(history.vaults, stakes, currencies) : null;
   const waiting = history === null ? (failed ? 'history could not be read — retrying' : 'reading your history…') : 'a pool is not priced yet';
+  // Minted positions count toward what the wallet holds here, at today's
+  // prices; a position nobody can price makes the total unknown, not smaller.
+  const { positions } = useWalletPositions();
+  const positionsUsd = positions.reduce((a, p) => a + (p.valueUsd ?? Number.NaN) + (p.feesUsd ?? Number.NaN), 0);
+  const netValueUsd = portfolio.netValueUsd + positionsUsd;
+  // What was deposited is known for stakes only (their vaults' events), so
+  // "vs deposited" is said only when stakes are all there is.
+  const stakesOnly = positions.length === 0;
 
   return (
     <>
       <div className="grid g4" style={{ marginBottom: 20 }}>
         <div className="card stat">
           <div className="k">Net value</div>
-          <div className="v num">{known(portfolio.netValueUsd) ? usdExact(portfolio.netValueUsd) : '—'}</div>
-          {totals && known(totals.netChangeUsd) && totals.depositedUsd > 0 ? (
+          <div className="v num">{known(netValueUsd) ? usdExact(netValueUsd) : '—'}</div>
+          {stakesOnly && totals && known(totals.netChangeUsd) && totals.depositedUsd > 0 ? (
             // The sign and the colour come from the number itself; zero has neither.
             <div className={`d num ${tone(totals.netChangeUsd)}`}>
               {signedUsd(totals.netChangeUsd)} · {signedPct(totals.netChangePct)} vs deposited
             </div>
           ) : (
             <div className="d">
-              {known(portfolio.netValueUsd) ? 'staked plus claimable, at current prices' : 'a pool is not priced yet'}
+              {!known(netValueUsd)
+                ? 'a pool is not priced yet'
+                : stakesOnly
+                  ? 'staked plus claimable, at current prices'
+                  : 'stakes, positions and their fees, at current prices'}
             </div>
           )}
         </div>
@@ -140,7 +154,13 @@ function WalletPortfolio() {
           <div className={`v num ${totals && known(totals.feesEarnedUsd) ? tone(totals.feesEarnedUsd, 2) : 'muted'}`}>
             {totals && known(totals.feesEarnedUsd) ? usdExact(totals.feesEarnedUsd, 2) : '—'}
           </div>
-          <div className="d">{totals && known(totals.feesEarnedUsd) ? 'claimed plus claimable, all time' : waiting}</div>
+          <div className="d">
+            {totals && known(totals.feesEarnedUsd)
+              ? stakesOnly
+                ? 'claimed plus claimable, all time'
+                : 'from stakes; positions’ fees are listed with them below'
+              : waiting}
+          </div>
         </div>
         <div className="card stat">
           {/* Impermanent loss, under the name that tells the truth (§7). */}
@@ -148,7 +168,13 @@ function WalletPortfolio() {
           <div className={`v num ${totals && known(totals.priceImpactUsd) ? tone(totals.priceImpactUsd, 2) : 'muted'}`}>
             {totals && known(totals.priceImpactUsd) ? signedUsd(totals.priceImpactUsd) : '—'}
           </div>
-          <div className="d">{totals && known(totals.priceImpactUsd) ? 'vs holding the tokens you deposited' : waiting}</div>
+          <div className="d">
+            {totals && known(totals.priceImpactUsd)
+              ? stakesOnly
+                ? 'vs holding the tokens you deposited'
+                : 'of stakes, vs holding the tokens deposited'
+              : waiting}
+          </div>
         </div>
         <div className="card stat">
           <div className="k">Claimable now</div>
@@ -164,9 +190,12 @@ function WalletPortfolio() {
           chain, and Withdraw / Claim / Compound right here. */}
       <MyStakes />
 
-      <div className="grid g2" style={{ marginTop: 20 }}>
+      {/* Positions minted with the shape builder, read from the chain, with
+          Collect fees and Remove right here. */}
+      <WalletPositions />
+
+      <div style={{ marginTop: 20 }}>
         <Activity />
-        <PositionList />
       </div>
     </>
   );

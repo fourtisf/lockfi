@@ -215,6 +215,8 @@ node -e '
   }
   d.block = Math.min(...all);
   d.routerFactoryBlock = blockOf(d.routerFactory);
+  d.zapBlock = blockOf(d.zap);
+  d.shaperBlock = blockOf(d.shaper);
   for (const v of d.vaults) v.deployedBlock = blockOf(v.address);
   fs.writeFileSync(out, JSON.stringify(d, null, 2) + "\n");
   console.log("    blocks taken from the receipts: " + d.block + " to " + Math.max(...all));

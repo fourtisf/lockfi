@@ -2816,3 +2816,77 @@ pools above it.
   one stuck since 8 Nov (§22; the fix is pushed, not yet deployed). The row
   now says "stakers not read yet" when the chain shows a stake the indexer
   has not counted.
+
+---
+
+## 24. Minted positions in the portfolio, and an estimate that says why it is missing
+
+ALFA had just added PONS liquidity on the Positions page: the estimate read
+"—", and the position was nowhere in the portfolio. "Fix it."
+
+### The position: found from Tidewell's own events, read live from Uniswap
+
+§20 left it open: the PositionManager cannot list a wallet's NFTs, so the
+portfolio listed stakes only. It does not need an indexer. TidewellShaper
+emits `ShapeMinted(user indexed, poolId indexed, firstTokenId, bins, …)` and
+the zap `ZapMinted(user indexed, tokenId indexed, …)`, so a wallet's mints
+are one `eth_getLogs` each from the deployment block — ALFA's came back in
+half a second: block 115,542,718, 15 NFTs from #4,301,289, PONS / ETH
+1.0128%. `config/deployments.json` now records `zapDeployedBlock` and
+`shaperDeployedBlock` (from the §20 receipts; `contracts.sh` and
+`apply-deployment.mjs` write them for any later deploy).
+
+`hooks/useWalletPositions.ts` reads them in the browser, like every other
+per-wallet figure, every 20 seconds: the mints, then per NFT `ownerOf` (a bin
+sold or burned is not listed), `getPoolAndPositionInfo` and
+`getPositionLiquidity`, then per pool `getSlot0` and per bin StateView's
+`getFeeGrowthInside` and `getPositionInfo` (owner the PositionManager, salt
+the token id), and the tokens' symbols and decimals — two multicalls.
+`lib/positions.ts` turns that into one position per mint: what it holds now
+(the exact tick maths, moved from `server/chain/` to `lib/tick-math.ts` so
+the browser and the indexer share it), uncollected fees (liquidity × fee
+growth inside since the last collect ÷ 2¹²⁸, wrapping as the contracts do),
+the range as the token's dollar price at each end, and whether the price is
+inside it. Out of range says so in red (§7).
+
+Read against mainnet with that code before any of it was wired up: ALFA's
+position holds 0.00459 ETH + 72.04 PONS ($21.05), range $0.1269–$0.1718,
+price inside it, and **0 fees — correct**: since the mint the pool's only
+swap was the mint's own. The 1.0128% PONS pool has not traded since; the
+$1.2K of daily fees the site showed for it are from 8 Nov (§22).
+
+**Collect fees and Remove**, from the row, signed against Uniswap's
+PositionManager (`modifyLiquidities`): collect is a zero-liquidity decrease
+per bin and one `TAKE_PAIR`; remove burns every bin (liquidity out, fees
+collected, NFT gone) and takes both tokens, one transaction for all bins.
+Remove's minimums are what each bin returns at the far end of the same ±0.5%
+band a mint uses (`removeMinimums`): a flat 0.5% off today's amounts would
+revert a narrow bin the price sits inside on a far smaller move, because its
+mix changes faster than its value. Net value counts positions; "vs deposited"
+and price impact stay stake-only and say so, since only stakes' deposits are
+known.
+
+**Run on a fork of mainnet through the real UI**, twice (the second on the
+final build): Positions opened on PONS / ETH from the drawer's
+`?pool=`; a 0.01 ETH mint confirmed with 15 bins; the page pointed to the
+portfolio, which listed it ($17–18, 15 bins, in range); a trader's swaps
+through the pool made fees appear (0.0000078–0.00001 ETH); **Collect fees**
+confirmed; **Remove all** returned the ETH and 58–63 PONS and the row went
+away. 8/8 each time, no page errors.
+
+### The estimate
+
+"—" was §23's coverage rule working: the indexer has read under 24 hours
+of the trailing week, so no pool has an honest yield yet, and the Positions
+estimate scales that yield. It now says so under the dash and in the note
+("No estimate yet: the indexer has read under 24 hours of this pool's last
+week…"), and the figure returns once a day has been read.
+
+### The indexer: moving, too slowly
+
+After ALFA's deploy it moved again — 108,933,481 to 109,095,785 — at about
+1,000 blocks a minute, two seconds of chain time per second, which needs
+more than a week to close eight days. Token hydration was suspected and
+ruled out: 200 real tokens read in 2.1–2.6 s the current way. The pass
+timings the progress lines print (`[logs, times, write, aggregate,
+contracts, other]`) will name the slow part; they are what is needed next.
